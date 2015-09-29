@@ -91,6 +91,7 @@ static UCS_F_NOINLINE unsigned uct_rc_mlx5_iface_post_recv(uct_rc_mlx5_iface_t *
     if (count > 0) {
         iface->rx.ready_idx        = index;
         iface->rx.sw_pi            = index;
+        iface->rx.refill          -= count;
         ucs_memory_cpu_store_fence();
         *iface->rx.db = htonl(iface->rx.sw_pi);
     }
@@ -203,11 +204,11 @@ uct_rc_mlx5_iface_poll_rx(uct_rc_mlx5_iface_t *iface)
         }
     }
 
-    ++iface->rx.refill_idx;
+    ++iface->rx.refill;
     status = UCS_OK;
 
 done:
-    if (UCS_CIRCULAR_COMPARE16(iface->rx.refill_idx, >=, iface->rx.sw_pi)) {
+    if (iface->rx.refill >= 0) {
         uct_rc_mlx5_iface_post_recv(iface);
     }
     return status;
@@ -308,7 +309,7 @@ static ucs_status_t uct_rc_mlx5_iface_init_rx(uct_rc_mlx5_iface_t *iface)
     iface->rx.ready_idx       = -1;
     iface->rx.sw_pi           = -1;
     iface->rx.mask            = srq_info.tail;
-    iface->rx.refill_idx      = srq_info.tail - iface->super.config.rx_max_batch;
+    iface->rx.refill          = srq_info.tail + 1 - iface->super.config.rx_max_batch;
 
     for (i = srq_info.head; i <= srq_info.tail; ++i) {
         seg = uct_rc_mlx5_iface_get_srq_wqe(iface, i);

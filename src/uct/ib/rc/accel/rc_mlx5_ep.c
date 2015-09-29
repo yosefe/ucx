@@ -99,7 +99,7 @@ uct_rc_mlx5_ep_inline_post(uct_rc_mlx5_ep_t *ep, unsigned opcode,
         inl              = (void*)(ctrl + 1);
         inl->byte_count  = htonl((length + sizeof(*am)) | MLX5_INLINE_SEG);
         am               = (void*)(inl + 1);
-        am->rc_hdr.am_id = am_id;
+        uct_rc_mlx5_iface_set_send_hdr(iface, &am->rc_hdr, am_id);
         am->am_hdr       = am_hdr;
         uct_ib_mlx5_inline_copy(am + 1, buffer, length, &ep->tx.wq);
         sig_flag         = uct_rc_iface_tx_moderation(&iface->super, &ep->super,
@@ -197,7 +197,7 @@ uct_rc_mlx5_ep_dptr_post(uct_rc_mlx5_ep_t *ep, unsigned opcode_flags,
         inl              = (void*)(ctrl + 1);
         inl->byte_count  = htonl((sizeof(*rch) + am_hdr_len) | MLX5_INLINE_SEG);
         rch              = (void*)(inl + 1);
-        rch->am_id       = am_id;
+        uct_rc_mlx5_iface_set_send_hdr(iface, rch, am_id);
 
         uct_ib_mlx5_inline_copy(rch + 1, am_hdr, am_hdr_len, &ep->tx.wq);
 
@@ -548,8 +548,8 @@ ssize_t uct_rc_mlx5_ep_am_bcopy(uct_ep_h tl_ep, uint8_t id,
 
     desc->super.handler = (uct_rc_send_handler_t)ucs_mpool_put;
 
-    rch        = (void*)(desc + 1);
-    rch->am_id = id;
+    rch = (void*)(desc + 1);
+    uct_rc_mlx5_iface_set_send_hdr(iface, rch, id);
     length = pack_cb(rch + 1, arg);
 
     uct_rc_mlx5_ep_bcopy_post(ep, MLX5_OPCODE_SEND|UCT_RC_MLX5_OPCODE_FLAG_RAW,

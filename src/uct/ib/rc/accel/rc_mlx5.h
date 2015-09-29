@@ -89,7 +89,7 @@ typedef struct {
         uint16_t           ready_idx;  /* what is ready to be posted to hw */
         uint16_t           sw_pi;      /* what is posted to hw */
         uint16_t           mask;
-        uint16_t           refill_idx; /* when this gets bigger than sw_pi, need to refill */
+        int16_t            refill;     /* when this gets bigger than 0, need to refill */
     } rx;
 
     UCS_STATS_NODE_DECLARE(stats);
@@ -162,5 +162,15 @@ ucs_status_t uct_rc_mlx5_ep_atomic_cswap32(uct_ep_h tl_ep, uint32_t compare, uin
                                            uint32_t *result, uct_completion_t *comp);
 
 ucs_status_t uct_rc_mlx5_ep_flush(uct_ep_h tl_ep);
+
+
+static UCS_F_ALWAYS_INLINE void
+uct_rc_mlx5_iface_set_send_hdr(uct_rc_mlx5_iface_t *iface, uct_rc_hdr_t *hdr,
+                               uint8_t am_id)
+{
+    uct_rc_iface_set_send_hdr(&iface->super, hdr, am_id,
+                              (uint16_t)(iface->rx.sw_pi - iface->rx.cq.cq_ci));
+}
+
 
 #endif

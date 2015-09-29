@@ -177,7 +177,7 @@ void uct_rc_ep_am_packet_dump(uct_base_iface_t *iface, uct_am_trace_type_t type,
 {
     uct_rc_hdr_t *rch = data;
 
-    snprintf(buffer, max, " am_id %d cred %d", rch->am_id, rch->credits);
+    snprintf(buffer, max, " am_id %d cred 2^%d", rch->am_id, rch->cred_log2);
     uct_iface_dump_am(iface, type, rch->am_id, rch + 1, length - sizeof(*rch),
                       buffer + strlen(buffer), max - strlen(buffer));
 }

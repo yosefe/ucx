@@ -65,7 +65,6 @@ struct uct_rc_iface {
     struct {
         ucs_mpool_t          mp;
         struct ibv_srq       *srq;
-        unsigned             available;
     } rx;
 
     struct {
@@ -121,8 +120,8 @@ struct uct_rc_iface_send_desc {
  * RC network header.
  */
 typedef struct uct_rc_hdr {
-    uint8_t                       am_id;   /* Active message ID */
-    uint8_t                       credits; /* Credits update */
+    uint8_t                       am_id;     /* Active message ID */
+    uint8_t                       cred_log2; /* Credits update - log2 of the value */
 } UCS_S_PACKED uct_rc_hdr_t;
 
 
@@ -174,10 +173,11 @@ uct_rc_iface_get_send_op(uct_rc_iface_t *iface)
 }
 
 static UCS_F_ALWAYS_INLINE void
-uct_rc_iface_set_send_hdr(uct_rc_iface_t *iface, uct_rc_hdr_t *hdr, uint8_t am_id)
+uct_rc_iface_set_send_hdr(uct_rc_iface_t *iface, uct_rc_hdr_t *hdr, uint8_t am_id,
+                          uint16_t credits)
 {
-    hdr->am_id   = am_id;
-    hdr->credits = iface->rx.available;
+    hdr->am_id     = am_id;
+    hdr->cred_log2 = ucs_ilog2(credits);
 }
 
 #endif

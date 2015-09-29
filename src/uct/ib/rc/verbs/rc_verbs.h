@@ -47,6 +47,11 @@ typedef struct uct_rc_verbs_iface {
     struct ibv_sge     inl_sge[2];
 
     struct {
+        unsigned       available;
+        unsigned       posted;
+    } rx;
+
+    struct {
         size_t               short_desc_size;
         uct_rc_send_handler_t  atomic32_handler;
         uct_rc_send_handler_t  atomic64_handler;
@@ -122,5 +127,14 @@ ucs_status_t uct_rc_verbs_ep_atomic_cswap32(uct_ep_h tl_ep, uint32_t compare, ui
                                             uint32_t *result, uct_completion_t *comp);
 
 ucs_status_t uct_rc_verbs_ep_flush(uct_ep_h tl_ep);
+
+
+static UCS_F_ALWAYS_INLINE void
+uct_rc_verbs_iface_set_send_hdr(uct_rc_verbs_iface_t *iface, uct_rc_hdr_t *hdr,
+                                uint8_t am_id)
+{
+    uct_rc_iface_set_send_hdr(&iface->super, hdr, am_id, iface->rx.posted);
+}
+
 
 #endif

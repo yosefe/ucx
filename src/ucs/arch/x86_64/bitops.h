@@ -10,7 +10,7 @@
 #include <stdint.h>
 
 
-static inline unsigned ucs_ffs64(uint64_t n)
+static inline uint64_t ucs_ffs64(uint64_t n)
 {
     uint64_t result;
     asm("bsfq %1,%0"
@@ -19,7 +19,16 @@ static inline unsigned ucs_ffs64(uint64_t n)
     return result;
 }
 
-static inline unsigned __ucs_ilog2_u32(uint32_t n)
+static inline uint16_t __ucs_ilog2_u16(uint16_t n)
+{
+    uint16_t result;
+    asm("bsrw %1,%0"
+        : "=r" (result)
+        : "r" (n));
+    return result;
+}
+
+static inline uint32_t __ucs_ilog2_u32(uint32_t n)
 {
     uint32_t result;
     asm("bsrl %1,%0"
@@ -28,7 +37,7 @@ static inline unsigned __ucs_ilog2_u32(uint32_t n)
     return result;
 }
 
-static inline unsigned __ucs_ilog2_u64(uint64_t n)
+static inline uint64_t __ucs_ilog2_u64(uint64_t n)
 {
     uint64_t result;
     asm("bsrq %1,%0"

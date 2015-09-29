@@ -57,6 +57,13 @@ UCS_TEST_F(test_math, bitops) {
     EXPECT_EQ((unsigned)1,  ucs_ffs64(0x4002));
     EXPECT_EQ((unsigned)41, ucs_ffs64(1ull<<41));
 
+    static volatile uint16_t x16 = 67;
+    EXPECT_EQ((unsigned)6, ucs_ilog2(x16));
+    static volatile uint32_t x32 = 67;
+    EXPECT_EQ((unsigned)6, ucs_ilog2(x32));
+    static volatile uint64_t x64 = 67;
+    EXPECT_EQ((unsigned)6, ucs_ilog2(x64));
+
     EXPECT_EQ((unsigned)0, ucs_ilog2(1));
     EXPECT_EQ((unsigned)2, ucs_ilog2(4));
     EXPECT_EQ((unsigned)2, ucs_ilog2(5));

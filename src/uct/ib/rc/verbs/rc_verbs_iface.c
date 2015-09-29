@@ -46,7 +46,7 @@ uct_rc_verbs_iface_post_recv_always(uct_rc_verbs_iface_t *iface, unsigned max)
     if (ret != 0) {
         ucs_fatal("ibv_post_srq_recv() returned %d: %m", ret);
     }
-    iface->super.rx.available -= count;
+    iface->rx.available -= count;
 
     return count;
 }
@@ -57,11 +57,11 @@ static inline unsigned uct_rc_verbs_iface_post_recv(uct_rc_verbs_iface_t *iface,
     unsigned batch = iface->super.config.rx_max_batch;
     unsigned count;
 
-    if (iface->super.rx.available < batch) {
+    if (iface->rx.available < batch) {
         if (!fill) {
             return 0;
         } else {
-            count = iface->super.rx.available;
+            count = iface->rx.available;
         }
     } else {
         count = batch;
@@ -134,7 +134,8 @@ uct_rc_verbs_iface_poll_rx(uct_rc_verbs_iface_t *iface)
                                    wc[i].byte_len - sizeof(*hdr), desc);
         }
 
-        iface->super.rx.available += ret;
+        iface->rx.available += ret;
+        iface->rx.posted    += ret;
         return UCS_OK;
     } else if (ret == 0) {
         uct_rc_verbs_iface_post_recv(iface, 0);
@@ -231,10 +232,12 @@ static UCS_CLASS_INIT_FUNC(uct_rc_verbs_iface_t, uct_pd_h pd, uct_worker_h worke
     uct_rc_verbs_iface_config_t *config =
                     ucs_derived_of(tl_config, uct_rc_verbs_iface_config_t);
     struct ibv_exp_device_attr *dev_attr;
+    struct ibv_srq_attr srq_attr;
     size_t am_hdr_size;
     ucs_status_t status;
     struct ibv_qp_cap cap;
     struct ibv_qp *qp;
+    int ret;
 
     extern uct_iface_ops_t uct_rc_verbs_iface_ops;
     UCS_CLASS_CALL_SUPER_INIT(uct_rc_iface_t, &uct_rc_verbs_iface_ops, pd,
@@ -267,6 +270,16 @@ static UCS_CLASS_INIT_FUNC(uct_rc_verbs_iface_t, uct_pd_h pd, uct_worker_h worke
         self->config.atomic64_handler = uct_rc_ep_atomic_handler_64_be1;
     }
 
+    ret = ibv_query_srq(self->super.rx.srq, &srq_attr);
+    if (ret != 0) {
+        ucs_error("ibv_query_srq() returned %d: %m", ret);
+        status = UCS_ERR_NO_DEVICE;
+        goto err;
+    }
+
+    self->rx.available = srq_attr.max_wr;
+    self->rx.posted    = 0;
+
     /* Create a dummy QP in order to find out max_inline */
     status = uct_rc_iface_qp_create(&self->super, &qp, &cap);
     if (status != UCS_OK) {
@@ -290,7 +303,7 @@ static UCS_CLASS_INIT_FUNC(uct_rc_verbs_iface_t, uct_pd_h pd, uct_worker_h worke
         goto err;
     }
 
-    while (self->super.rx.available > 0) {
+    while (self->rx.available > 0) {
         if (uct_rc_verbs_iface_post_recv(self, 1) == 0) {
             ucs_error("failed to post receives");
             status = UCS_ERR_NO_MEMORY;

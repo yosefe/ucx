@@ -150,7 +150,9 @@ static inline double ucs_log2(double x)
              (n) & (1ULL <<  0) ?  0 : \
              0                         \
                                 ) :    \
-    (sizeof(n) <= 4) ?                 \
+    (sizeof(n) <= 2) ?                 \
+    __ucs_ilog2_u16((uint16_t)(n)) :   \
+    (sizeof(n) == 4) ?                 \
     __ucs_ilog2_u32((uint32_t)(n)) :   \
     __ucs_ilog2_u64((uint64_t)(n))     \
 )

@@ -377,7 +377,7 @@ ucs_status_t uct_rc_verbs_ep_am_short(uct_ep_h tl_ep, uint8_t id, uint64_t hdr,
     UCT_CHECK_LENGTH(sizeof(am) + length, iface->config.max_inline, "am_short");
     UCT_RC_CHECK_RES(&iface->super, &ep->super);
 
-    am.rc_hdr.am_id             = id;
+    uct_rc_verbs_iface_set_send_hdr(iface, &am.rc_hdr, id);
     am.am_hdr                   = hdr;
     iface->inl_sge[0].addr      = (uintptr_t)&am;
     iface->inl_sge[0].length    = sizeof(am);
@@ -407,7 +407,7 @@ ssize_t uct_rc_verbs_ep_am_bcopy(uct_ep_h tl_ep, uint8_t id,
     desc->super.handler = (uct_rc_send_handler_t)ucs_mpool_put;
 
     rch = (void*)(desc + 1);
-    rch->am_id = id;
+    uct_rc_verbs_iface_set_send_hdr(iface, rch, id);
     length = pack_cb(rch + 1, arg);
 
     wr.sg_list = &sge;
@@ -460,7 +460,7 @@ ucs_status_t uct_rc_verbs_ep_am_zcopy(uct_ep_h tl_ep, uint8_t id, const void *he
 
     /* Header buffer: active message ID + user header */
     rch = (void*)(desc + 1);
-    rch->am_id = id;
+    uct_rc_verbs_iface_set_send_hdr(iface, rch, id);
     memcpy(rch + 1, header, header_length);
 
     wr.sg_list    = sge;
