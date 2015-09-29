@@ -32,6 +32,10 @@ if HAVE_GTEST
 SUBDIRS += test/gtest
 endif
 
+if HAVE_MPI
+SUBDIRS += test/mpi
+endif
+
 EXTRA_DIST =
 EXTRA_DIST += config/m4/gtest.m4
 EXTRA_DIST += config/m4/ucs.m4
