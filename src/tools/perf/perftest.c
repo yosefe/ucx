@@ -103,6 +103,9 @@ test_type_t tests[] = {
     {"am_bw", UCX_PERF_API_UCT, UCX_PERF_CMD_AM, UCX_PERF_TEST_TYPE_STREAM_UNI,
      "active message bandwidth / message rate"},
 
+    {"am_fc_bw", UCX_PERF_API_UCT, UCX_PERF_CMD_AM_FC, UCX_PERF_TEST_TYPE_STREAM_UNI,
+     "active message bandwidth / message rate with flow control"},
+
     {"put_bw", UCX_PERF_API_UCT, UCX_PERF_CMD_PUT, UCX_PERF_TEST_TYPE_STREAM_UNI,
      "put bandwidth / message rate"},
 

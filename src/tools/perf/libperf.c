@@ -284,6 +284,7 @@ static ucs_status_t uct_perf_test_check_capabilities(ucx_perf_params_t *params,
     }
 
     switch (params->command) {
+    case UCX_PERF_CMD_AM_FC:
     case UCX_PERF_CMD_AM:
         required_flags = __get_flag(params->uct.data_layout, UCT_IFACE_FLAG_AM_SHORT,
                                     UCT_IFACE_FLAG_AM_BCOPY, UCT_IFACE_FLAG_AM_ZCOPY);
@@ -348,7 +349,9 @@ static ucs_status_t uct_perf_test_check_capabilities(ucx_perf_params_t *params,
         return UCS_ERR_INVALID_PARAM;
     }
 
-    if (params->command == UCX_PERF_CMD_AM) {
+    if (params->command == UCX_PERF_CMD_AM_FC ||
+        params->command == UCX_PERF_CMD_AM)
+    {
         if ((params->uct.data_layout == UCT_PERF_DATA_LAYOUT_SHORT) &&
             (params->am_hdr_size != sizeof(uint64_t)))
         {

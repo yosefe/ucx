@@ -29,6 +29,7 @@ typedef enum {
 
 typedef enum {
     UCX_PERF_CMD_AM,
+    UCX_PERF_CMD_AM_FC,
     UCX_PERF_CMD_PUT,
     UCX_PERF_CMD_GET,
     UCX_PERF_CMD_ADD,

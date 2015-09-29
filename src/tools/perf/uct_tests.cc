@@ -53,6 +53,11 @@ public:
     {
         ucs_assert(UCS_CIRCULAR_COMPARE8(*(psn_t*)arg, <=, *(psn_t*)data));
         *(psn_t*)arg = *(psn_t*)data;
+        memset(data, 0, length);
+        memset(data, 0, length);
+        memset(data, 0, length);
+        memset(data, 0, length);
+        memset(data, 0, length);
         return UCS_OK;
     }
 
@@ -75,6 +80,7 @@ public:
 
         switch (CMD) {
         case UCX_PERF_CMD_AM:
+        case UCX_PERF_CMD_AM_FC:
             switch (DATA) {
             case UCT_PERF_DATA_LAYOUT_SHORT:
                 am_short_hdr = sn;
@@ -409,23 +415,26 @@ public:
             return run_pingpong();
         case UCX_PERF_TEST_TYPE_STREAM_UNI:
             switch (CMD) {
-            case UCX_PERF_CMD_PUT:
-                return run_stream_req_uni(false, /* No need for flow control for RMA */
+            case UCX_PERF_CMD_AM:
+                return run_stream_req_uni(false, /* Flow control disabled */
                                           zcopy, /* ZCOPY can return INPROGRESS */
                                           true /* data goes to responder */);
-            case UCX_PERF_CMD_ADD:
+            case UCX_PERF_CMD_AM_FC:
+                return run_stream_req_uni(true, /* Flow control enabled */
+                                          zcopy, /* ZCOPY can return INPROGRESS */
+                                          true /* data goes to responder */);
+            case UCX_PERF_CMD_PUT:
                 return run_stream_req_uni(false, /* No need for flow control for RMA */
-                                          false, /* This atomic does not wait for reply */
-                                          true /* Data goes to responder */);
-            case UCX_PERF_CMD_AM:
-                return run_stream_req_uni(true, /* Need flow control for active messages,
-                                                   because they are handled in SW */
                                           zcopy, /* ZCOPY can return INPROGRESS */
                                           true /* data goes to responder */);
             case UCX_PERF_CMD_GET:
                 return run_stream_req_uni(false, /* No flow control for RMA/AMO */
                                           true, /* Waiting for replies */
                                           false /* For GET, data is delivered to requester */ );
+            case UCX_PERF_CMD_ADD:
+                return run_stream_req_uni(false, /* No need for flow control for RMA */
+                                          false, /* This atomic does not wait for reply */
+                                          true /* Data goes to responder */);
             case UCX_PERF_CMD_FADD:
             case UCX_PERF_CMD_SWAP:
             case UCX_PERF_CMD_CSWAP:
@@ -473,16 +482,17 @@ private:
 ucs_status_t uct_perf_test_dispatch(ucx_perf_context_t *perf)
 {
     UCS_PP_FOREACH(TEST_CASE_ALL_DATA, perf,
-        (UCX_PERF_CMD_AM,  UCX_PERF_TEST_TYPE_PINGPONG),
-        (UCX_PERF_CMD_PUT, UCX_PERF_TEST_TYPE_PINGPONG),
-        (UCX_PERF_CMD_ADD, UCX_PERF_TEST_TYPE_PINGPONG),
-        (UCX_PERF_CMD_AM,  UCX_PERF_TEST_TYPE_STREAM_UNI),
-        (UCX_PERF_CMD_PUT, UCX_PERF_TEST_TYPE_STREAM_UNI),
-        (UCX_PERF_CMD_GET, UCX_PERF_TEST_TYPE_STREAM_UNI),
-        (UCX_PERF_CMD_ADD, UCX_PERF_TEST_TYPE_STREAM_UNI),
-        (UCX_PERF_CMD_FADD, UCX_PERF_TEST_TYPE_STREAM_UNI),
-        (UCX_PERF_CMD_SWAP, UCX_PERF_TEST_TYPE_STREAM_UNI),
-        (UCX_PERF_CMD_CSWAP, UCX_PERF_TEST_TYPE_STREAM_UNI)
+        (UCX_PERF_CMD_AM,     UCX_PERF_TEST_TYPE_PINGPONG),
+        (UCX_PERF_CMD_PUT,    UCX_PERF_TEST_TYPE_PINGPONG),
+        (UCX_PERF_CMD_ADD,    UCX_PERF_TEST_TYPE_PINGPONG),
+        (UCX_PERF_CMD_AM,     UCX_PERF_TEST_TYPE_STREAM_UNI),
+        (UCX_PERF_CMD_AM_FC,  UCX_PERF_TEST_TYPE_STREAM_UNI),
+        (UCX_PERF_CMD_PUT,    UCX_PERF_TEST_TYPE_STREAM_UNI),
+        (UCX_PERF_CMD_GET,    UCX_PERF_TEST_TYPE_STREAM_UNI),
+        (UCX_PERF_CMD_ADD,    UCX_PERF_TEST_TYPE_STREAM_UNI),
+        (UCX_PERF_CMD_FADD,   UCX_PERF_TEST_TYPE_STREAM_UNI),
+        (UCX_PERF_CMD_SWAP,   UCX_PERF_TEST_TYPE_STREAM_UNI),
+        (UCX_PERF_CMD_CSWAP,  UCX_PERF_TEST_TYPE_STREAM_UNI)
         );
 
     ucs_error("Invalid test case");

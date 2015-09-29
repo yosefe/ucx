@@ -179,6 +179,21 @@ uct_rc_mlx5_iface_poll_rx(uct_rc_mlx5_iface_t *iface)
     uct_ib_mlx5_log_rx(&iface->super.super, IBV_QPT_RC, cqe, hdr,
                        uct_rc_ep_am_packet_dump);
 
+    if (1) {
+        uint32_t qp_num = ntohl(cqe->sop_drop_qpn) & UCS_MASK(UCT_IB_QPN_ORDER);
+        uct_rc_mlx5_ep_t *ep;
+
+        ep = (uct_rc_mlx5_ep_t*)uct_rc_iface_lookup_ep(&iface->super, qp_num);
+//        ucs_warn("qpn: 0x%x, ep %p", qp_num, ep);
+        if (hdr->cred_log2 <= 8) {
+            ep->super.min_available = ep->tx.wq.bb_max - (hdr->cred_log2);
+        } else {
+            ep->super.min_available = 0;
+        }
+    }
+
+//    uct_rc_iface_update_credits(iface, hdr);
+
     udesc  = (char*)desc + iface->super.super.config.rx_headroom_offset;
     status = uct_iface_invoke_am(&iface->super.super.super, hdr->am_id, hdr + 1,
                                  byte_len - sizeof(*hdr), udesc);
