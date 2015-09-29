@@ -89,6 +89,7 @@ typedef struct {
         uint16_t           ready_idx;  /* what is ready to be posted to hw */
         uint16_t           sw_pi;      /* what is posted to hw */
         uint16_t           mask;
+        uint16_t           refill_idx; /* when this gets bigger than sw_pi, need to refill */
     } rx;
 
     UCS_STATS_NODE_DECLARE(stats);

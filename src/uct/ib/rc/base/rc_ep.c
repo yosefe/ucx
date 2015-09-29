@@ -43,9 +43,11 @@ UCS_CLASS_INIT_FUNC(uct_rc_ep_t, uct_rc_iface_t *iface)
         goto err_qp_destroy;
     }
 
-    self->unsignaled = 0;
-    self->sl         = iface->config.sl;          /* TODO multi-rail */
-    self->path_bits  = iface->super.path_bits[0]; /* TODO multi-rail */
+    self->unsignaled    = 0;
+    self->available     = 0;
+    self->min_available = 0; /* TODO slow start? */
+    self->path_bits     = iface->super.path_bits[0]; /* TODO multi-rail */
+    self->sent_credits  = 0;
     ucs_queue_head_init(&self->outstanding);
     ucs_arbiter_group_init(&self->arb_group);
 
@@ -175,7 +177,7 @@ void uct_rc_ep_am_packet_dump(uct_base_iface_t *iface, uct_am_trace_type_t type,
 {
     uct_rc_hdr_t *rch = data;
 
-    snprintf(buffer, max, " am %d ", rch->am_id);
+    snprintf(buffer, max, " am_id %d cred %d", rch->am_id, rch->credits);
     uct_iface_dump_am(iface, type, rch->am_id, rch + 1, length - sizeof(*rch),
                       buffer + strlen(buffer), max - strlen(buffer));
 }
@@ -215,14 +217,14 @@ ucs_status_t uct_rc_ep_pending_add(uct_ep_h tl_ep, uct_pending_req_t *n)
     uct_rc_iface_t *iface = ucs_derived_of(tl_ep->iface, uct_rc_iface_t);
     uct_rc_ep_t *ep = ucs_derived_of(tl_ep, uct_rc_ep_t);
 
-    if ((ep->available > 0) && uct_rc_iface_has_tx_resources(iface)) {
+    if (UCT_RC_EP_CAN_SEND(ep) && uct_rc_iface_has_tx_resources(iface)) {
         return UCS_ERR_BUSY;
     }
 
     UCS_STATIC_ASSERT(sizeof(ucs_arbiter_elem_t) <= UCT_PENDING_REQ_PRIV_LEN);
     ucs_arbiter_group_push_elem(&ep->arb_group, (ucs_arbiter_elem_t*)n->priv);
 
-    if (ep->available > 0) {
+    if (UCT_RC_EP_CAN_SEND(ep)) {
         /* If we have ep (but not iface) resources, we need to schedule the ep */
         ucs_arbiter_group_schedule(&iface->tx.arbiter, &ep->arb_group);
     }
@@ -247,7 +249,7 @@ ucs_arbiter_cb_result_t uct_rc_ep_process_pending(ucs_arbiter_t *arbiter,
         return UCS_ARBITER_CB_RESULT_REMOVE_ELEM;
     } else {
         ep = ucs_container_of(ucs_arbiter_elem_group(elem), uct_rc_ep_t, arb_group);
-        if (ep->available <= 0) {
+        if (!UCT_RC_EP_CAN_SEND(ep)) {
             /* No ep resources */
             return UCS_ARBITER_CB_RESULT_DESCHED_GROUP;
         } else {

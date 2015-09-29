@@ -121,7 +121,8 @@ struct uct_rc_iface_send_desc {
  * RC network header.
  */
 typedef struct uct_rc_hdr {
-    uint8_t           am_id;  /* Active message ID */
+    uint8_t                       am_id;   /* Active message ID */
+    uint8_t                       credits; /* Credits update */
 } UCS_S_PACKED uct_rc_hdr_t;
 
 
@@ -129,8 +130,8 @@ typedef struct uct_rc_hdr {
  * Short active message header (active message header is always 64 bit).
  */
 typedef struct uct_rc_am_short_hdr {
-    uct_rc_hdr_t      rc_hdr;
-    uint64_t          am_hdr;
+    uct_rc_hdr_t                  rc_hdr;
+    uint64_t                      am_hdr;
 } UCS_S_PACKED uct_rc_am_short_hdr_t;
 
 
@@ -172,5 +173,11 @@ uct_rc_iface_get_send_op(uct_rc_iface_t *iface)
     return &iface->tx.ops[(iface->tx.next_op++) & iface->config.tx_ops_mask];
 }
 
+static UCS_F_ALWAYS_INLINE void
+uct_rc_iface_set_send_hdr(uct_rc_iface_t *iface, uct_rc_hdr_t *hdr, uint8_t am_id)
+{
+    hdr->am_id   = am_id;
+    hdr->credits = iface->rx.available;
+}
 
 #endif

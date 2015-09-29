@@ -622,7 +622,7 @@ ucs_status_t uct_rc_verbs_ep_flush(uct_ep_h tl_ep)
     uct_rc_verbs_ep_t *ep = ucs_derived_of(tl_ep, uct_rc_verbs_ep_t);
     ucs_status_t status;
 
-    if (ep->super.available == iface->super.config.tx_qp_len) {
+    if (ep->super.available == iface->super.config.tx_qp_len - 1) {
         UCT_TL_EP_STAT_FLUSH(&ep->super);
         return UCS_OK;
     }
@@ -647,7 +647,7 @@ static UCS_CLASS_INIT_FUNC(uct_rc_verbs_ep_t, uct_iface_h tl_iface)
 
     UCS_CLASS_CALL_SUPER_INIT(uct_rc_ep_t, &iface->super);
 
-    self->super.available     = iface->super.config.tx_qp_len;
+    self->super.available     = iface->super.config.tx_qp_len - 1;
     self->tx.post_count       = 0;
     self->tx.completion_count = 0;
     return UCS_OK;

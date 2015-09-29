@@ -91,7 +91,6 @@ static UCS_F_NOINLINE unsigned uct_rc_mlx5_iface_post_recv(uct_rc_mlx5_iface_t *
     if (count > 0) {
         iface->rx.ready_idx        = index;
         iface->rx.sw_pi            = index;
-        iface->super.rx.available -= count;
         ucs_memory_cpu_store_fence();
         *iface->rx.db = htonl(iface->rx.sw_pi);
     }
@@ -144,7 +143,6 @@ uct_rc_mlx5_iface_poll_rx(uct_rc_mlx5_iface_t *iface)
     struct mlx5_cqe64 *cqe;
     unsigned byte_len;
     uint16_t wqe_ctr;
-    uint16_t max_batch;
     ucs_status_t status;
     void *udesc;
 
@@ -205,12 +203,11 @@ uct_rc_mlx5_iface_poll_rx(uct_rc_mlx5_iface_t *iface)
         }
     }
 
-    ++iface->super.rx.available;
+    ++iface->rx.refill_idx;
     status = UCS_OK;
 
 done:
-    max_batch = iface->super.config.rx_max_batch;
-    if (iface->super.rx.available >= max_batch) {
+    if (UCS_CIRCULAR_COMPARE16(iface->rx.refill_idx, >=, iface->rx.sw_pi)) {
         uct_rc_mlx5_iface_post_recv(iface);
     }
     return status;
@@ -305,19 +302,24 @@ static ucs_status_t uct_rc_mlx5_iface_init_rx(uct_rc_mlx5_iface_t *iface)
         return UCS_ERR_NO_DEVICE;
     }
 
-    iface->super.rx.available = srq_info.tail + 1;
     iface->rx.buf             = srq_info.buf;
     iface->rx.db              = srq_info.dbrec;
     iface->rx.free_idx        = srq_info.tail;
     iface->rx.ready_idx       = -1;
     iface->rx.sw_pi           = -1;
     iface->rx.mask            = srq_info.tail;
+    iface->rx.refill_idx      = srq_info.tail - iface->super.config.rx_max_batch;
 
     for (i = srq_info.head; i <= srq_info.tail; ++i) {
         seg = uct_rc_mlx5_iface_get_srq_wqe(iface, i);
         seg->srq.ooo         = 0;
         seg->srq.desc        = NULL;
         seg->dptr.byte_count = htonl(iface->super.super.config.seg_size);
+    }
+
+    if (uct_rc_mlx5_iface_post_recv(iface) == 0) {
+        ucs_error("Failed to post receives");
+        return UCS_ERR_NO_MEMORY;
     }
 
     return UCS_OK;
@@ -363,20 +365,14 @@ static UCS_CLASS_INIT_FUNC(uct_rc_mlx5_iface_t, uct_pd_h pd, uct_worker_h worker
         goto err;
     }
 
-    status = uct_rc_mlx5_iface_init_rx(self);
-    if (status != UCS_OK) {
-        goto err;
-    }
-
     status = UCS_STATS_NODE_ALLOC(&self->stats, &uct_rc_mlx5_iface_stats_class,
                                   self->super.stats);
     if (status != UCS_OK) {
         goto err_destroy_atomic_mp;
     }
 
-    if (uct_rc_mlx5_iface_post_recv(self) == 0) {
-        ucs_error("Failed to post receives");
-        status = UCS_ERR_NO_MEMORY;
+    status = uct_rc_mlx5_iface_init_rx(self);
+    if (status != UCS_OK) {
         goto err_free_stats;
     }
 

@@ -25,6 +25,10 @@ enum {
 #define UCT_RC_DEFINE_ATOMIC_HANDLER_FUNC_NAME(_num_bits, _is_be) \
     uct_rc_ep_atomic_handler_##_num_bits##_be##_is_be
 
+
+#define UCT_RC_EP_CAN_SEND(_ep) \
+    ((_ep)->available >= (_ep)->min_available)
+
 /*
  * Check for send resources
  */
@@ -33,7 +37,7 @@ enum {
         UCS_STATS_UPDATE_COUNTER((_iface)->stats, UCT_RC_IFACE_STAT_NO_CQE, 1); \
         return UCS_ERR_NO_RESOURCE; \
     } \
-    if ((_ep)->available <= 0) { \
+    if (!UCT_RC_EP_CAN_SEND(_ep)) { \
         UCS_STATS_UPDATE_COUNTER((_ep)->stats, UCT_RC_EP_STAT_QP_FULL, 1); \
         return UCS_ERR_NO_RESOURCE; \
     }
@@ -45,8 +49,9 @@ struct uct_rc_ep {
     ucs_queue_head_t    outstanding;
     uint16_t            unsignaled;
     int16_t             available;
-    uint8_t             sl;
+    int16_t             min_available;
     uint8_t             path_bits;
+    uint8_t             sent_credits;
     ucs_list_link_t     list;
     ucs_arbiter_group_t arb_group;
     UCS_STATS_NODE_DECLARE(stats);
