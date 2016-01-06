@@ -228,8 +228,7 @@ UCS_CLASS_INIT_FUNC(uct_rc_iface_t, uct_iface_ops_t *ops, uct_pd_h pd,
     srq_init_attr.attr.max_wr    = config->super.rx.queue_len;
     srq_init_attr.attr.srq_limit = 0;
     srq_init_attr.srq_context    = self;
-    self->rx.srq = ibv_create_srq(uct_ib_iface_device(&self->super)->pd,
-                                  &srq_init_attr);
+    self->rx.srq = ibv_create_srq(uct_ib_iface_pd(&self->super)->pd, &srq_init_attr);
     if (self->rx.srq == NULL) {
         ucs_error("failed to create SRQ: %m");
         status = UCS_ERR_IO_ERROR;
@@ -312,7 +311,7 @@ ucs_status_t uct_rc_iface_qp_create(uct_rc_iface_t *iface, struct ibv_qp **qp_p,
     qp_init_attr.sq_sig_all          = 0;
 #if HAVE_DECL_IBV_EXP_CREATE_QP
     qp_init_attr.comp_mask           = IBV_EXP_QP_INIT_ATTR_PD;
-    qp_init_attr.pd                  = dev->pd;
+    qp_init_attr.pd                  = uct_ib_iface_pd(&iface->super)->pd;
 
 #  if HAVE_IB_EXT_ATOMICS
     qp_init_attr.comp_mask          |= IBV_EXP_QP_INIT_ATTR_ATOMICS_ARG;

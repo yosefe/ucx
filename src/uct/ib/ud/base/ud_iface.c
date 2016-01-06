@@ -238,7 +238,7 @@ uct_ud_iface_create_qp(uct_ud_iface_t *self, uct_ud_iface_config_t *config)
                                                UCT_UD_MIN_INLINE);
 
 #if HAVE_VERBS_EXP_H
-    qp_init_attr.pd                  = dev->pd;
+    qp_init_attr.pd                  = uct_ib_iface_pd(&self->super)->pd;
     qp_init_attr.comp_mask           = IBV_QP_INIT_ATTR_PD;
     /* TODO: inline rcv */
 #if 0

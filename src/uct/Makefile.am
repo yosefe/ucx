@@ -42,7 +42,8 @@ noinst_HEADERS += \
 libuct_la_SOURCES += \
 	ib/base/ib_device.c \
 	ib/base/ib_iface.c \
-	ib/base/ib_log.c
+	ib/base/ib_log.c \
+	ib/base/ib_pd.c
 
 if HAVE_MLX5_HW
 libuct_la_SOURCES += \
