@@ -118,12 +118,11 @@ typedef struct uct_pd_resource_desc {
 typedef struct uct_tl_resource_desc {
     char                     tl_name[UCT_TL_NAME_MAX];   /**< Transport name */
     char                     dev_name[UCT_DEVICE_NAME_MAX]; /**< Hardware device name */
-    uint64_t                 latency;      /**< Latency, nanoseconds */
-    size_t                   bandwidth;    /**< Bandwidth, bytes/second */
 } uct_tl_resource_desc_t;
 
 #define UCT_TL_RESOURCE_DESC_FMT              "%s/%s"
 #define UCT_TL_RESOURCE_DESC_ARG(_resource)   (_resource)->tl_name, (_resource)->dev_name
+
 
 /**
  * @ingroup UCT_RESOURCE
@@ -235,6 +234,10 @@ struct uct_iface_attr {
 
     size_t                   iface_addr_len; /**< Size of interface address */
     size_t                   ep_addr_len;    /**< Size of endpoint address */
+
+    double                   overhead;     /**< Message overhead, seconds */
+    double                   latency;      /**< Latency, seconds */
+    double                   bandwidth;    /**< Maximal bandwidth, bytes/second */
 };
 
 

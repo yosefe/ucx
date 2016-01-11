@@ -119,7 +119,9 @@ static ucs_status_t uct_mm_iface_query(uct_iface_h tl_iface,
                                          UCT_IFACE_FLAG_PENDING          |
                                          UCT_IFACE_FLAG_AM_THREAD_SINGLE |
                                          UCT_IFACE_FLAG_CONNECT_TO_IFACE;
-
+    iface_attr->latency                = 10e-9;
+    iface_attr->bandwidth              = 6911 * 1024.0 * 1024.0;
+    iface_attr->overhead               = 5e-9;
     return UCS_OK;
 }
 
@@ -472,8 +474,6 @@ static ucs_status_t uct_mm_query_tl_resources(uct_pd_h pd,
                       UCT_MM_TL_NAME);
     ucs_snprintf_zero(resource->dev_name, sizeof(resource->dev_name), "%s",
                       pd->component->name);
-    resource->latency    =  10;
-    resource->bandwidth  = (long) (6911 * pow(1024,2)); /* FIXME temp value */
 
     *num_resources_p = 1;
     *resource_p      = resource;
