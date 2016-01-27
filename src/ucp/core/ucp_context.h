@@ -23,12 +23,33 @@ typedef uint8_t                 ucp_rsc_index_t;
  * Active message codes
  */
 enum {
-    UCP_AM_ID_WIREUP,
+    UCP_AM_ID_WIREUP            =  1, /* Connection establishment */
 
-    UCP_AM_ID_EAGER_ONLY,
-    UCP_AM_ID_EAGER_FIRST,
-    UCP_AM_ID_EAGER_MIDDLE,
-    UCP_AM_ID_EAGER_LAST,
+    UCP_AM_ID_EAGER_ONLY        =  2, /* Single packet eager */
+    UCP_AM_ID_EAGER_FIRST       =  3, /* First eager fragment */
+    UCP_AM_ID_EAGER_MIDDLE      =  4, /* Middle eager fragment */
+    UCP_AM_ID_EAGER_LAST        =  5, /* Last eager fragment */
+
+    UCP_AM_ID_EAGER_SYNC_ONLY   =  6, /* Single packet eager-sync */
+    UCP_AM_ID_EAGER_SYNC_FIRST  =  7, /* First eager-sync fragment */
+
+    UCP_AM_ID_RNDV_RTS          =  8, /* Rendezvous ready to send */
+    UCP_AM_ID_RNDV_RTR          =  9, /* Rendezvous ready to receive */
+    UCP_AM_ID_RNDV_DATA         = 10, /* Rendezvous data */
+    UCP_AM_ID_RNDV_ATS          = 11, /* Rendezvous ack-to-send */
+    UCP_AM_ID_RNDV_ATR          = 12, /* Rendezvous ack-to-receive */
+
+    UCP_AM_ID_CANCEL            = 13, /* Cancel remote unexpected receive */
+    UCP_AM_ID_CANCEL_ACK        = 14, /* Cancel acknowledgment */
+
+    UCP_AM_ID_PUT               = 15, /* Write data to memory */
+    UCP_AM_ID_GET_REQ           = 16, /* Request to read from memory */
+    UCP_AM_ID_GET_RESP          = 17, /* Read data response */
+
+    UCP_AM_ID_ATOMIC_ADD        = 18, /* Atomic add */
+    UCP_AM_ID_ATOMIC_FADD       = 19, /* Atomic fetch-and-add */
+    UCP_AM_ID_ATOMIC_SWAP       = 20, /* Atomic swap */
+    UCP_AM_ID_ATOMIC_CSWAP      = 21, /* Atomic compare-and-swap */
 
     UCP_AM_ID_LAST
 };
