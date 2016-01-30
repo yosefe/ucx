@@ -31,7 +31,15 @@ typedef struct {
 } UCS_S_PACKED ucp_eager_first_hdr_t;
 
 
-ucs_status_t ucp_tag_progress_eager_contig(uct_pending_req_t *self);
+ucs_status_t ucp_tag_progress_eager_contig_short(uct_pending_req_t *self);
+
+ucs_status_t ucp_tag_progress_eager_contig_bcopy_single(uct_pending_req_t *self);
+
+ucs_status_t ucp_tag_progress_eager_contig_bcopy_multi(uct_pending_req_t *self);
+
+ucs_status_t ucp_tag_progress_eager_contig_zcopy_single(uct_pending_req_t *self);
+
+ucs_status_t ucp_tag_progress_eager_contig_zcopy_multi(uct_pending_req_t *self);
 
 ucs_status_t ucp_tag_progress_eager_generic(uct_pending_req_t *self);
 

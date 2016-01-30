@@ -147,20 +147,47 @@ static void ucp_worker_set_config(ucp_worker_h worker, ucp_rsc_index_t tl_id)
     ucp_context_h context        = worker->context;
     uct_iface_attr_t *iface_attr = &worker->iface_attrs[tl_id];
     ucp_ep_config_t *config      = &worker->ep_config[tl_id];
+    uct_pd_attr_t *pd_attr       = &context->pd_attrs[context->tl_rscs[tl_id].pd_index];
+    double zcopy_thresh;
 
     if (iface_attr->cap.flags & UCT_IFACE_FLAG_AM_SHORT) {
-        config->eager.max_short    = iface_attr->cap.am.max_short - sizeof(ucp_tag_t);
+        config->eager.max_short    = iface_attr->cap.am.max_short -
+                                     sizeof(ucp_eager_hdr_t);
     } else {
         config->eager.max_short    = 0;
     }
     if (iface_attr->cap.flags & UCT_IFACE_FLAG_AM_BCOPY) {
-        config->eager.max_bcopy    = iface_attr->cap.am.max_bcopy - sizeof(ucp_eager_hdr_t);
+        config->eager.max_bcopy    = iface_attr->cap.am.max_bcopy -
+                                     sizeof(ucp_eager_hdr_t);
     } else {
         config->eager.max_bcopy    = 0;
     }
-    config->eager.max_zcopy        = 0;
     config->eager.bcopy_thresh     = -1;
-    config->eager.zcopy_thresh     = -1;
+
+    if ((iface_attr->cap.flags & UCT_IFACE_FLAG_AM_ZCOPY) &&
+        (pd_attr->cap.flags & UCT_PD_FLAG_REG))
+    {
+        config->eager.max_zcopy  = iface_attr->cap.am.max_zcopy -
+                                   sizeof(ucp_eager_hdr_t);
+
+        if (context->config.ext.zcopy_thresh == -2) { /* auto */
+            zcopy_thresh = pd_attr->reg_cost.overhead / (
+                                    (1.0 / context->config.ext.bcopy_bw) -
+                                    (1.0 / iface_attr->bandwidth) -
+                                    pd_attr->reg_cost.growth);
+            if (zcopy_thresh < 0) {
+                /* TODO */
+                config->eager.zcopy_thresh = -1;
+            } else {
+                config->eager.zcopy_thresh = zcopy_thresh;
+            }
+        } else {
+            config->eager.zcopy_thresh = context->config.ext.zcopy_thresh;
+        }
+    } else {
+        config->eager.max_zcopy        = 0;
+        config->eager.zcopy_thresh     = -1;
+    }
 
     config->put.max_short          = iface_attr->cap.put.max_short;
     config->put.max_bcopy          = iface_attr->cap.put.max_bcopy;
@@ -173,6 +200,8 @@ static void ucp_worker_set_config(ucp_worker_h worker, ucp_rsc_index_t tl_id)
     config->get.max_zcopy          = 0;
     config->get.bcopy_thresh       = -1;
     config->get.zcopy_thresh       = -1;
+
+    config->rndv_thresh            = context->config.ext.rndv_thresh;
 }
 
 ucs_status_t ucp_worker_create(ucp_context_h context, ucs_thread_mode_t thread_mode,

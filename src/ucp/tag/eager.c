@@ -177,65 +177,171 @@ ucs_status_t ucp_tag_send_eager_only_contig(ucp_ep_t *ep, ucp_tag_t tag,
                            ucp_tag_pack_eager_only_contig, &req);
 }
 
-ucs_status_t ucp_tag_progress_eager_contig(uct_pending_req_t *self)
+ucs_status_t ucp_tag_progress_eager_contig_short(uct_pending_req_t *self)
 {
     ucp_request_t *req = ucs_container_of(self, ucp_request_t, send.uct);
     ucp_ep_t *ep = req->send.ep;
-    size_t max_bcopy_egr = ucp_ep_config(req->send.ep)->eager.max_bcopy;
-    size_t length, offset;
-    ssize_t packed_len;
+    ucs_status_t status;
 
-    for (;;) {
-        offset = req->send.state.offset;
-        if (offset == 0) {
-            /* First packet */
-            length = req->send.length;
-            if (length <= ucp_ep_config(req->send.ep)->eager.max_short) {
-                /* Only packet */
-                packed_len = ucp_tag_send_eager_short(ep, req->send.tag,
-                                                      req->send.buffer, length);
-                goto out_complete;
-            } else if (length <= max_bcopy_egr) {
-                /* Only packet */
-                packed_len = uct_ep_am_bcopy(ep->uct_ep, UCP_AM_ID_EAGER_ONLY,
-                                             ucp_tag_pack_eager_only_contig, req);
-                goto out_complete;
-            } else {
-                /* First of many */
-                packed_len = uct_ep_am_bcopy(ep->uct_ep, UCP_AM_ID_EAGER_FIRST,
-                                             ucp_tag_pack_eager_first_contig, req);
-                if (packed_len < 0) {
-                    return packed_len; /* Failed */
-                }
-
-                req->send.state.offset += packed_len - sizeof(ucp_eager_first_hdr_t);
-            }
-        } else if (offset + max_bcopy_egr < req->send.length) {
-            /* Middle packet */
-            packed_len = uct_ep_am_bcopy(ep->uct_ep, UCP_AM_ID_EAGER_MIDDLE,
-                                         ucp_tag_pack_eager_middle_contig, req);
-            if (packed_len < 0) {
-                return packed_len; /* Failed */
-            }
-
-            req->send.state.offset += packed_len - sizeof(ucp_eager_hdr_t);
-            ucs_assertv((packed_len < 0) || (packed_len == max_bcopy_egr + sizeof(ucp_eager_hdr_t)),
-                        "packed_len=%zd max_bcopy_egr=%zu", packed_len, max_bcopy_egr);
-        } else {
-            /* Last packet */
-            packed_len = uct_ep_am_bcopy(ep->uct_ep, UCP_AM_ID_EAGER_LAST,
-                                         ucp_tag_pack_eager_last_contig, req);
-            goto out_complete;
-        }
+    status = ucp_tag_send_eager_short(ep, req->send.tag, req->send.buffer,
+                                      req->send.length);
+    if (status != UCS_OK) {
+        return status;
     }
 
-out_complete:
+    ucp_request_complete(req, req->cb.send, UCS_OK);
+    return UCS_OK;
+}
+
+ucs_status_t ucp_tag_progress_eager_contig_bcopy_single(uct_pending_req_t *self)
+{
+    ucp_request_t *req = ucs_container_of(self, ucp_request_t, send.uct);
+    ucp_ep_t *ep = req->send.ep;
+    ssize_t packed_len;
+
+    packed_len = uct_ep_am_bcopy(ep->uct_ep, UCP_AM_ID_EAGER_ONLY,
+                                 ucp_tag_pack_eager_only_contig, req);
     if (packed_len < 0) {
         return packed_len;
     }
 
     ucp_request_complete(req, req->cb.send, UCS_OK);
     return UCS_OK;
+}
+
+ucs_status_t ucp_tag_progress_eager_contig_bcopy_multi(uct_pending_req_t *self)
+{
+    ucp_request_t *req = ucs_container_of(self, ucp_request_t, send.uct);
+    size_t max_bcopy_egr = ucp_ep_config(req->send.ep)->eager.max_bcopy;
+    ucp_ep_t *ep = req->send.ep;
+    ssize_t packed_len;
+    size_t offset;
+
+    offset = req->send.state.offset;
+    if (offset == 0) {
+        /* First */
+        packed_len = uct_ep_am_bcopy(ep->uct_ep, UCP_AM_ID_EAGER_FIRST,
+                                     ucp_tag_pack_eager_first_contig, req);
+        if (packed_len < 0) {
+            return packed_len; /* Failed */
+        }
+
+        req->send.state.offset += packed_len - sizeof(ucp_eager_first_hdr_t);
+        return UCS_INPROGRESS;
+    } else if (offset + max_bcopy_egr < req->send.length) {
+        /* Middle */
+        packed_len = uct_ep_am_bcopy(ep->uct_ep, UCP_AM_ID_EAGER_MIDDLE,
+                                     ucp_tag_pack_eager_middle_contig, req);
+        if (packed_len < 0) {
+            return packed_len; /* Failed */
+        }
+
+        req->send.state.offset += packed_len - sizeof(ucp_eager_hdr_t);
+        ucs_assertv((packed_len < 0) || (packed_len == max_bcopy_egr + sizeof(ucp_eager_hdr_t)),
+                    "packed_len=%zd max_bcopy_egr=%zu", packed_len, max_bcopy_egr);
+        return UCS_INPROGRESS;
+    } else {
+        /* Last */
+        packed_len = uct_ep_am_bcopy(ep->uct_ep, UCP_AM_ID_EAGER_LAST,
+                                     ucp_tag_pack_eager_last_contig, req);
+        if (packed_len < 0) {
+            return packed_len; /* Failed */
+        }
+
+        ucp_request_complete(req, req->cb.send, UCS_OK);
+        return UCS_OK;
+    }
+}
+
+ucs_status_t ucp_tag_progress_eager_contig_zcopy_single(uct_pending_req_t *self)
+{
+    ucp_request_t *req = ucs_container_of(self, ucp_request_t, send.uct);
+    ucp_ep_t *ep = req->send.ep;
+    ucp_eager_hdr_t hdr;
+    ucs_status_t status;
+
+    hdr.super.tag = req->send.tag;
+    status = uct_ep_am_zcopy(ep->uct_ep, UCP_AM_ID_EAGER_ONLY,
+                             &hdr, sizeof(hdr), req->send.buffer,
+                             req->send.length, req->send.state.dt.contig.memh,
+                             &req->send.uct_comp);
+    if (status == UCS_OK) {
+        uct_pd_mem_dereg(ucp_ep_pd(req->send.ep), req->send.state.dt.contig.memh);
+        ucp_request_complete(req, req->cb.send, UCS_OK);
+    } else if (status < 0) {
+        return status;
+    } else {
+        ucs_assert(status == UCS_INPROGRESS);
+    }
+
+    /* completed / inprogress */
+    return UCS_OK;
+}
+
+ucs_status_t ucp_tag_progress_eager_contig_zcopy_multi(uct_pending_req_t *self)
+{
+    ucp_request_t *req = ucs_container_of(self, ucp_request_t, send.uct);
+    size_t max_zcopy_egr = ucp_ep_config(req->send.ep)->eager.max_zcopy;
+    ucp_ep_t *ep = req->send.ep;
+    ucp_eager_first_hdr_t first_hdr;
+    ucp_eager_hdr_t hdr;
+    ucs_status_t status;
+    size_t offset, length;
+
+    offset = req->send.state.offset;
+    if (offset == 0) {
+        /* First */
+        first_hdr.super.super.tag = req->send.tag;
+        first_hdr.total_len       = req->send.length;
+        length                    = max_zcopy_egr - sizeof(ucp_eager_first_hdr_t)
+                                             + sizeof(ucp_eager_hdr_t);
+
+        status = uct_ep_am_zcopy(ep->uct_ep, UCP_AM_ID_EAGER_FIRST,
+                                 &first_hdr, sizeof(first_hdr),
+                                 req->send.buffer, length,
+                                 req->send.state.dt.contig.memh,
+                                 &req->send.uct_comp);
+        if (status < 0) {
+            return status; /* Failed */
+        }
+
+        req->send.state.offset += length;
+        return UCS_INPROGRESS;
+    } else if (offset + max_zcopy_egr < req->send.length) {
+        /* Middle */
+        hdr.super.tag = req->send.tag;
+        status = uct_ep_am_zcopy(ep->uct_ep, UCP_AM_ID_EAGER_MIDDLE,
+                                 &hdr, sizeof(hdr), req->send.buffer + offset,
+                                 max_zcopy_egr, req->send.state.dt.contig.memh,
+                                 &req->send.uct_comp);
+        if (status < 0) {
+            return status; /* Failed */
+        }
+
+        req->send.state.offset += max_zcopy_egr;
+        return UCS_INPROGRESS;
+    } else {
+        /* Last */
+        hdr.super.tag = req->send.tag;
+        length        = req->send.length - offset;
+
+        status = uct_ep_am_zcopy(ep->uct_ep, UCP_AM_ID_EAGER_LAST,
+                                 &hdr, sizeof(hdr), req->send.buffer + offset,
+                                 length, req->send.state.dt.contig.memh,
+                                 &req->send.uct_comp);
+        if (status < 0) {
+            return status; /* Failed */
+        }
+
+        if (status == UCS_OK) {
+            (void)uct_pd_mem_dereg(ucp_ep_pd(req->send.ep),
+                                   req->send.state.dt.contig.memh);
+            ucp_request_complete(req, req->cb.send, UCS_OK);
+        } else {
+            ucs_assert(status == UCS_INPROGRESS);
+        }
+        return UCS_OK;
+    }
 }
 
 static inline size_t ucp_req_generic_dt_pack(ucp_request_t *req, void *dest,
@@ -316,48 +422,46 @@ ucs_status_t ucp_tag_progress_eager_generic(uct_pending_req_t *self)
     size_t length, offset;
     ssize_t packed_len;
 
-    for (;;) {
-        offset = req->send.state.offset;
-        if (offset == 0) {
-            /* First packet */
-            length = req->send.length;
-            if (length <= max_bcopy_egr) {
-                /* Only packet */
-                packed_len = uct_ep_am_bcopy(ep->uct_ep, UCP_AM_ID_EAGER_ONLY,
-                                             ucp_tag_pack_eager_only_generic, req);
-                goto out_complete;
-            } else {
-                /* First of many */
-                packed_len = uct_ep_am_bcopy(ep->uct_ep, UCP_AM_ID_EAGER_FIRST,
-                                             ucp_tag_pack_eager_first_generic, req);
-                if (packed_len < 0) {
-                    return packed_len; /* Failed */
-                }
-
-                req->send.state.offset += packed_len - sizeof(ucp_eager_first_hdr_t);
-            }
-        } else if (offset + max_bcopy_egr < req->send.length) {
-            /* Middle packet */
-            packed_len = uct_ep_am_bcopy(ep->uct_ep, UCP_AM_ID_EAGER_MIDDLE,
-                                         ucp_tag_pack_eager_middle_generic, req);
+    offset = req->send.state.offset;
+    if (offset == 0) {
+        /* First packet */
+        length = req->send.length;
+        if (length <= max_bcopy_egr) {
+            /* Only packet */
+            packed_len = uct_ep_am_bcopy(ep->uct_ep, UCP_AM_ID_EAGER_ONLY,
+                                         ucp_tag_pack_eager_only_generic, req);
+            goto out_complete;
+        } else {
+            /* First of many */
+            packed_len = uct_ep_am_bcopy(ep->uct_ep, UCP_AM_ID_EAGER_FIRST,
+                                         ucp_tag_pack_eager_first_generic, req);
             if (packed_len < 0) {
                 return packed_len; /* Failed */
             }
 
-            req->send.state.offset += packed_len - sizeof(ucp_eager_hdr_t);
-        } else {
-            /* Last packet */
-            packed_len = uct_ep_am_bcopy(ep->uct_ep, UCP_AM_ID_EAGER_LAST,
-                                         ucp_tag_pack_eager_last_generic, req);
-            goto out_complete;
+            req->send.state.offset += packed_len - sizeof(ucp_eager_first_hdr_t);
+        }
+        return UCS_INPROGRESS;
+    } else if (offset + max_bcopy_egr < req->send.length) {
+        /* Middle packet */
+        packed_len = uct_ep_am_bcopy(ep->uct_ep, UCP_AM_ID_EAGER_MIDDLE,
+                                     ucp_tag_pack_eager_middle_generic, req);
+        if (packed_len < 0) {
+            return packed_len; /* Failed */
+        }
+
+        req->send.state.offset += packed_len - sizeof(ucp_eager_hdr_t);
+        return UCS_INPROGRESS;
+    } else {
+        /* Last packet */
+        packed_len = uct_ep_am_bcopy(ep->uct_ep, UCP_AM_ID_EAGER_LAST,
+                                     ucp_tag_pack_eager_last_generic, req);
+        if (packed_len < 0) {
+            return packed_len;
         }
     }
 
 out_complete:
-    if (packed_len < 0) {
-        return packed_len;
-    }
-
     ucp_req_generic_dt_finish(req);
     ucp_request_complete(req, req->cb.send, UCS_OK);
     return UCS_OK;
