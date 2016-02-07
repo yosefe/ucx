@@ -13,6 +13,25 @@
 #include <ucp/core/ucp_ep.h>
 
 
+/**
+ * Defines progress functions for a protocol, on all data types.
+ * TODO move to core
+ */
+typedef struct ucp_proto {
+    uct_pending_callback_t     contig_short;
+    uct_pending_callback_t     contig_bcopy_single;
+    uct_pending_callback_t     contig_bcopy_multi;
+    uct_pending_callback_t     contig_zcopy_single;
+    uct_pending_callback_t     contig_zcopy_multi;
+    uct_completion_callback_t  contig_zcopy_completion;
+    uct_pending_callback_t     generic_single;
+    uct_pending_callback_t     generic_multi;
+    size_t                     only_hdr_size;  /* header size for single / short */
+    size_t                     first_hdr_size; /* header size for first of multi */
+    size_t                     mid_hdr_size;   /* header size for rest of multi */
+} ucp_proto_t;
+
+
 /*
  * EAGER_ONLY, EAGER_MIDDLE, EAGER_LAST
  */
@@ -27,24 +46,31 @@ typedef struct {
  */
 typedef struct {
     ucp_eager_hdr_t           super;
-    size_t                    total_len; /* TODO make it 32bit because of rndv */
+    size_t                    total_len;
 } UCS_S_PACKED ucp_eager_first_hdr_t;
 
 
-ucs_status_t ucp_tag_progress_eager_contig_short(uct_pending_req_t *self);
+/*
+ * EAGER_SYNC_ONLY
+ */
+typedef struct {
+    ucp_eager_hdr_t           super;
+    uint32_t                  tid;
+} UCS_S_PACKED ucp_eager_sync_hdr_t;
 
-ucs_status_t ucp_tag_progress_eager_contig_bcopy_single(uct_pending_req_t *self);
 
-ucs_status_t ucp_tag_progress_eager_contig_bcopy_multi(uct_pending_req_t *self);
+/*
+ * EAGER_SYNC_FIRST
+ */
+typedef struct {
+    ucp_eager_sync_hdr_t      super;
+    size_t                    total_len;
+} UCS_S_PACKED ucp_eager_sync_first_hdr_t;
 
-ucs_status_t ucp_tag_progress_eager_contig_zcopy_single(uct_pending_req_t *self);
 
-ucs_status_t ucp_tag_progress_eager_contig_zcopy_multi(uct_pending_req_t *self);
+extern const ucp_proto_t ucp_tag_eager_proto;
+extern const ucp_proto_t ucp_tag_eager_sync_proto;
 
-ucs_status_t ucp_tag_progress_eager_generic(uct_pending_req_t *self);
-
-ucs_status_t ucp_tag_send_eager_only_contig(ucp_ep_t *ep, ucp_tag_t tag,
-                                            const void *buffer, size_t length);
 
 static inline ucs_status_t ucp_tag_send_eager_short(ucp_ep_t *ep, ucp_tag_t tag,
                                                     const void *buffer, size_t length)

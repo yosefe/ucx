@@ -87,6 +87,9 @@ static ucp_tl_alias_t ucp_tl_aliases[] = {
   { NULL }
 };
 
+SGLIB_DEFINE_LIST_PROTOTYPES(ucp_txn_t, ucp_txn_compare, next);
+SGLIB_DEFINE_HASHED_CONTAINER_PROTOTYPES(ucp_txn_t, UCP_TXN_HASH_SIZE, ucp_txn_hash);
+
 
 ucs_status_t ucp_config_read(const char *env_prefix, const char *filename,
                              ucp_config_t **config_p)
@@ -601,6 +604,17 @@ ucs_status_t ucp_init_version(unsigned api_major_version, unsigned api_minor_ver
         goto err_free_config;
     }
 
+    /* allocate transactions hash */
+    context->transactions = ucs_malloc(UCP_TXN_HASH_SIZE * sizeof(*context->transactions),
+                                       "ucp_transactions");
+    if (context->transactions == NULL) {
+        status = UCS_ERR_NO_MEMORY;
+        goto err_free_resources;
+    }
+
+    sglib_hashed_ucp_txn_t_init(context->transactions);
+    context->next_tid = 1;
+
     /* initialize tag matching */
     ucs_queue_head_init(&context->tag.expected);
     ucs_queue_head_init(&context->tag.unexpected);
@@ -608,6 +622,8 @@ ucs_status_t ucp_init_version(unsigned api_major_version, unsigned api_minor_ver
     *context_p = context;
     return UCS_OK;
 
+err_free_resources:
+    ucp_free_resources(context);
 err_free_config:
     ucp_free_config(context);
 err_free_ctx:
@@ -618,6 +634,7 @@ err:
 
 void ucp_cleanup(ucp_context_h context)
 {
+    ucs_free(context->transactions);
     ucp_free_resources(context);
     ucp_free_config(context);
     ucs_free(context);
@@ -646,4 +663,40 @@ void ucp_dump_payload(ucp_context_h context, char *buffer, size_t max,
         p += strlen(p);
         ++offset;
     }
+}
+
+static inline ucp_txn_id_t ucp_txn_hash(ucp_txn_t *txn)
+{
+    return txn->txn_id;
+}
+
+static inline int32_t ucp_txn_compare(ucp_txn_t *txn1, ucp_txn_t *txn2)
+{
+    return (int32_t)txn1->txn_id - (int32_t)txn2->txn_id;
+}
+
+SGLIB_DEFINE_LIST_FUNCTIONS(ucp_txn_t, ucp_txn_compare, next);
+SGLIB_DEFINE_HASHED_CONTAINER_FUNCTIONS(ucp_txn_t, UCP_TXN_HASH_SIZE, ucp_txn_hash);
+
+void ucp_transaction_add(ucp_context_h context, ucp_txn_t *txn)
+{
+    ucp_txn_t *member;
+
+    do {
+        txn->txn_id = context->next_tid++;
+    } while (!sglib_hashed_ucp_txn_t_add_if_not_member(context->transactions,
+                                                       txn, &member));
+}
+
+void ucp_transaction_remove(ucp_context_h context, ucp_txn_t *txn)
+{
+    sglib_hashed_ucp_txn_t_delete(context->transactions, txn);
+}
+
+ucp_txn_t* ucp_transaction_find(ucp_context_h context, ucp_txn_id_t txn_id)
+{
+    ucp_txn_t search;
+
+    search.txn_id = txn_id;
+    return sglib_hashed_ucp_txn_t_find_member(context->transactions, &search);
 }

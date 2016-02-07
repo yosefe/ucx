@@ -11,12 +11,16 @@
 #include <ucp/api/ucp.h>
 #include <uct/api/uct.h>
 #include <ucs/datastruct/queue_types.h>
+#include <ucs/datastruct/sglib_wrapper.h>
 #include <ucs/type/component.h>
 
 
 #define UCP_MAX_RESOURCES       UINT8_MAX
 #define UCP_MAX_PDS             (sizeof(uint64_t) * 8)
+#define UCP_TXN_HASH_SIZE       1021
+
 typedef uint8_t                 ucp_rsc_index_t;
+typedef uint32_t                ucp_txn_id_t;
 
 
 /**
@@ -110,6 +114,16 @@ typedef struct ucp_tl_alias {
 
 
 /**
+ * Transactions
+ */
+typedef struct ucp_txn ucp_txn_t;
+struct ucp_txn {
+    ucp_txn_t                     *next;    /* Next in hash list */
+    ucp_txn_id_t                  txn_id;   /* Transaction id */
+};
+
+
+/**
  * UCP context
  */
 typedef struct ucp_context {
@@ -120,6 +134,9 @@ typedef struct ucp_context {
 
     ucp_tl_resource_desc_t        *tl_rscs;   /* Array of communication resources */
     ucp_rsc_index_t               num_tls;    /* Number of resources in the array*/
+
+    ucp_txn_t                     **transactions; /* Hash of ongoing transactions */
+    ucp_txn_id_t                  next_tid;   /* Next transaction id */
 
     struct {
         ucs_queue_head_t          expected;   /* Expected requests */
@@ -180,5 +197,9 @@ extern ucp_am_handler_t ucp_am_handlers[];
 
 void ucp_dump_payload(ucp_context_h context, char *buffer, size_t max,
                       const void *data, size_t length);
+
+void ucp_transaction_add(ucp_context_h context, ucp_txn_t *txn);
+void ucp_transaction_remove(ucp_context_h context, ucp_txn_t *txn);
+ucp_txn_t* ucp_transaction_find(ucp_context_h context, ucp_txn_id_t txn_id);
 
 #endif

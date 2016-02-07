@@ -914,6 +914,11 @@ ucs_status_ptr_t ucp_tag_send_nb(ucp_ep_h ep, const void *buffer, size_t count,
                                  ucp_send_callback_t cb);
 
 
+ucs_status_ptr_t ucp_tag_send_sync_nb(ucp_ep_h ep, const void *buffer, size_t count,
+                                      ucp_datatype_t datatype, ucp_tag_t tag,
+                                      ucp_send_callback_t cb);
+
+
 /**
  * @ingroup UCP_COMM
  * @brief Non-blocking tagged-receive operation.

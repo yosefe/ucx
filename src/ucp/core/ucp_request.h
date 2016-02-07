@@ -25,6 +25,8 @@ enum {
     UCP_REQUEST_FLAG_RELEASED             = UCS_BIT(1),
     UCP_REQUEST_FLAG_BLOCKING             = UCS_BIT(2),
     UCP_REQUEST_FLAG_EXPECTED             = UCS_BIT(3),
+    UCP_REQUEST_FLAG_LOCAL_COMPLETED      = UCS_BIT(4),
+    UCP_REQUEST_FLAG_REMOTE_COMPLETED     = UCS_BIT(5),
 };
 
 
@@ -46,7 +48,8 @@ enum {
  */
 #define ucp_request_complete(_req, _cb, ...) \
     { \
-        ucs_trace_data("completing request %p flags 0x%x", _req, (_req)->flags); \
+        ucs_trace_data("completing request %p (%p) flags 0x%x", (_req), \
+                       (_req) + 1, (_req)->flags); \
         (_cb)((_req) + 1, ## __VA_ARGS__); \
         if (((_req)->flags |= UCP_REQUEST_FLAG_COMPLETED) & UCP_REQUEST_FLAG_RELEASED) { \
             ucs_mpool_put(_req); \
@@ -69,7 +72,8 @@ typedef struct ucp_send_state {
 /**
  * Request in progress.
  */
-typedef struct ucp_request {
+typedef struct ucp_request ucp_request_t;
+struct ucp_request {
     uint16_t                      flags;   /* Request flags */
 
     union {
@@ -81,11 +85,13 @@ typedef struct ucp_request {
         struct {
             ucp_ep_h              ep;
             const void            *buffer;  /* Send buffer */
-            size_t                count;    /* Send length */
             ucp_datatype_t        datatype; /* Send type */
 
             union {
-                ucp_tag_t         tag;      /* Tagged send */
+                struct {
+                    ucp_tag_t     tag;      /* Tagged send */
+                    ucp_txn_t     txn;      /* Transaction handle */
+                } tag;
 
                 struct {
                     ucp_rsc_index_t dst_rsc_index;
@@ -116,7 +122,7 @@ typedef struct ucp_request {
             ucp_frag_state_t      state;
         } recv;
     };
-} ucp_request_t;
+};
 
 
 /**

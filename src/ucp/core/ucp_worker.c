@@ -150,25 +150,35 @@ static void ucp_worker_set_config(ucp_worker_h worker, ucp_rsc_index_t tl_id)
     uct_pd_attr_t *pd_attr       = &context->pd_attrs[context->tl_rscs[tl_id].pd_index];
     double zcopy_thresh;
 
+    memset(config, 0, sizeof(*config));
+
     if (iface_attr->cap.flags & UCT_IFACE_FLAG_AM_SHORT) {
-        config->eager.max_short    = iface_attr->cap.am.max_short -
-                                     sizeof(ucp_eager_hdr_t);
-    } else {
-        config->eager.max_short    = 0;
+        config->max_eager_short  = iface_attr->cap.am.max_short - sizeof(ucp_eager_hdr_t);
+        config->max_am_short     = iface_attr->cap.am.max_short - sizeof(uint64_t);
     }
+
+    if (iface_attr->cap.flags & UCT_IFACE_FLAG_PUT_SHORT) {
+        config->max_put_short    = iface_attr->cap.put.max_short;
+    }
+
     if (iface_attr->cap.flags & UCT_IFACE_FLAG_AM_BCOPY) {
-        config->eager.max_bcopy    = iface_attr->cap.am.max_bcopy -
-                                     sizeof(ucp_eager_hdr_t);
-    } else {
-        config->eager.max_bcopy    = 0;
+        config->max_am_bcopy     = iface_attr->cap.am.max_bcopy;
     }
-    config->eager.bcopy_thresh     = -1;
+
+    if (iface_attr->cap.flags & UCT_IFACE_FLAG_PUT_BCOPY) {
+        config->max_put_bcopy    = iface_attr->cap.put.max_bcopy;
+    }
+
+    if (iface_attr->cap.flags & UCT_IFACE_FLAG_GET_BCOPY) {
+        config->max_get_bcopy    = iface_attr->cap.get.max_bcopy;
+    }
 
     if ((iface_attr->cap.flags & UCT_IFACE_FLAG_AM_ZCOPY) &&
         (pd_attr->cap.flags & UCT_PD_FLAG_REG))
     {
-        config->eager.max_zcopy  = iface_attr->cap.am.max_zcopy -
-                                   sizeof(ucp_eager_hdr_t);
+        config->max_am_zcopy     = iface_attr->cap.am.max_zcopy;
+        config->max_put_zcopy    = iface_attr->cap.put.max_zcopy;
+        config->max_get_zcopy    = iface_attr->cap.get.max_zcopy;
 
         if (context->config.ext.zcopy_thresh == -2) { /* auto */
             zcopy_thresh = pd_attr->reg_cost.overhead / (
@@ -177,31 +187,24 @@ static void ucp_worker_set_config(ucp_worker_h worker, ucp_rsc_index_t tl_id)
                                     pd_attr->reg_cost.growth);
             if (zcopy_thresh < 0) {
                 /* TODO */
-                config->eager.zcopy_thresh = -1;
+                config->zcopy_thresh      = -1;
+                config->sync_zcopy_thresh = -1;
             } else {
-                config->eager.zcopy_thresh = zcopy_thresh;
+                config->zcopy_thresh      = zcopy_thresh;
+                config->sync_zcopy_thresh = zcopy_thresh;
             }
         } else {
-            config->eager.zcopy_thresh = context->config.ext.zcopy_thresh;
+            config->zcopy_thresh      = context->config.ext.zcopy_thresh;
+            config->sync_zcopy_thresh = context->config.ext.zcopy_thresh;
         }
     } else {
-        config->eager.max_zcopy        = 0;
-        config->eager.zcopy_thresh     = -1;
+        config->zcopy_thresh           = -1;
+        config->sync_zcopy_thresh      = -1;
     }
 
-    config->put.max_short          = iface_attr->cap.put.max_short;
-    config->put.max_bcopy          = iface_attr->cap.put.max_bcopy;
-    config->put.max_zcopy          = 0;
-    config->put.bcopy_thresh       = context->config.ext.bcopy_thresh;
-    config->put.zcopy_thresh       = -1;
-
-    config->get.max_short          = 0;
-    config->get.max_bcopy          = iface_attr->cap.get.max_bcopy;
-    config->get.max_zcopy          = 0;
-    config->get.bcopy_thresh       = -1;
-    config->get.zcopy_thresh       = -1;
-
-    config->rndv_thresh            = context->config.ext.rndv_thresh;
+    config->put_bcopy_thresh     = context->config.ext.bcopy_thresh;
+    config->rndv_thresh          = context->config.ext.rndv_thresh;
+    config->sync_rndv_thresh     = context->config.ext.rndv_thresh;
 }
 
 ucs_status_t ucp_worker_create(ucp_context_h context, ucs_thread_mode_t thread_mode,
@@ -497,17 +500,17 @@ SGLIB_DEFINE_LIST_FUNCTIONS(ucp_ep_t, ucp_worker_ep_compare, next);
 SGLIB_DEFINE_HASHED_CONTAINER_FUNCTIONS(ucp_ep_t, UCP_WORKER_EP_HASH_SIZE,
                                         ucp_worker_ep_hash);
 
-static void ucp_worker_ep_proto_config_print(FILE *stream, const char *proto,
-                                             ucp_ep_proto_config_t *config)
-{
-    fprintf(stream, "# %20s   %15zd %15zd %15zd %15zd %15zd\n",
-            proto,
-            config->bcopy_thresh,
-            config->zcopy_thresh,
-            config->max_short,
-            config->max_bcopy,
-            config->max_zcopy);
-}
+//static void ucp_worker_ep_proto_config_print(FILE *stream, const char *proto,
+//                                             ucp_ep_proto_config_t *config)
+//{
+//    fprintf(stream, "# %20s   %15zd %15zd %15zd %15zd %15zd\n",
+//            proto,
+//            config->bcopy_thresh,
+//            config->zcopy_thresh,
+//            config->max_short,
+//            config->max_bcopy,
+//            config->max_zcopy);
+//}
 
 void ucp_worker_proto_print(ucp_worker_h worker, FILE *stream, const char *title,
                             ucs_config_print_flags_t print_flags)
@@ -533,12 +536,12 @@ void ucp_worker_proto_print(ucp_worker_h worker, FILE *stream, const char *title
         fprintf(stream, "# %3d %-18s %15s %15s %15s %15s %15s\n", tl_id, rsc_name,
                 "bcopy_thresh", "zcopy_thresh", "max_short", "max_bcopy", "max_zcopy");
 
-        ucp_worker_ep_proto_config_print(stream, "eager",
+/*        ucp_worker_ep_proto_config_print(stream, "eager",
                                          &worker->ep_config[tl_id].eager);
         ucp_worker_ep_proto_config_print(stream, "put",
                                          &worker->ep_config[tl_id].put);
         ucp_worker_ep_proto_config_print(stream, "get",
-                                         &worker->ep_config[tl_id].get);
+                                         &worker->ep_config[tl_id].get);*/
         fprintf(stream, "#\n");
     }
 }
