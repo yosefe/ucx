@@ -58,8 +58,9 @@ static ucs_status_t ucp_tag_req_start_contig(ucp_request_t *req, size_t count,
             req->send.uct_comp.count = 1;
             req->send.uct.func = proto->contig_zcopy_single;
         } else {
-            req->send.uct_comp.count =
-                    (length + proto->first_hdr_size - proto->mid_hdr_size) /
+            /* calculate number of zcopy fragments */
+            req->send.uct_comp.count = 1 +
+                    (length + proto->first_hdr_size - proto->mid_hdr_size - 1) /
                     (max_zcopy - proto->mid_hdr_size);
             req->send.uct.func = proto->contig_zcopy_multi;
         }
