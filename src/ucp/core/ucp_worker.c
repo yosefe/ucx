@@ -188,19 +188,24 @@ static void ucp_worker_set_config(ucp_worker_h worker, ucp_rsc_index_t tl_id)
                                     (1.0 / iface_attr->bandwidth) -
                                     pd_attr->reg_cost.growth);
             if (zcopy_thresh < 0) {
-                config->zcopy_thresh = SIZE_MAX;
+                config->zcopy_thresh      = SIZE_MAX;
+                config->sync_zcopy_thresh = -1;
             } else {
                 config->zcopy_thresh = zcopy_thresh;
+                config->sync_zcopy_thresh = zcopy_thresh;
             }
         } else {
             config->zcopy_thresh = context->config.ext.zcopy_thresh;
+            config->sync_zcopy_thresh = context->config.ext.zcopy_thresh;
         }
     } else {
-        config->zcopy_thresh = SIZE_MAX;
+        config->zcopy_thresh      = SIZE_MAX;
+        config->sync_zcopy_thresh = -1;
     }
 
-    config->bcopy_thresh = context->config.ext.bcopy_thresh;
-    config->rndv_thresh  = SIZE_MAX;
+    config->bcopy_thresh     = context->config.ext.bcopy_thresh;
+    config->rndv_thresh      = SIZE_MAX;
+    config->sync_rndv_thresh = SIZE_MAX;
 }
 
 ucs_status_t ucp_worker_create(ucp_context_h context, ucs_thread_mode_t thread_mode,
