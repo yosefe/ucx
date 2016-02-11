@@ -14,7 +14,7 @@
 
 static UCS_F_ALWAYS_INLINE ucs_status_t
 ucp_eager_handler(void *arg, void *data, size_t length, void *desc,
-                  unsigned flags)
+                  uint16_t flags, uint16_t hdr_len)
 {
     ucp_worker_h worker = arg;
     ucp_eager_hdr_t *eager_hdr = data;
@@ -24,10 +24,8 @@ ucp_eager_handler(void *arg, void *data, size_t length, void *desc,
     ucp_request_t *req;
     ucs_queue_iter_t iter;
     ucs_status_t status;
-    size_t recv_len, hdr_len;
+    size_t recv_len;
     ucp_tag_t recv_tag;
-
-    hdr_len = ucp_eager_hdr_len(flags);
 
     ucs_assert(length >= hdr_len);
     recv_tag = eager_hdr->super.tag;
@@ -78,8 +76,9 @@ ucp_eager_handler(void *arg, void *data, size_t length, void *desc,
         memcpy(rdesc + 1, data, length);
     }
 
-    rdesc->length = length;
-    rdesc->flags  = flags;
+    rdesc->length  = length;
+    rdesc->hdr_len = hdr_len;
+    rdesc->flags   = flags;
     ucs_queue_push(&context->tag.unexpected, &rdesc->queue);
     return UCS_INPROGRESS;
 }
@@ -90,7 +89,8 @@ static ucs_status_t ucp_eager_only_handler(void *arg, void *data, size_t length,
     return ucp_eager_handler(arg, data, length, desc,
                              UCP_RECV_DESC_FLAG_EAGER|
                              UCP_RECV_DESC_FLAG_FIRST|
-                             UCP_RECV_DESC_FLAG_LAST);
+                             UCP_RECV_DESC_FLAG_LAST,
+                             sizeof(ucp_eager_hdr_t));
 }
 
 static ucs_status_t ucp_eager_first_handler(void *arg, void *data, size_t length,
@@ -98,14 +98,16 @@ static ucs_status_t ucp_eager_first_handler(void *arg, void *data, size_t length
 {
     return ucp_eager_handler(arg, data, length, desc,
                              UCP_RECV_DESC_FLAG_EAGER|
-                             UCP_RECV_DESC_FLAG_FIRST);
+                             UCP_RECV_DESC_FLAG_FIRST,
+                             sizeof(ucp_eager_first_hdr_t));
 }
 
 static ucs_status_t ucp_eager_middle_handler(void *arg, void *data, size_t length,
                                              void *desc)
 {
     return ucp_eager_handler(arg, data, length, desc,
-                             UCP_RECV_DESC_FLAG_EAGER);
+                             UCP_RECV_DESC_FLAG_EAGER,
+                             sizeof(ucp_eager_hdr_t));
 }
 
 static ucs_status_t ucp_eager_last_handler(void *arg, void *data, size_t length,
@@ -113,7 +115,29 @@ static ucs_status_t ucp_eager_last_handler(void *arg, void *data, size_t length,
 {
     return ucp_eager_handler(arg, data, length, desc,
                              UCP_RECV_DESC_FLAG_EAGER|
-                             UCP_RECV_DESC_FLAG_LAST);
+                             UCP_RECV_DESC_FLAG_LAST,
+                             sizeof(ucp_eager_hdr_t));
+}
+
+static ucs_status_t ucp_eager_sync_only_handler(void *arg, void *data,
+                                                size_t length, void *desc)
+{
+    return ucp_eager_handler(arg, data, length, desc,
+                             UCP_RECV_DESC_FLAG_EAGER|
+                             UCP_RECV_DESC_FLAG_FIRST|
+                             UCP_RECV_DESC_FLAG_LAST|
+                             UCP_RECV_DESC_FLAG_SYNC,
+                             sizeof(ucp_eager_sync_hdr_t));
+}
+
+static ucs_status_t ucp_eager_sync_first_handler(void *arg, void *data,
+                                                 size_t length, void *desc)
+{
+    return ucp_eager_handler(arg, data, length, desc,
+                             UCP_RECV_DESC_FLAG_EAGER|
+                             UCP_RECV_DESC_FLAG_FIRST|
+                             UCP_RECV_DESC_FLAG_SYNC,
+                             sizeof(ucp_eager_sync_first_hdr_t));
 }
 
 static void ucp_eager_dump(ucp_worker_h worker, uct_am_trace_type_t type,
@@ -122,6 +146,8 @@ static void ucp_eager_dump(ucp_worker_h worker, uct_am_trace_type_t type,
 {
     const ucp_eager_first_hdr_t *eager_first_hdr = data;
     const ucp_eager_hdr_t *eager_hdr             = data;
+    const ucp_eager_sync_first_hdr_t *eagers_first_hdr = data;
+    const ucp_eager_sync_hdr_t *eagers_hdr       = data;
     size_t header_len;
     char *p;
 
@@ -143,6 +169,17 @@ static void ucp_eager_dump(ucp_worker_h worker, uct_am_trace_type_t type,
         snprintf(buffer, max, "EGR_L tag %"PRIx64, eager_hdr->super.tag);
         header_len = sizeof(*eager_hdr);
         break;
+    case UCP_AM_ID_EAGER_SYNC_ONLY:
+        snprintf(buffer, max, "EGRS tag %"PRIx64" tid %d",
+                 eagers_hdr->super.super.tag, eagers_hdr->tid);
+        header_len = sizeof(*eagers_hdr);
+        break;
+    case UCP_AM_ID_EAGER_SYNC_FIRST:
+        snprintf(buffer, max, "EGRS_F tag %"PRIx64" tid %d len %zu",
+                 eagers_first_hdr->super.super.super.tag,
+                 eagers_first_hdr->super.tid, eagers_first_hdr->total_len);
+        header_len = sizeof(*eagers_first_hdr);
+        break;
     default:
         return;
     }
@@ -160,4 +197,7 @@ UCP_DEFINE_AM(UCP_FEATURE_TAG, UCP_AM_ID_EAGER_MIDDLE, ucp_eager_middle_handler,
               ucp_eager_dump, UCT_AM_CB_FLAG_SYNC);
 UCP_DEFINE_AM(UCP_FEATURE_TAG, UCP_AM_ID_EAGER_LAST, ucp_eager_last_handler,
               ucp_eager_dump, UCT_AM_CB_FLAG_SYNC);
-
+UCP_DEFINE_AM(UCP_FEATURE_TAG, UCP_AM_ID_EAGER_SYNC_ONLY, ucp_eager_sync_only_handler,
+              ucp_eager_dump, UCT_AM_CB_FLAG_SYNC);
+UCP_DEFINE_AM(UCP_FEATURE_TAG, UCP_AM_ID_EAGER_SYNC_FIRST, ucp_eager_sync_first_handler,
+              ucp_eager_dump, UCT_AM_CB_FLAG_SYNC);

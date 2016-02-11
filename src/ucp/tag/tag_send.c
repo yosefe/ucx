@@ -11,8 +11,8 @@
 #include <ucp/core/ucp_ep.h>
 #include <ucp/core/ucp_worker.h>
 #include <ucp/core/ucp_context.h>
+#include <ucp/core/ucp_request.inl>
 #include <ucp/dt/dt_generic.h>
-#include <ucp/proto/ucp_do_zcopy.inl>
 #include <ucs/datastruct/mpool.inl>
 #include <string.h>
 

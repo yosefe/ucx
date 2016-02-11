@@ -37,7 +37,8 @@ enum {
     UCP_RECV_DESC_FLAG_FIRST = UCS_BIT(0),
     UCP_RECV_DESC_FLAG_LAST  = UCS_BIT(1),
     UCP_RECV_DESC_FLAG_EAGER = UCS_BIT(2),
-    UCP_RECV_DESC_FLAG_RNDV  = UCS_BIT(3),
+    UCP_RECV_DESC_FLAG_SYNC  = UCS_BIT(3),
+    UCP_RECV_DESC_FLAG_RNDV  = UCS_BIT(4),
 };
 
 
@@ -131,7 +132,8 @@ struct ucp_request {
 typedef struct ucp_recv_desc {
     ucs_queue_elem_t              queue;    /* Queue element */
     size_t                        length;   /* Received length */
-    unsigned                      flags;
+    uint16_t                      hdr_len;  /* Header size */
+    uint16_t                      flags;    /* Flags */
 } ucp_recv_desc_t;
 
 

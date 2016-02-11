@@ -7,9 +7,8 @@
 #include "eager.h"
 
 #include <ucp/core/ucp_worker.h>
-#include <ucp/proto/ucp_do_am.inl>
-#include <ucp/proto/ucp_do_generic.inl>
-#include <ucp/proto/ucp_do_zcopy.inl>
+#include <ucp/core/ucp_request.inl>
+#include <ucp/proto/proto_am.inl>
 
 
 /* packing  start */
@@ -104,7 +103,7 @@ static size_t ucp_tag_pack_eager_only_generic(void *dest, void *arg)
 
     ucs_assert(req->send.state.offset == 0);
     hdr->super.tag = req->send.tag.tag;
-    length         = ucp_req_generic_dt_pack(req, hdr + 1, req->send.length);
+    length         = ucp_request_generic_dt_pack(req, hdr + 1, req->send.length);
     ucs_assert(length == req->send.length);
     return sizeof(*hdr) + length;
 }
@@ -122,7 +121,7 @@ static size_t ucp_tag_pack_eager_first_generic(void *dest, void *arg)
     hdr->total_len       = req->send.length;
 
     ucs_assert(req->send.length > max_length);
-    length = ucp_req_generic_dt_pack(req, hdr + 1, max_length);
+    length = ucp_request_generic_dt_pack(req, hdr + 1, max_length);
     return sizeof(*hdr) + length;
 }
 
@@ -134,7 +133,7 @@ static size_t ucp_tag_pack_eager_middle_generic(void *dest, void *arg)
 
     max_length     = ucp_ep_config(req->send.ep)->max_am_bcopy - sizeof(*hdr);
     hdr->super.tag = req->send.tag.tag;
-    return sizeof(*hdr) + ucp_req_generic_dt_pack(req, hdr + 1, max_length);
+    return sizeof(*hdr) + ucp_request_generic_dt_pack(req, hdr + 1, max_length);
 }
 
 static size_t ucp_tag_pack_eager_last_generic(void *dest, void *arg)
@@ -145,7 +144,7 @@ static size_t ucp_tag_pack_eager_last_generic(void *dest, void *arg)
 
     max_length     = req->send.length - req->send.state.offset;
     hdr->super.tag = req->send.tag.tag;
-    length         = ucp_req_generic_dt_pack(req, hdr + 1, max_length);
+    length         = ucp_request_generic_dt_pack(req, hdr + 1, max_length);
     ucs_assertv(length == max_length, "length=%zu, max_length=%zu",
                 length, max_length);
     return sizeof(*hdr) + length;
@@ -160,7 +159,8 @@ static size_t ucp_tag_pack_eager_sync_only_generic(void *dest, void *arg)
     ucs_assert(req->send.state.offset == 0);
     hdr->super.super.tag = req->send.tag.tag;
     hdr->tid             = req->send.tag.txn.txn_id;
-    length               = ucp_req_generic_dt_pack(req, hdr + 1, req->send.length);
+    length               = ucp_request_generic_dt_pack(req, hdr + 1,
+                                                       req->send.length);
     ucs_assert(length == req->send.length);
     return sizeof(*hdr) + length;
 }
@@ -180,7 +180,7 @@ static size_t ucp_tag_pack_eager_sync_first_generic(void *dest, void *arg)
     hdr->total_len             = req->send.length;
 
     ucs_assert(req->send.length > max_length);
-    length = ucp_req_generic_dt_pack(req, hdr + 1, max_length);
+    length = ucp_request_generic_dt_pack(req, hdr + 1, max_length);
     return sizeof(*hdr) + length;
 }
 
@@ -269,6 +269,13 @@ static void ucp_tag_eager_contig_zcopy_completion(uct_completion_t *self)
     ucp_tag_eager_contig_zcopy_req_complete(req);
 }
 
+static void ucp_tag_eager_generic_complere(uct_pending_req_t *self)
+{
+    ucp_request_t *req = ucs_container_of(self, ucp_request_t, send.uct);
+    ucp_request_generic_dt_finish(req);
+    ucp_request_complete(req, req->cb.send, UCS_OK);
+}
+
 static ucs_status_t ucp_tag_eager_generic_single(uct_pending_req_t *self)
 {
     ucs_status_t status;
@@ -276,9 +283,7 @@ static ucs_status_t ucp_tag_eager_generic_single(uct_pending_req_t *self)
     status = ucp_do_am_bcopy_single(self, UCP_AM_ID_EAGER_ONLY,
                                     ucp_tag_pack_eager_only_generic);
     if (status == UCS_OK) {
-        ucp_request_t *req = ucs_container_of(self, ucp_request_t, send.uct);
-        ucp_req_generic_dt_finish(req);
-        ucp_request_complete(req, req->cb.send, UCS_OK);
+        ucp_tag_eager_generic_complere(self);
     }
     return UCS_OK;
 }
@@ -295,9 +300,7 @@ static ucs_status_t ucp_tag_eager_generic_multi(uct_pending_req_t *self)
                                                 ucp_tag_pack_eager_middle_generic,
                                                 ucp_tag_pack_eager_last_generic);
     if (status == UCS_OK) {
-        ucp_request_t *req = ucs_container_of(self, ucp_request_t, send.uct);
-        ucp_req_generic_dt_finish(req);
-        ucp_request_complete(req, req->cb.send, UCS_OK);
+        ucp_tag_eager_generic_complere(self);
     }
     return status;
 }
@@ -326,6 +329,7 @@ void ucp_tag_eager_sync_completion(ucp_request_t *req, uint16_t flag)
     ucs_assertv(!(req->flags & flag), "req->flags=%d flag=%d", req->flags, flag);
     req->flags |= flag;
     if (ucs_test_all_flags(req->flags, all_completed)) {
+        ucp_transaction_remove(req->send.ep->worker->context, &req->send.tag.txn);
         ucp_request_complete(req, req->cb.send, UCS_OK);
     }
 }
@@ -402,7 +406,7 @@ static void ucp_tag_eager_sync_contig_zcopy_completion(uct_completion_t *self)
 static inline void ucp_tag_eager_sync_generic_complete(uct_pending_req_t *self)
 {
     ucp_request_t *req = ucs_container_of(self, ucp_request_t, send.uct);
-    ucp_req_generic_dt_finish(req);
+    ucp_request_generic_dt_finish(req);
     ucp_tag_eager_sync_completion(req, UCP_REQUEST_FLAG_LOCAL_COMPLETED);
 }
 
@@ -448,3 +452,8 @@ const ucp_proto_t ucp_tag_eager_sync_proto = {
     .first_hdr_size          = sizeof(ucp_eager_sync_first_hdr_t),
     .mid_hdr_size            = sizeof(ucp_eager_hdr_t)
 };
+
+void ucp_send_eager_sync_ack(ucp_worker_h worker, ucp_recv_desc_t *rdesc)
+{
+    ucs_warn("TODO send sync ack");
+}
