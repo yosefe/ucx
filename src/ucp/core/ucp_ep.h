@@ -56,8 +56,14 @@ typedef struct ucp_ep_config {
     /* Threshold for switching from eager to rendezvous */
     size_t                 rndv_thresh;
 
+    /* threshold for switching from eager-sync to rendezvous */
+    size_t                 sync_rndv_thresh;
+
     /* zero-copy threshold for operations which do not have to wait for remote side */
     size_t                 zcopy_thresh;
+
+    /* zero-copy threshold for operations which anyways have to wait for remote side */
+    size_t                 sync_zcopy_thresh;
 
 } ucp_ep_config_t;
 

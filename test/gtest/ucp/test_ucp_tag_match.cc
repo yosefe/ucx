@@ -350,4 +350,39 @@ UCS_TEST_P(test_ucp_tag_match, send_nb_multiple_recv_unexp) {
     }
 }
 
+UCS_TEST_P(test_ucp_tag_match, sync_send_unexp) {
+    ucp_tag_recv_info_t info;
+    ucs_status_t status;
+
+    uint64_t send_data = 0xdeadbeefdeadbeef;
+    uint64_t recv_data = 0;
+
+    request *my_send_req;
+    my_send_req = (request*)ucp_tag_send_sync_nb(sender->ep(), &send_data,
+                                                 sizeof(send_data), DATATYPE, 0x111337,
+                                                 send_callback);
+    ASSERT_TRUE(!UCS_PTR_IS_ERR(my_send_req));
+
+    short_progress_loop();
+
+    EXPECT_FALSE(my_send_req->completed);
+
+    ucp_worker_progress(receiver->worker());
+
+    status = recv_b(&recv_data, sizeof(recv_data), DATATYPE, 0x1337, 0xffff, &info);
+    ASSERT_UCS_OK(status);
+
+    EXPECT_EQ(sizeof(send_data),   info.length);
+    EXPECT_EQ((ucp_tag_t)0x111337, info.sender_tag);
+    EXPECT_EQ(send_data, recv_data);
+
+    short_progress_loop();
+
+    if (my_send_req != NULL) {
+        EXPECT_TRUE(my_send_req->completed);
+        EXPECT_EQ(UCS_OK, my_send_req->status);
+        request_release(my_send_req);
+    }
+}
+
 UCP_INSTANTIATE_TEST_CASE(test_ucp_tag_match)
