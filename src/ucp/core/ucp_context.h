@@ -38,6 +38,24 @@ enum {
     UCP_AM_ID_EAGER_SYNC_FIRST  =  7, /* First eager-sync fragment */
     UCP_AM_ID_EAGER_SYNC_ACK    =  8, /* Eager-sync acknowldge */
 
+    UCP_AM_ID_RNDV_RTS          =  9, /* Rendezvous ready to send */
+    UCP_AM_ID_RNDV_RTR          = 10, /* Rendezvous ready to receive */
+    UCP_AM_ID_RNDV_DATA         = 11, /* Rendezvous data */
+    UCP_AM_ID_RNDV_ATS          = 12, /* Rendezvous ack-to-send */
+    UCP_AM_ID_RNDV_ATR          = 13, /* Rendezvous ack-to-receive */
+
+    UCP_AM_ID_CANCEL            = 14, /* Cancel remote unexpected receive */
+    UCP_AM_ID_CANCEL_ACK        = 15, /* Cancel acknowledgment */
+
+    UCP_AM_ID_PUT               = 16, /* Write data to memory */
+    UCP_AM_ID_GET_REQ           = 17, /* Request to read from memory */
+    UCP_AM_ID_GET_RESP          = 18, /* Read data response */
+
+    UCP_AM_ID_ATOMIC_ADD        = 19, /* Atomic add */
+    UCP_AM_ID_ATOMIC_FADD       = 20, /* Atomic fetch-and-add */
+    UCP_AM_ID_ATOMIC_SWAP       = 21, /* Atomic swap */
+    UCP_AM_ID_ATOMIC_CSWAP      = 22, /* Atomic compare-and-swap */
+
     UCP_AM_ID_LAST
 };
 
