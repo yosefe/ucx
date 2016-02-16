@@ -154,3 +154,8 @@ void ucp_ep_destroy(ucp_ep_h ep)
     ucs_free(ep);
 }
 
+void ucp_ep_send_reply(ucp_request_t *req, int progress)
+{
+    ucp_ep_h ep = req->send.ep;
+    ucp_ep_add_pending(ep, ep->uct_ep, req, progress);
+}

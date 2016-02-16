@@ -123,17 +123,16 @@ ucp_tag_send_req(ucp_request_t *req, size_t count, size_t max_short,
     return req + 1;
 }
 
-void ucp_send_req_init(ucp_request_t* req, ucp_ep_h ep, const void* buffer,
-                       uintptr_t datatype, ucp_tag_t tag, ucp_send_callback_t cb)
+static void ucp_tag_send_req_init(ucp_request_t* req, ucp_ep_h ep,
+                                  const void* buffer, uintptr_t datatype,
+                                  ucp_tag_t tag, ucp_send_callback_t cb)
 {
-    VALGRIND_MAKE_MEM_DEFINED(req + 1, ep->worker->context->config.request.size);
-    req->flags             = 0;
+    ucp_send_req_init(req, ep);
     req->cb.send           = cb;
-    req->send.ep           = ep;
     req->send.buffer       = buffer;
     req->send.datatype     = datatype;
     req->send.state.offset = 0;
-    req->send.tag          = tag;
+    req->send.tag.tag      = tag;
 }
 
 ucs_status_ptr_t ucp_tag_send_nb(ucp_ep_h ep, const void *buffer, size_t count,
@@ -162,11 +161,54 @@ ucs_status_ptr_t ucp_tag_send_nb(ucp_ep_h ep, const void *buffer, size_t count,
         return UCS_STATUS_PTR(UCS_ERR_NO_MEMORY);
     }
 
-    ucp_send_req_init(req, ep, buffer, datatype, tag, cb);
+    ucp_tag_send_req_init(req, ep, buffer, datatype, tag, cb);
 
     return ucp_tag_send_req(req, count,
                             ucp_ep_config(ep)->max_eager_short,
                             ucp_ep_config(ep)->zcopy_thresh,
                             ucp_ep_config(ep)->rndv_thresh,
                             &ucp_tag_eager_proto);
+}
+
+ucs_status_ptr_t ucp_tag_send_sync_nb(ucp_ep_h ep, const void *buffer, size_t count,
+                                      ucp_datatype_t datatype, ucp_tag_t tag,
+                                      ucp_send_callback_t cb)
+{
+    ucp_worker_h worker = ep->worker;
+    ucp_request_t *req;
+
+    ucs_trace_req("send_sync_nb buffer %p count %zu tag %"PRIx64" to %s cb %p",
+                  buffer, count, tag, ucp_ep_peer_name(ep), cb);
+
+    req = ucs_mpool_get_inline(&worker->req_mp);
+    if (req == NULL) {
+        return UCS_STATUS_PTR(UCS_ERR_NO_MEMORY);
+    }
+
+    /* Remote side needs to send reply, so have it connect to us */
+    ucp_ep_connect_remote(ep);
+
+    ucp_tag_send_req_init(req, ep, buffer, datatype, tag, cb);
+    ucp_transaction_add(worker->context, &req->send.tag.txn);
+
+    return ucp_tag_send_req(req, count,
+                            0,
+                            ucp_ep_config(ep)->sync_zcopy_thresh,
+                            ucp_ep_config(ep)->sync_rndv_thresh,
+                            &ucp_tag_eager_sync_proto);
+}
+
+void ucp_tag_eager_sync_send_ack(ucp_worker_h worker, uint64_t sender_uuid,
+                                 ucp_txn_id_t tid, int progress)
+{
+    ucp_request_t *req;
+
+    ucs_trace_req("send_sync_ack sender_uuid %"PRIx64" tid %d", sender_uuid, tid);
+
+    req = ucp_worker_allocate_reply(worker, sender_uuid);
+    req->send.uct.func     = ucp_proto_progress_am_bcopy_single;
+    req->send.proto.am_id  = UCP_AM_ID_EAGER_SYNC_ACK;
+    req->send.proto.tid    = tid;
+    req->send.proto.status = UCS_OK;
+    ucp_ep_send_reply(req, progress);
 }
