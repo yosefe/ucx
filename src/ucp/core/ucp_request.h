@@ -96,6 +96,12 @@ typedef struct ucp_request {
                     uint64_t      remote_addr; /* remote address */
                     ucp_rkey_h    rkey;        /* Rkey */
                 } rma;
+
+                struct {
+                    uint8_t       am_id;
+                    ucp_txn_id_t  tid;
+                    ucs_status_t  status;
+                } proto;
             };
 
             size_t                length;   /* Total length, in bytes */

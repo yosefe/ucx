@@ -7,6 +7,29 @@
 #ifndef UCP_PROTO_H_
 #define UCP_PROTO_H_
 
+#include <ucp/core/ucp_context.h>
+#include <ucp/core/ucp_worker.h>
+#include <ucs/sys/compiler.h>
+#include <ucs/sys/sys.h>
+
+
+/**
+ * Header segment for a transaction
+ */
+typedef struct {
+    uint64_t                  sender_uuid;
+    uint32_t                  tid;
+} UCS_S_PACKED ucp_txn_hdr_t;
+
+
+/**
+ * Header for transaction acknowledgment
+ */
+typedef struct {
+    uint32_t                  tid;
+    ucs_status_t              status;
+} UCS_S_PACKED ucp_txn_ack_hdr_t;
+
 
 /**
  * Defines functions for a protocol, on all possible data types.
@@ -24,6 +47,17 @@ typedef struct ucp_proto {
     size_t                     first_hdr_size;         /* Header size for first of multi */
     size_t                     mid_hdr_size;           /* Header size for rest of multi */
 } ucp_proto_t;
+
+
+ucs_status_t ucp_proto_progress_am_bcopy_single(uct_pending_req_t *self);
+
+
+static inline void ucp_send_req_init(ucp_request_t* req, ucp_ep_h ep)
+{
+    VALGRIND_MAKE_MEM_DEFINED(req + 1, ep->worker->context->config.request.size);
+    req->flags             = 0;
+    req->send.ep           = ep;
+}
 
 
 #endif

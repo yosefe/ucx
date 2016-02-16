@@ -12,6 +12,7 @@
 #include <ucp/core/ucp_worker.h>
 #include <ucp/core/ucp_context.h>
 #include <ucp/core/ucp_request.inl>
+#include <ucp/wireup/wireup.h>
 #include <ucp/dt/dt_generic.h>
 #include <ucs/datastruct/mpool.inl>
 #include <string.h>

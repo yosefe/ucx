@@ -8,6 +8,7 @@
 
 #include <ucp/wireup/wireup.h>
 #include <ucp/tag/eager.h>
+#include <ucs/datastruct/mpool.inl>
 
 
 static void ucp_worker_close_ifaces(ucp_worker_h worker)
@@ -493,6 +494,51 @@ err_free:
 void ucp_worker_release_address(ucp_worker_h worker, ucp_address_t *address)
 {
     ucs_free(address);
+}
+
+ucp_ep_h ucp_worker_get_reply_ep(ucp_worker_h worker, uint64_t dest_uuid)
+{
+    ucs_status_t status;
+    ucp_ep_h ep;
+
+    UCS_ASYNC_BLOCK(&worker->async);
+
+    ep = ucp_worker_ep_find(worker, dest_uuid);
+    if (ep == NULL) {
+        status = ucp_ep_new(worker, dest_uuid, "??", "for-sending-reply", &ep);
+        if (status != UCS_OK) {
+            goto err;
+        }
+
+        status = ucp_wireup_create_stub_ep(ep);
+        if (status != UCS_OK) {
+            ucp_ep_delete(ep);
+            goto err;
+        }
+    } else {
+        ucs_debug("found ep %p", ep);
+    }
+
+    UCS_ASYNC_UNBLOCK(&worker->async);
+    return ep;
+
+err:
+    ucs_fatal("failed to create reply endpoint: %s", ucs_status_string(status));
+}
+
+ucp_request_t *ucp_worker_allocate_reply(ucp_worker_h worker, uint64_t dest_uuid)
+{
+    ucp_request_t *req;
+    ucp_ep_h ep;
+
+    req = ucs_mpool_get_inline(&worker->req_mp);
+    if (req == NULL) {
+        ucs_fatal("could not allocate request");
+    }
+
+    ep = ucp_worker_get_reply_ep(worker, dest_uuid);
+    ucp_send_req_init(req, ep);
+    return req;
 }
 
 SGLIB_DEFINE_LIST_FUNCTIONS(ucp_ep_t, ucp_worker_ep_compare, next);

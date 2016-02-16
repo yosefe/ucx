@@ -41,6 +41,12 @@ ucs_status_t ucp_ep_new(ucp_worker_h worker, uint64_t dest_uuid,
     return UCS_OK;
 }
 
+void ucp_ep_delete(ucp_ep_h ep)
+{
+    sglib_hashed_ucp_ep_t_delete(ep->worker->ep_hash, ep);
+    ucs_free(ep);
+}
+
 static ucs_status_t ucp_pending_req_release(uct_pending_req_t *self)
 {
     ucp_request_t *req = ucs_container_of(self, ucp_request_t, send.uct);
@@ -128,7 +134,7 @@ out:
     return UCS_OK;
 
 err_free:
-    ucs_free(ep);
+    ucp_ep_delete(ep);
 err:
     UCS_ASYNC_UNBLOCK(&worker->async);
     return status;
@@ -146,3 +152,8 @@ void ucp_ep_destroy(ucp_ep_h ep)
     ucs_free(ep);
 }
 
+void ucp_ep_send_reply(ucp_request_t *req, int progress)
+{
+    ucp_ep_h ep = req->send.ep;
+    ucp_ep_add_pending(ep, ep->uct_ep, req, progress);
+}
