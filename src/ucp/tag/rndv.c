@@ -11,6 +11,8 @@
 #include <ucs/datastruct/queue.h>
 
 
+#define UCP_ALIGN 256
+
 static size_t ucp_tag_rndv_rts_pack(void *dest, void *arg)
 {
     ucp_rndv_rts_hdr_t *rndv_rts_hdr = dest;
@@ -67,13 +69,16 @@ static ucs_status_t ucp_proto_progress_rndv_get(uct_pending_req_t *self)
 
     offset = get_req->send.state.offset;
 
-    if ((offset == 0) && ((uintptr_t)get_req->send.buffer % UCS_SYS_CACHE_LINE_SIZE)) {
-        length = 4096 - ((uintptr_t)get_req->send.buffer % UCS_SYS_CACHE_LINE_SIZE);
+	ucs_debug("offset %zu remainder %zu", offset, (uintptr_t)get_req->send.buffer % UCP_ALIGN);
+
+    if ((offset == 0) && ((uintptr_t)get_req->send.buffer % UCP_ALIGN)) {
+        length = 4096 - ((uintptr_t)get_req->send.buffer % UCP_ALIGN);
     } else {
         length = ucs_min(get_req->send.length - offset,
                          ucp_ep_config(get_req->send.ep)->max_get_zcopy);
     }
 
+    ucs_debug("read %p len %zu", (void*)get_req->send.buffer + offset, length);
     status = uct_ep_get_zcopy(get_req->send.ep->uct_ep,
                               (void*)get_req->send.buffer + offset,
                               length,
@@ -132,7 +137,8 @@ void ucp_rndv_matched(ucp_worker_h worker, ucp_request_t *req,
     get_req->send.buffer       = req->recv.buffer;
 
     ucs_assert_always(req->recv.count != 0);
-    ucs_assert_always((req->recv.datatype & UCP_DATATYPE_CLASS_MASK) == UCP_DATATYPE_CONTIG);
+    ucs_assertv_always((req->recv.datatype & UCP_DATATYPE_CLASS_MASK) == UCP_DATATYPE_CONTIG,
+                       "dtype=0x%lx", req->recv.datatype);
     ucs_assert_always(get_req->send.ep->state & (UCP_EP_STATE_READY_TO_SEND|UCP_EP_STATE_NEXT_EP));
 
     get_req->send.length = ucp_contig_dt_length(req->recv.datatype,
@@ -149,11 +155,11 @@ void ucp_rndv_matched(ucp_worker_h worker, ucp_request_t *req,
     get_req->send.state.offset   = 0;
     {
         size_t max_get_zcopy = ucp_ep_config(get_req->send.ep)->max_get_zcopy;
-        size_t remainder = (uintptr_t)get_req->send.buffer % UCS_SYS_CACHE_LINE_SIZE;
+        size_t remainder = (uintptr_t)get_req->send.buffer % UCP_ALIGN;
 
         if (remainder) {
             get_req->send.uct_comp.count = 1 +
-               (get_req->send.length + 4096 - remainder + max_get_zcopy - 1) / max_get_zcopy;
+               (get_req->send.length - (4096 - remainder) + max_get_zcopy - 1) / max_get_zcopy;
         } else {
             get_req->send.uct_comp.count = (get_req->send.length + max_get_zcopy - 1) / max_get_zcopy;
         }

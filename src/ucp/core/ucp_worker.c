@@ -37,7 +37,7 @@ static ucs_status_t ucp_worker_set_am_handlers(ucp_worker_h worker,
                                               worker, 
                                               ucp_am_handlers[am_id].flags);
             if (status != UCS_OK) {
-                return status;
+//                return status;
             }
         }
     }
@@ -119,8 +119,7 @@ static ucs_status_t ucp_worker_add_iface(ucp_worker_h worker,
     attr = &worker->iface_attrs[tl_id];
 
     /* Set active message handlers for tag matching */
-    if ((attr->cap.flags & (UCT_IFACE_FLAG_AM_SHORT|UCT_IFACE_FLAG_AM_BCOPY|UCT_IFACE_FLAG_AM_ZCOPY)) &&
-        (attr->cap.flags & UCT_IFACE_FLAG_AM_CB_SYNC)) {
+    if ((attr->cap.flags & (UCT_IFACE_FLAG_AM_SHORT|UCT_IFACE_FLAG_AM_BCOPY|UCT_IFACE_FLAG_AM_ZCOPY))) {
         status = ucp_worker_set_am_handlers(worker, iface);
         if (status != UCS_OK) {
             goto out_close_iface;

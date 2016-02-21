@@ -305,7 +305,7 @@ err:
     return UCS_ERR_INVALID_PARAM;
 }
 
-void uct_ud_iface_complete_init(uct_ud_iface_t *iface, ucs_notifier_chain_func_t progress_cb)
+void uct_ud_iface_complete_init(uct_ud_iface_t *iface)
 {
     ucs_status_t status;
 
@@ -322,8 +322,6 @@ void uct_ud_iface_complete_init(uct_ud_iface_t *iface, ucs_notifier_chain_func_t
                                  iface->super.super.worker->async,
                                  &iface->async.timer_id);
     ucs_assertv_always(status == UCS_OK, "status=%s", ucs_status_string(status));
-
-    uct_worker_progress_register(iface->super.super.worker, progress_cb, iface);
 }
 
 UCS_CLASS_INIT_FUNC(uct_ud_iface_t, uct_iface_ops_t *ops, uct_pd_h pd,

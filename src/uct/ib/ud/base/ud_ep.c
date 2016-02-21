@@ -112,7 +112,6 @@ uct_ud_ep_pending_cancel_cb(ucs_arbiter_t *arbiter, ucs_arbiter_elem_t *elem,
 
     /* uct user should not have anything pending */
     req = ucs_container_of(elem, uct_pending_req_t, priv);
-    ucs_warn("ep=%p removing user pending req=%p", ep, req);
     iface->tx.pending_q_len--;
     
     /* return ignored by arbiter */

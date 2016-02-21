@@ -87,7 +87,7 @@ ucs_status_t uct_iface_set_am_handler(uct_iface_h tl_iface, uint8_t id,
         (UCT_IFACE_FLAG_AM_SHORT|
          UCT_IFACE_FLAG_AM_BCOPY|
          UCT_IFACE_FLAG_AM_ZCOPY))) {
-        ucs_debug("attempt to set am cb on iface without active message capabilites");
+        ucs_debug("attempt to set am cb on iface without active message capabilities");
         return UCS_ERR_INVALID_PARAM;
     }
 

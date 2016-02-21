@@ -698,6 +698,8 @@ static ucs_status_t ucp_wireup_start_aux(ucp_ep_h ep, struct sockaddr *aux_addr,
               ucp_ep_get_stub_ep(ep)->next_ep, ucp_ep_peer_name(ep),
               UCT_TL_RESOURCE_DESC_ARG(&worker->context->tl_rscs[ep->rsc_index].tl_rsc));
 
+    uct_worker_progress_register(ep->worker->uct, ucp_stub_ep_progress, ucp_ep_get_stub_ep(ep));
+
     return UCS_OK;
 
 err_destroy_aux_ep:
@@ -736,6 +738,8 @@ static void ucp_wireup_stop_aux(ucp_ep_h ep)
     }
 
     if (ep->state & UCP_EP_STATE_STUB_EP) {
+        uct_worker_progress_unregister(ep->worker->uct, ucp_stub_ep_progress, ucp_ep_get_stub_ep(ep));
+
         ucs_assert(ucp_ep_get_stub_ep(ep) != NULL);
         uct_eps_to_destroy[num_eps++] = &ucp_ep_get_stub_ep(ep)->super;
         ep->uct_ep = NULL;

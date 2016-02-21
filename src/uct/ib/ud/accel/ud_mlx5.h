@@ -17,6 +17,7 @@
 typedef struct {
     uct_ud_ep_t          super;
     struct mlx5_wqe_av   av;
+    int                  prog;
 } uct_ud_mlx5_ep_t;
 
 typedef struct {

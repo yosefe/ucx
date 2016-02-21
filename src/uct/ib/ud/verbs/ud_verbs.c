@@ -514,7 +514,10 @@ static UCS_CLASS_INIT_FUNC(uct_ud_verbs_iface_t, uct_pd_h pd, uct_worker_h worke
     self->tx.wr_skb.sg_list           = self->tx.sge;
     self->tx.wr_skb.num_sge           = 1;
 
-    uct_ud_iface_complete_init(&self->super, uct_ud_verbs_iface_progress);
+    uct_ud_iface_complete_init(&self->super);
+    uct_worker_progress_register(self->super.super.super.worker,
+                                 uct_ud_verbs_iface_progress, self);
+
     return UCS_OK;
 }
 
