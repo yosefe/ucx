@@ -55,8 +55,8 @@ UCS_TEST_P(test_ucp_tag_match, send_recv_unexp) {
     EXPECT_EQ(send_data, recv_data);
 }
 
-UCS_TEST_P(test_ucp_tag_match, send_recv_exp_medium) {
-    static const size_t size = 50000;
+UCS_TEST_P(test_ucp_tag_match, send_recv_exp_medium_nb) {
+    static const size_t size = 500000;
     ucs_status_t status;
     ucp_tag_recv_info_t info;
 
@@ -65,10 +65,36 @@ UCS_TEST_P(test_ucp_tag_match, send_recv_exp_medium) {
 
     ucs::fill_random(sendbuf.begin(), sendbuf.end());
 
-    send_b(&sendbuf[0], sendbuf.size(), DATATYPE, 0x111337);
+    request *req = send_nb(&sendbuf[0], sendbuf.size(), DATATYPE, 0x111337);
 
     status = recv_b(&recvbuf[0], recvbuf.size(), DATATYPE, 0x1337, 0xffff, &info);
     ASSERT_UCS_OK(status);
+
+    wait(req);
+    request_release(req);
+
+    EXPECT_EQ(sendbuf.size(),      info.length);
+    EXPECT_EQ((ucp_tag_t)0x111337, info.sender_tag);
+    EXPECT_EQ(sendbuf, recvbuf);
+}
+
+UCS_TEST_P(test_ucp_tag_match, send_recv_exp_large_nb) {
+    static const size_t size = 4 * 1024 * 1024;
+    ucs_status_t status;
+    ucp_tag_recv_info_t info;
+
+    std::vector<char> sendbuf(size, 0);
+    std::vector<char> recvbuf(size, 0);
+
+    ucs::fill_random(sendbuf.begin(), sendbuf.end());
+
+    request *req = send_nb(&sendbuf[0], sendbuf.size(), DATATYPE, 0x111337);
+
+    status = recv_b(&recvbuf[0], recvbuf.size(), DATATYPE, 0x1337, 0xffff, &info);
+    ASSERT_UCS_OK(status);
+
+    wait(req);
+    request_release(req);
 
     EXPECT_EQ(sendbuf.size(),      info.length);
     EXPECT_EQ((ucp_tag_t)0x111337, info.sender_tag);

@@ -49,8 +49,8 @@ enum {
  */
 #define ucp_request_complete(_req, _cb, ...) \
     { \
-        ucs_trace_data("completing request %p (%p) flags 0x%x", (_req), \
-                       (_req) + 1, (_req)->flags); \
+        ucs_trace_req("completing request %p (%p) flags 0x%x", (_req), \
+                      (_req) + 1, (_req)->flags); \
         (_cb)((_req) + 1, ## __VA_ARGS__); \
         if (((_req)->flags |= UCP_REQUEST_FLAG_COMPLETED) & UCP_REQUEST_FLAG_RELEASED) { \
             ucs_mpool_put(_req); \
@@ -110,6 +110,13 @@ struct ucp_request {
                     ucp_txn_id_t  tid;
                     ucs_status_t  status;
                 } proto;
+
+                struct {
+                    uint64_t      remote_address;
+                    uct_rkey_t    rkey;
+                    ucp_request_t *rreq;
+                    ucp_txn_id_t  tid;
+                } rndv_get;
             };
 
             size_t                length;   /* Total length, in bytes */

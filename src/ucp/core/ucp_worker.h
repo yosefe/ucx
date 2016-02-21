@@ -69,4 +69,10 @@ static inline uct_pd_h ucp_ep_pd(ucp_ep_h ep)
     return context->pds[context->tl_rscs[ep->rsc_index].pd_index];
 }
 
+static inline const uct_pd_attr_t* ucp_ep_pd_attr(ucp_ep_h ep)
+{
+    ucp_context_h context = ep->worker->context;
+    return &context->pd_attrs[context->tl_rscs[ep->rsc_index].pd_index];
+}
+
 #endif

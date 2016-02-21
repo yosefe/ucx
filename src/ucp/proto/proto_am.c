@@ -17,9 +17,14 @@ static size_t ucp_proto_pack(void *dest, void *arg)
         ack_hdr->tid    = req->send.proto.tid;
         ack_hdr->status = req->send.proto.status;
         return sizeof(*ack_hdr);
+    case UCP_AM_ID_RNDV_ATS:
+        ack_hdr->tid    = req->send.proto.tid;
+        ack_hdr->status = req->send.proto.status;
+        return sizeof(*ack_hdr);
     }
 
     ucs_bug("unexpected am_id");
+    return 0;
 }
 
 ucs_status_t ucp_proto_progress_am_bcopy_single(uct_pending_req_t *self)

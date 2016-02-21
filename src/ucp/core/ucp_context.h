@@ -38,6 +38,9 @@ enum {
     UCP_AM_ID_EAGER_SYNC_FIRST  =  7, /* First eager-sync fragment */
     UCP_AM_ID_EAGER_SYNC_ACK    =  8, /* Eager-sync acknowldge */
 
+    UCP_AM_ID_RNDV_RTS          =  9,
+    UCP_AM_ID_RNDV_ATS          =  10,
+
     UCP_AM_ID_LAST
 };
 

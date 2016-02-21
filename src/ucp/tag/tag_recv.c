@@ -55,7 +55,11 @@ ucp_tag_search_unexp(ucp_worker_h worker, void *buffer, size_t count,
                     return status;
                 }
             } else if (rdesc->flags & UCP_RECV_DESC_FLAG_RNDV) {
-                ucp_rndv_unexp_match(rdesc, req, buffer, count, datatype);
+                req->recv.buffer   = buffer;
+                req->recv.count    = count;
+                req->recv.datatype = datatype;
+                ucp_rndv_matched(worker, req, (void*)(rdesc + 1));
+                uct_iface_release_am_desc(rdesc);
                 return UCS_INPROGRESS;
             }
         }
@@ -158,7 +162,10 @@ ucs_status_ptr_t ucp_tag_msg_recv_nb(ucp_worker_h worker, void *buffer,
         ucs_trace_req("release receive descriptor %p", rdesc);
         uct_iface_release_am_desc(rdesc);
     } else if (rdesc->flags & UCP_RECV_DESC_FLAG_RNDV) {
-        ucp_rndv_unexp_match(rdesc, req, buffer, count, datatype);
+        req->recv.buffer   = buffer;
+        req->recv.count    = count;
+        req->recv.datatype = datatype;
+        ucp_rndv_matched(worker, req, (void*)(rdesc + 1));
         status = UCS_INPROGRESS;
     } else {
         ucs_mpool_put(req);

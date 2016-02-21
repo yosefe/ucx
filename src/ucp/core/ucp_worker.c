@@ -205,7 +205,7 @@ static void ucp_worker_set_config(ucp_worker_h worker, ucp_rsc_index_t tl_id)
     }
 
     config->bcopy_thresh     = context->config.ext.bcopy_thresh;
-    config->rndv_thresh      = SIZE_MAX;
+    config->rndv_thresh      = context->config.ext.rndv_thresh;
     config->sync_rndv_thresh = SIZE_MAX;
 }
 
