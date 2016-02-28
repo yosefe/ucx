@@ -80,7 +80,7 @@ UCS_TEST_P(test_ucp_wireup, address) {
     void *buffer;
 
     entity *ent1 = create_entity();
-    status = ucp_address_pack(ent1->worker(), NULL, -1, -1, &size, &buffer);
+    status = ucp_address_pack(ent1->worker(), NULL, -1, -1, 0, &size, &buffer);
     ASSERT_UCS_OK(status);
     ASSERT_TRUE(buffer != NULL);
     ASSERT_GT(size, 0ul);

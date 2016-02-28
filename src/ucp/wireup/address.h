@@ -19,6 +19,7 @@ typedef struct ucp_address_entry {
     char                       tl_name[UCT_TL_NAME_MAX]; /* Transport name */
     ucp_rsc_index_t            pd_index;  /* Protection domain index */
     ucp_rsc_index_t            rsc_index; /* Resource index TODO remove */
+    unsigned                   flags;
     union {
         const uct_iface_addr_t *iface_addr;    /* Interface address */
         const uct_ep_addr_t    *ep_addr;       /* Endpoint address */
@@ -41,12 +42,15 @@ typedef struct ucp_address_entry {
  *                           be packed.
  * @param [in]  tl_bitmap   Specifies the resources whose transport address
  *                           (ep or iface) should be packed.
+ * @param [in]  tl_flags    Pass one flags (which could be 0 or 1) for every packed
+ *                           transport address.
  * @param [out] size_p      Filled with buffer size.
  * @param [out] buffer_p    Filled with pointer to packed buffer. It should be
  *                           released by ucs_free().
  */
 ucs_status_t ucp_address_pack(ucp_worker_h worker, ucp_ep_h ep, uint64_t dev_bitmap,
-                              uint64_t tl_bitmap, size_t *size_p, void **buffer_p);
+                              uint64_t tl_bitmap, uint64_t tl_flags, size_t *size_p,
+                              void **buffer_p);
 
 /**
  * Unpack a list of addresses.
