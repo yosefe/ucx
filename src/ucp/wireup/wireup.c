@@ -5,6 +5,7 @@
 */
 
 #include "wireup.h"
+#include "address.h"
 #include "stub_ep.h"
 
 #include <ucp/core/ucp_ep.h>
@@ -141,51 +142,6 @@ void ucp_wireup_progress(ucp_ep_h ep)
         } while (status != UCS_OK);
         --ep->worker->stub_pend_count;
     }
-}
-
-/*
- * UCP address is a serialization of multiple interface addresses.
- * It is built from records which look like this:
- *
- * [ entity UUID ]
- *
- * +------------+------+----------------------+------------------+
- * | tl_name[n] | '\0' | address_len (1 byte) | uct_iface_addr_t |
- * +------------+------+----------------------+------------------+
- *
- * ...
- *
- * The last record starts with '\0' (as if the tl_name is empty string)
- */
-
-
-static int ucp_address_iter_next(void **iter, uct_iface_addr_t **iface_addr_p,
-                                 char *tl_name, ucp_rsc_index_t *pd_index,
-                                 ucp_rsc_index_t *rsc_index)
-{
-    char *ptr = *iter;
-    uint8_t iface_addr_len;
-    uint8_t tl_name_len;
-
-    iface_addr_len = *(uint8_t*)(ptr++);
-    if (iface_addr_len == 0) {
-        return 0;
-    }
-
-    *iface_addr_p  = (uct_iface_addr_t*)ptr;
-    ptr += iface_addr_len;
-
-    tl_name_len = *(uint8_t*)(ptr++);
-    ucs_assert_always(tl_name_len < UCT_TL_NAME_MAX);
-    memcpy(tl_name, ptr, tl_name_len);
-    tl_name[tl_name_len] = '\0';
-    ptr += tl_name_len;
-
-    *pd_index  = *((ucp_rsc_index_t*)ptr++);
-    *rsc_index = *((ucp_rsc_index_t*)ptr++);
-
-    *iter = ptr;
-    return 1;
 }
 
 static inline void * ucp_wireup_msg_addr(ucp_wireup_msg_t *msg)
@@ -339,25 +295,24 @@ ucp_select_local_transport(ucp_worker_h worker, const uct_iface_addr_t *remote_a
     return UCS_OK;
 }
 
-static ucs_status_t ucp_select_transport(ucp_worker_h worker, ucp_address_t *address,
+static ucs_status_t ucp_select_transport(ucp_worker_h worker,
+                                         ucp_address_entry_t *address_list,
+                                         unsigned address_count,
                                          ucp_wireup_score_function_t score_func,
                                          ucp_rsc_index_t *src_rsc_index_p,
                                          ucp_rsc_index_t *dst_rsc_index_p,
                                          ucp_rsc_index_t *dst_pd_index_p,
-                                         uct_iface_addr_t **addr_p,
+                                         const uct_iface_addr_t **addr_p,
                                          uint64_t *reachable_pds,
                                          const char *title)
 {
     ucp_context_h context = worker->context;
-    ucp_rsc_index_t dst_rsc_index, src_rsc_index;
-    ucp_rsc_index_t pd_index;
-    uct_iface_addr_t *addr, *best_addr;
+    ucp_rsc_index_t src_rsc_index;
     double score, best_score;
-    char tl_name[UCT_TL_NAME_MAX];
+    ucp_address_entry_t *ae, *best_ae;
     ucs_status_t status;
-    void *iter;
 
-    best_addr        = NULL;
+    best_ae         = NULL;
     best_score       = 1e-9;
     *src_rsc_index_p = -1;
     *dst_rsc_index_p = -1;
@@ -367,29 +322,28 @@ static ucs_status_t ucp_select_transport(ucp_worker_h worker, ucp_address_t *add
     /*
      * Find the best combination of local resource and reachable remote address.
      */
-    iter = ucp_address_iter_start(address);
-    while (ucp_address_iter_next(&iter, &addr, tl_name, &pd_index, &dst_rsc_index)) {
-        status = ucp_select_local_transport(worker, addr, tl_name, score_func,
-                                            dst_rsc_index, &src_rsc_index,
-                                            &score, title);
+    for (ae = address_list; ae < address_list + address_count; ++ae) {
+        status = ucp_select_local_transport(worker, ae->iface_addr, ae->tl_name,
+                                            score_func, ae->rsc_index,
+                                            &src_rsc_index, &score, title);
         if ((status == UCS_OK) && (score > best_score)) {
-            ucs_assert(addr != NULL);
-            best_score       = score;
-            best_addr        = addr;
-            *dst_rsc_index_p = dst_rsc_index;
+            best_ae          = ae;
             *src_rsc_index_p = src_rsc_index;
-            *dst_pd_index_p  = pd_index;
+            best_score       = score;
         }
     }
 
-    if (best_addr == NULL) {
+    if (best_ae == NULL) {
         return UCS_ERR_UNREACHABLE;
     }
+
+    *addr_p          = best_ae->iface_addr;
+    *dst_pd_index_p  = best_ae->pd_index;
+    *dst_rsc_index_p = best_ae->rsc_index;
 
     ucs_debug("selected for %s: " UCT_TL_RESOURCE_DESC_FMT " [%d->%d] pd %d", title,
               UCT_TL_RESOURCE_DESC_ARG(&context->tl_rscs[*src_rsc_index_p].tl_rsc),
               *src_rsc_index_p, *dst_rsc_index_p, *dst_pd_index_p);
-    *addr_p = best_addr;
     return UCS_OK;
 }
 
@@ -655,7 +609,8 @@ ucs_status_t ucp_wireup_create_stub_ep(ucp_ep_h ep)
     return UCS_OK;
 }
 
-static ucs_status_t ucp_wireup_start_aux(ucp_ep_h ep, uct_iface_addr_t *aux_addr,
+static ucs_status_t ucp_wireup_start_aux(ucp_ep_h ep,
+                                         const uct_iface_addr_t *aux_addr,
                                          ucp_rsc_index_t aux_rsc_index)
 {
     ucp_worker_h worker = ep->worker;
@@ -991,10 +946,11 @@ static ucs_status_t ucp_wireup_msg_handler(void *arg, void *data,
     return UCS_OK;
 }
 
-ucs_status_t ucp_wireup_start(ucp_ep_h ep, ucp_address_t *address)
+ucs_status_t ucp_wireup_start(ucp_ep_h ep, ucp_address_entry_t *address_list,
+                              unsigned address_count)
 {
     ucp_worker_h worker = ep->worker;
-    uct_iface_addr_t *uct_addr, *aux_addr;
+    const uct_iface_addr_t *uct_addr, *aux_addr;
     uct_iface_attr_t *iface_attr;
     ucp_rsc_index_t dst_rsc_index, dst_aux_rsc_index;
     ucp_rsc_index_t aux_rsc_index;
@@ -1007,7 +963,8 @@ ucs_status_t ucp_wireup_start(ucp_ep_h ep, ucp_address_t *address)
     /*
      * Select best transport for runtime
      */
-    status = ucp_select_transport(worker, address, ucp_runtime_score_func,
+    status = ucp_select_transport(worker, address_list, address_count,
+                                  ucp_runtime_score_func,
                                   &ep->rsc_index, &dst_rsc_index,
                                   &ep->dst_pd_index, &uct_addr,
                                   &reachable_pds,
@@ -1044,7 +1001,8 @@ ucs_status_t ucp_wireup_start(ucp_ep_h ep, ucp_address_t *address)
      * If we cannot connect the selected transport directly, select another
      * transport to be an auxiliary.
      */
-    status = ucp_select_transport(worker, address, ucp_aux_score_func,
+    status = ucp_select_transport(worker, address_list, address_count,
+                                  ucp_aux_score_func,
                                   &aux_rsc_index, &dst_aux_rsc_index,
                                   &dst_aux_pd_index, &aux_addr,
                                   &reachable_pds,
@@ -1098,15 +1056,5 @@ ucs_status_t ucp_wireup_connect_remote(ucp_ep_h ep)
     return status;
 }
 
-void ucp_address_peer_name(ucp_address_t *address, char *name)
-{
-    uint8_t length = *(uint8_t*)(address + sizeof(uint64_t));
-    ucs_assertv(length < UCP_WORKER_NAME_MAX, "length=%d", length);
-    memcpy(name, address + sizeof(uint64_t) + 1, length);
-    name[length] = '\0';
-}
-
 UCP_DEFINE_AM(-1, UCP_AM_ID_WIREUP, ucp_wireup_msg_handler, 
               ucp_wireup_msg_dump, UCT_AM_CB_FLAG_ASYNC);
-
-

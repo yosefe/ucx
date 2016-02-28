@@ -8,6 +8,8 @@
 #ifndef UCP_WIREUP_H_
 #define UCP_WIREUP_H_
 
+#include "address.h"
+
 #include <ucp/api/ucp.h>
 #include <ucp/core/ucp_context.h>
 #include <uct/api/uct.h>
@@ -55,7 +57,8 @@ typedef struct ucp_wireup_msg {
 } UCS_S_PACKED ucp_wireup_msg_t;
 
 
-ucs_status_t ucp_wireup_start(ucp_ep_h ep, ucp_address_t *address);
+ucs_status_t ucp_wireup_start(ucp_ep_h ep, ucp_address_entry_t *address_list,
+                              unsigned address_count);
 
 ucs_status_t ucp_wireup_connect_remote(ucp_ep_h ep);
 
@@ -64,19 +67,5 @@ ucs_status_t ucp_wireup_create_stub_ep(ucp_ep_h ep);
 void ucp_wireup_stop(ucp_ep_h ep);
 
 void ucp_wireup_progress(ucp_ep_h ep);
-
-void ucp_address_peer_name(ucp_address_t *address, char *peer_name);
-
-static inline uint64_t ucp_address_uuid(ucp_address_t *address)
-{
-    return *(uint64_t*)address;
-}
-
-static inline void *ucp_address_iter_start(ucp_address_t *address)
-{
-    uint8_t name_length;
-    name_length = *(uint8_t*)((char*)address + sizeof(uint64_t));
-    return (char*)address + sizeof(uint64_t) + 1 + name_length;
-}
 
 #endif

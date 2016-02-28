@@ -6,7 +6,7 @@
 
 #include "ucp_worker.h"
 
-#include <ucp/wireup/wireup.h>
+#include <ucp/wireup/address.h>
 #include <ucp/tag/eager.h>
 #include <ucs/datastruct/mpool.inl>
 
@@ -385,141 +385,11 @@ void ucp_worker_progress(ucp_worker_h worker)
     ucs_assert(--worker->inprogress == 0);
 }
 
-static ucs_status_t
-ucp_worker_pack_resource_address(ucp_worker_h worker, ucp_rsc_index_t rsc_index,
-                                 void **addr_buf_p, size_t *length_p)
-{
-    ucp_context_h context = worker->context;
-    uct_iface_attr_t *iface_attr = &worker->iface_attrs[rsc_index];
-    ucp_tl_resource_desc_t *resource = &context->tl_rscs[rsc_index];
-    ucs_status_t status;
-    void *buffer, *ptr;
-    uint8_t tl_name_len;
-    size_t length;
-    int af;
-
-    tl_name_len = strlen(resource->tl_rsc.tl_name);
-
-    /* Calculate new address buffer size */
-    length   = 1 +                           /* address length */
-               iface_attr->iface_addr_len +  /* address */
-               1 +                           /* tl name length */
-               tl_name_len +                 /* tl name */
-               1 +                           /* pd index */
-               1;                            /* resource index */
-
-    /* Enlarge address buffer */
-    buffer = ucs_malloc(length, "ucp address");
-    if (buffer == NULL) {
-        status = UCS_ERR_NO_MEMORY;
-        goto err;
-    }
-
-    ptr = buffer;
-
-    /* Copy iface address length */
-    ucs_assert_always(iface_attr->iface_addr_len <= UINT8_MAX);
-    ucs_assert_always(iface_attr->iface_addr_len > 0);
-    *((uint8_t*)ptr++) = iface_attr->iface_addr_len;
-
-    /* Copy iface address */
-    status = uct_iface_get_address(worker->ifaces[rsc_index], ptr);
-    if (status != UCS_OK) {
-        goto err_free;
-    }
-
-    af   = ((struct sockaddr*)ptr)->sa_family;
-    ptr += iface_attr->iface_addr_len;
-
-    /* Transport name */
-    *((uint8_t*)ptr++) = tl_name_len;
-    memcpy(ptr, resource->tl_rsc.tl_name, tl_name_len);
-    ptr += tl_name_len;
-
-    *((ucp_rsc_index_t*)ptr++) = resource->pd_index;
-    *((ucp_rsc_index_t*)ptr++) = rsc_index;
-
-    ucs_trace("adding resource[%d]: "UCT_TL_RESOURCE_DESC_FMT" family %d address length %zu",
-               rsc_index, UCT_TL_RESOURCE_DESC_ARG(&resource->tl_rsc), af, length);
-
-    *addr_buf_p = buffer;
-    *length_p   = length;
-    return UCS_OK;
-
-err_free:
-    ucs_free(buffer);
-err:
-    return status;
-}
-
 ucs_status_t ucp_worker_get_address(ucp_worker_h worker, ucp_address_t **address_p,
                                     size_t *address_length_p)
 {
-    ucp_context_h context = worker->context;
-    ucp_address_t *address;
-    size_t address_length, rsc_addr_length = 0;
-    ucs_status_t status;
-    ucp_rsc_index_t rsc_index = -1;
-    void *rsc_addr = NULL;
-
-    UCS_STATIC_ASSERT((ucp_address_t*)0 + 1 == (void*)0 + 1);
-
-    address_length = sizeof(uint64_t) + strlen(ucp_worker_get_name(worker)) + 1;
-    address        = ucs_malloc(address_length + 1, "ucp address");
-    if (address == NULL) {
-        status = UCS_ERR_NO_MEMORY;
-        goto err_free;
-    }
-
-    /* Set address UUID */
-    *(uint64_t*)address = worker->uuid;
-
-    /* Set peer name */
-    UCS_STATIC_ASSERT(UCP_WORKER_NAME_MAX <= UINT8_MAX);
-    *(uint8_t*)(address + sizeof(uint64_t)) = strlen(ucp_worker_get_name(worker));
-    strcpy(address + sizeof(uint64_t) + 1, ucp_worker_get_name(worker));
-
-    ucs_assert(ucp_address_iter_start(address) == address + address_length);
-
-    for (rsc_index = 0; rsc_index < context->num_tls; ++rsc_index) {
-        status = ucp_worker_pack_resource_address(worker, rsc_index,
-                                                  &rsc_addr, &rsc_addr_length);
-        if (status != UCS_OK) {
-            goto err_free;
-        }
-
-        /* Enlarge address buffer, leave room for NULL terminator */
-        address_length += rsc_addr_length;
-        address = ucs_realloc(address, address_length + 1, "ucp address");
-        if (address == NULL) {
-            status = UCS_ERR_NO_MEMORY;
-            ucs_free(rsc_addr);
-            goto err_free;
-        }
-
-        /* Add the address of the current resource */
-        memcpy(address + address_length - rsc_addr_length, rsc_addr, rsc_addr_length);
-        ucs_free(rsc_addr);
-    }
-
-    if (address_length == 0) {
-        ucs_error("No valid transport found");
-        status = UCS_ERR_NO_DEVICE;
-        goto err_free;
-    }
-
-    /* The final NULL terminator */
-    *((uint8_t*)address + address_length) = 0;
-    ++address_length;
-    ucs_debug("worker uuid 0x%"PRIx64" address length: %zu", worker->uuid, address_length);
-
-    *address_p        = address;
-    *address_length_p = address_length;
-    return UCS_OK;
-
-err_free:
-    ucs_free(address);
-    return status;
+    return ucp_address_pack(worker, NULL, -1, -1, address_length_p,
+                            (void**)address_p);
 }
 
 void ucp_worker_release_address(ucp_worker_h worker, ucp_address_t *address)
@@ -639,25 +509,29 @@ void ucp_worker_proto_print(ucp_worker_h worker, FILE *stream, const char *title
         config = &worker->ep_config[tl_id];
         {
             const char *names[] = {"egr_short", "put_short", "am_short"};
-            size_t     values[] = {config->max_eager_short, config->max_put_short, config->max_am_short};
+            size_t     values[] = {config->max_eager_short, config->max_put_short,
+                                   config->max_am_short};
             ucp_worker_print_config(stream, names, values, 3, "<=");
         }
 
         {
             const char *names[] = {"am_bcopy", "put_bcopy", "get_bcopy"};
-            size_t     values[] = {config->max_am_bcopy, config->max_put_bcopy, config->max_get_bcopy};
+            size_t     values[] = {config->max_am_bcopy, config->max_put_bcopy,
+                                   config->max_get_bcopy};
             ucp_worker_print_config(stream, names, values, 3, "<=");
         }
 
         {
             const char *names[] = {"am_zcopy", "put_zcopy", "get_zcopy"};
-            size_t     values[] = {config->max_am_zcopy, config->max_put_zcopy, config->max_get_zcopy};
+            size_t     values[] = {config->max_am_zcopy, config->max_put_zcopy,
+                                   config->max_get_zcopy};
             ucp_worker_print_config(stream, names, values, 3, "<=");
         }
 
         {
             const char *names[] = {"bcopy", "rndv", "zcopy"};
-            size_t     values[] = {config->bcopy_thresh, config->rndv_thresh, config->zcopy_thresh};
+            size_t     values[] = {config->bcopy_thresh, config->rndv_thresh,
+                                   config->zcopy_thresh};
             ucp_worker_print_config(stream, names, values, 3, ">=");
         }
 
