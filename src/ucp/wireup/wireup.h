@@ -15,16 +15,14 @@
 #include <uct/api/uct.h>
 
 
-
 /**
- * Flags in the wireup message
+ * Wireup message types
  */
 enum {
-    UCP_WIREUP_FLAG_REQUSET               = UCS_BIT(0),
-    UCP_WIREUP_FLAG_REPLY                 = UCS_BIT(1),
-    UCP_WIREUP_FLAG_ACK                   = UCS_BIT(2),
-    UCP_WIREUP_FLAG_ADDR                  = UCS_BIT(3),
-    UCP_WIREUP_FLAG_AUX_ADDR              = UCS_BIT(4)
+    UCP_WIREUP_MSG_REQUEST,
+    UCP_WIREUP_MSG_REPLY,
+    UCP_WIREUP_MSG_ACK,
+    UCP_WIREUP_MSG_LAST
 };
 
 
@@ -39,21 +37,10 @@ typedef double (*ucp_wireup_score_function_t)(ucp_worker_h worker,
  * Packet structure for wireup requests.
  */
 typedef struct ucp_wireup_msg {
-    uint64_t                      src_uuid;         /* Sender uuid */
-    ucp_rsc_index_t               src_pd_index;     /* Sender PD index */
-    ucp_rsc_index_t               src_rsc_index;    /* Index of sender resource */
-    ucp_rsc_index_t               dst_rsc_index;    /* Index of receiver resource */
-    ucp_rsc_index_t               dst_aux_index;    /* Index of receiver wireup resource */
-    uint16_t                      flags;            /* Wireup flags */
-    uint8_t                       addr_len;         /* Length of first address */
-    uint8_t                       peer_name_len;    /* Length of peer name */
-    uint8_t                       tl_name_len;      /* Length of tl name name */
-    /*
-     * Variable-length fields:
-     *   - peer name (peer_name_len)
-     *   - tl_name (tl_name_len)
-     *   - addresses (according to flags)
-     */
+    uint8_t               type;        /* Message type */
+    uint8_t               tl_index;    /* Index of runtime address */
+    uint8_t               aux_index;   /* Index of auxiliary address */
+    /* packed addresses follow */
 } UCS_S_PACKED ucp_wireup_msg_t;
 
 

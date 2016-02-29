@@ -8,6 +8,7 @@
 #include "cuda_pd.h"
 #include "cuda_ep.h"
 
+#include <uct/sm/base/sm_iface.h>
 #include <ucs/type/class.h>
 
 
@@ -24,21 +25,13 @@ static ucs_config_field_t uct_cuda_iface_config_table[] = {
 /* Forward declaration for the delete function */
 static void UCS_CLASS_DELETE_FUNC_NAME(uct_cuda_iface_t)(uct_iface_t*);
 
+
 static ucs_status_t uct_cuda_iface_get_address(uct_iface_h tl_iface,
                                                uct_iface_addr_t *iface_addr)
 {
-    uct_sockaddr_process_t *cuda_addr = (uct_sockaddr_process_t*)iface_addr;
-
-    cuda_addr->sp_family = UCT_AF_PROCESS;
-    cuda_addr->node_guid = ucs_machine_guid();
-    cuda_addr->id        = 0;
+    int *cuda_addr = (int*)iface_addr;
+    cuda_addr = 0;
     return UCS_OK;
-}
-
-static int uct_cuda_iface_is_reachable(uct_iface_h iface,
-                                       const uct_iface_addr_t* addr)
-{
-    return 0;
 }
 
 static ucs_status_t uct_cuda_iface_query(uct_iface_h iface,
@@ -47,7 +40,8 @@ static ucs_status_t uct_cuda_iface_query(uct_iface_h iface,
     memset(iface_attr, 0, sizeof(uct_iface_attr_t));
 
     /* FIXME all of these values */
-    iface_attr->iface_addr_len         = sizeof(uct_sockaddr_process_t);
+    iface_attr->iface_addr_len         = sizeof(int);
+    iface_attr->device_addr_len        = UCT_SM_IFACE_DEVICE_ADDR_LEN;
     iface_attr->ep_addr_len            = 0;
     iface_attr->cap.flags              = 0;
 
@@ -73,9 +67,9 @@ static ucs_status_t uct_cuda_iface_query(uct_iface_h iface,
 static uct_iface_ops_t uct_cuda_iface_ops = {
     .iface_close         = UCS_CLASS_DELETE_FUNC_NAME(uct_cuda_iface_t),
     .iface_get_address   = uct_cuda_iface_get_address,
-    .iface_get_device_address = (void*)ucs_empty_function_return_success,
+    .iface_get_device_address = uct_sm_iface_get_device_address,
     .iface_query         = uct_cuda_iface_query,
-    .iface_is_reachable  = uct_cuda_iface_is_reachable,
+    .iface_is_reachable  = uct_sm_iface_is_reachable,
     .ep_create_connected = UCS_CLASS_NEW_FUNC_NAME(uct_cuda_ep_t),
     .ep_destroy          = UCS_CLASS_DELETE_FUNC_NAME(uct_cuda_ep_t),
     .ep_put_short        = uct_cuda_ep_put_short,

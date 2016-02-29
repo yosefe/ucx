@@ -37,9 +37,6 @@ typedef struct {
 
 
 #define UCP_ADDRESS_FLAG_LAST         0x80   /* Last address in the list */
-#define UCP_ADDRESS_FLAG_EMPTY        0x80   /* Device has no transport addresses */
-#define UCP_ADDRESS_STRING_LEN_SHIFT  7
-#define UCP_ADDRESS_STRING_LEN_MASK   UCS_MASK(UCP_ADDRESS_STRING_LEN_SHIFT)
 
 
 static size_t ucp_address_string_packed_size(const char *s)
@@ -48,25 +45,23 @@ static size_t ucp_address_string_packed_size(const char *s)
 }
 
 /* Pack a string and return a pointer to storage right after the string */
-static void* ucp_address_pack_string(const char *s, void *dest, unsigned flags)
+static void* ucp_address_pack_string(const char *s, void *dest)
 {
     size_t length = strlen(s);
 
-    ucs_assert(length <= UCP_ADDRESS_STRING_LEN_MASK);
-    *(uint8_t*)dest = length | (flags << UCP_ADDRESS_STRING_LEN_SHIFT);
+    ucs_assert(length <= UINT8_MAX);
+    *(uint8_t*)dest = length;
     memcpy(dest + 1, s, length);
     return dest + 1 + length;
 }
 
 /* Unpack a string and return pointer to next storage byte */
-static const void* ucp_address_unpack_string(const void *src, char *s,
-                                             size_t max, unsigned *flags_p)
+static const void* ucp_address_unpack_string(const void *src, char *s, size_t max)
 {
     size_t length, avail;
 
     ucs_assert(max >= 1);
-    *flags_p = (*(const uint8_t*)src) >> UCP_ADDRESS_STRING_LEN_SHIFT;
-    length   = (*(const uint8_t*)src) & UCP_ADDRESS_STRING_LEN_MASK;
+    length   = *(const uint8_t*)src;
     avail    = ucs_min(length, max - 1);
     memcpy(s, src + 1, avail);
     s[avail]  = '\0';
@@ -98,9 +93,9 @@ out:
 }
 
 static ucs_status_t
-ucp_address_gather_devices(ucp_worker_h worker, uint64_t dev_bitmap, uint64_t tl_bitmap,
-                        int has_ep, ucp_address_packed_device_t **devices_p,
-                        ucp_rsc_index_t *num_devices_p)
+ucp_address_gather_devices(ucp_worker_h worker, uint64_t tl_bitmap, int has_ep,
+                           ucp_address_packed_device_t **devices_p,
+                           ucp_rsc_index_t *num_devices_p)
 {
     ucp_context_h context = worker->context;
     ucp_address_packed_device_t *dev, *devices;
@@ -118,19 +113,20 @@ ucp_address_gather_devices(ucp_worker_h worker, uint64_t dev_bitmap, uint64_t tl
     for (i = 0; i < context->num_tls; ++i) {
         mask = UCS_BIT(i);
 
-        if (!(mask & (dev_bitmap|tl_bitmap))) {
+        if (!(mask & tl_bitmap)) {
             continue;
         }
 
         dev = ucp_address_get_device(context->tl_rscs[i].tl_rsc.dev_name,
                                      devices, &num_devices);
-        if (!(mask & tl_bitmap)) {
-            continue;
-        }
 
         iface_attr = &worker->iface_attrs[i];
-        if (has_ep && (iface_attr->cap.flags & UCT_IFACE_FLAG_CONNECT_TO_EP)) {
-            dev->tl_addrs_size += iface_attr->ep_addr_len;
+        if (iface_attr->cap.flags & UCT_IFACE_FLAG_CONNECT_TO_EP) {
+            if (has_ep) {
+                dev->tl_addrs_size += iface_attr->ep_addr_len;
+            } else {
+                /* Empty address */
+            }
         } else if (iface_attr->cap.flags & UCT_IFACE_FLAG_CONNECT_TO_IFACE) {
             dev->tl_addrs_size += iface_attr->iface_addr_len;
         } else {
@@ -141,7 +137,6 @@ ucp_address_gather_devices(ucp_worker_h worker, uint64_t dev_bitmap, uint64_t tl
         dev->dev_addr_len   = iface_attr->device_addr_len;
         dev->tl_bitmap     |= mask;
 
-        dev->tl_addrs_size += 1; /* rsc_index TODO remove */
         dev->tl_addrs_size += 1; /* address length */
         dev->tl_addrs_size += ucp_address_string_packed_size(context->tl_rscs[i].tl_rsc.tl_name);
     }
@@ -170,7 +165,7 @@ static size_t ucp_address_packed_size(ucp_worker_h worker,
 }
 
 static ucs_status_t ucp_address_do_pack(ucp_worker_h worker, ucp_ep_h ep,
-                                        uint64_t tl_flags, void *buffer, size_t size,
+                                        void *buffer, size_t size, unsigned *order,
                                         const ucp_address_packed_device_t *devices,
                                         ucp_rsc_index_t num_devices)
 {
@@ -181,23 +176,23 @@ static ucs_status_t ucp_address_do_pack(ucp_worker_h worker, ucp_ep_h ep,
     ucp_rsc_index_t i;
     uint64_t tl_bitmap;
     size_t tl_addr_len;
+    unsigned index;
     void *ptr;
 
     ptr = buffer;
+    index = 0;
 
     *(uint64_t*)ptr = worker->uuid;
     ptr += sizeof(uint64_t);
-    ptr = ucp_address_pack_string(ucp_worker_get_name(worker), ptr, 0);
+    ptr = ucp_address_pack_string(ucp_worker_get_name(worker), ptr);
 
     for (dev = devices; dev < devices + num_devices; ++dev) {
 
         tl_bitmap = dev->tl_bitmap & UCS_MASK(context->num_tls);
 
         /* PD index */
-        *(uint8_t*)ptr = context->tl_rscs[dev->rsc_index].pd_index |
-                         ((tl_bitmap == 0) ? UCP_ADDRESS_FLAG_EMPTY : 0);
+        *(uint8_t*)ptr = context->tl_rscs[dev->rsc_index].pd_index;
         ++ptr;
-
 
         /* Device address length */
         ucs_assert(dev->dev_addr_len < UCP_ADDRESS_FLAG_LAST);
@@ -214,26 +209,26 @@ static ucs_status_t ucp_address_do_pack(ucp_worker_h worker, ucp_ep_h ep,
 
         ptr += dev->dev_addr_len;
 
-         for (i = 0; i < context->num_tls; ++i) {
+        for (i = 0; i < context->num_tls; ++i) {
 
             if (!(UCS_BIT(i) & dev->tl_bitmap)) {
                 continue;
             }
 
             /* Transport name */
-            ptr = ucp_address_pack_string(context->tl_rscs[i].tl_rsc.tl_name,
-                                          ptr, !!(tl_flags & UCS_BIT(i)));
-
-            /* rsc_index TODO remove */
-            *(uint8_t*)ptr = i;
-            ++ptr;
+            ptr = ucp_address_pack_string(context->tl_rscs[i].tl_rsc.tl_name, ptr);
 
             /* Transport address length */
             iface_attr = &worker->iface_attrs[i];
-            if ((ep != NULL) && (iface_attr->cap.flags & UCT_IFACE_FLAG_CONNECT_TO_EP)) {
-                tl_addr_len = iface_attr->ep_addr_len;
-                ucs_assert(ep->rsc_index == i);
-                status = uct_ep_get_address(ep->uct_ep, (uct_ep_addr_t*)(ptr + 1));
+            if (iface_attr->cap.flags & UCT_IFACE_FLAG_CONNECT_TO_EP) {
+                if (ep != NULL) {
+                    tl_addr_len = iface_attr->ep_addr_len;
+                    ucs_assert(ep->rsc_index == i);
+                    status = uct_ep_get_address(ep->uct_ep, (uct_ep_addr_t*)(ptr + 1));
+                } else {
+                    tl_addr_len = 0;
+                    status      = UCS_OK;
+                }
             } else if (iface_attr->cap.flags & UCT_IFACE_FLAG_CONNECT_TO_IFACE) {
                 tl_addr_len = iface_attr->iface_addr_len;
                 status = uct_iface_get_address(worker->ifaces[dev->rsc_index],
@@ -244,6 +239,9 @@ static ucs_status_t ucp_address_do_pack(ucp_worker_h worker, ucp_ep_h ep,
             if (status != UCS_OK) {
                 return status;
             }
+
+            /* Save the address index of this transport */
+            order[ucs_count_one_bits(tl_bitmap) & UCS_MASK(i)] = index++;
 
             ucs_assert(tl_addr_len < UCP_ADDRESS_FLAG_LAST);
             *(uint8_t*)ptr = tl_addr_len | ((i == ucs_ilog2(tl_bitmap)) ?
@@ -257,9 +255,8 @@ static ucs_status_t ucp_address_do_pack(ucp_worker_h worker, ucp_ep_h ep,
     return UCS_OK;
 }
 
-ucs_status_t ucp_address_pack(ucp_worker_h worker, ucp_ep_h ep, uint64_t dev_bitmap,
-                              uint64_t tl_bitmap, uint64_t tl_flags, size_t *size_p,
-                              void **buffer_p)
+ucs_status_t ucp_address_pack(ucp_worker_h worker, ucp_ep_h ep, uint64_t tl_bitmap,
+                              unsigned *order, size_t *size_p, void **buffer_p)
 {
     ucp_address_packed_device_t *devices;
     ucp_rsc_index_t num_devices;
@@ -268,7 +265,7 @@ ucs_status_t ucp_address_pack(ucp_worker_h worker, ucp_ep_h ep, uint64_t dev_bit
     size_t size;
 
     /* Collect all devices we want to pack */
-    status = ucp_address_gather_devices(worker, dev_bitmap, tl_bitmap, ep != NULL,
+    status = ucp_address_gather_devices(worker, tl_bitmap, ep != NULL,
                                         &devices, &num_devices);
     if (status != UCS_OK) {
         goto out;
@@ -288,7 +285,7 @@ ucs_status_t ucp_address_pack(ucp_worker_h worker, ucp_ep_h ep, uint64_t dev_bit
     }
 
     /* Pack the address */
-    status = ucp_address_do_pack(worker, ep, tl_flags, buffer, size, devices,
+    status = ucp_address_do_pack(worker, ep, buffer, size, order, devices,
                                  num_devices);
     if (status != UCS_OK) {
         ucs_free(buffer);
@@ -311,21 +308,20 @@ ucs_status_t ucp_address_unpack(const void *buffer, uint64_t *remote_uuid_p,
                                 ucp_address_entry_t **address_list_p)
 {
     ucp_address_entry_t *address_list, *address;
-    int last_dev, last_tl, empty_dev;
     const uct_device_addr_t *dev_addr;
-    ucp_rsc_index_t pd_index, rsc_index;
+    ucp_rsc_index_t pd_index;
     unsigned address_count;
+    int last_dev, last_tl;
     size_t dev_addr_len;
     size_t tl_addr_len;
     const void *ptr;
     const void *aptr;
-    unsigned flags;
 
     ptr = buffer;
     *remote_uuid_p = *(uint64_t*)ptr;
     ptr += sizeof(uint64_t);
 
-    aptr = ucp_address_unpack_string(ptr, remote_name, max, &flags);
+    aptr = ucp_address_unpack_string(ptr, remote_name, max);
 
     address_count = 0;
 
@@ -333,7 +329,6 @@ ucs_status_t ucp_address_unpack(const void *buffer, uint64_t *remote_uuid_p,
     ptr = aptr;
     do {
         /* pd_index */
-        empty_dev    = (*(uint8_t*)ptr) & UCP_ADDRESS_FLAG_EMPTY;
         ++ptr;
 
         /* device address length */
@@ -342,11 +337,8 @@ ucs_status_t ucp_address_unpack(const void *buffer, uint64_t *remote_uuid_p,
         ++ptr;
 
         ptr += dev_addr_len;
-        last_tl = empty_dev;
-        while (!last_tl) {
+        do {
             ptr = ucp_address_skip_string(ptr); /* tl_name */
-
-            ++ptr; /* rsc_index TODO remove */
 
             /* tl address length */
             tl_addr_len = (*(uint8_t*)ptr) & ~UCP_ADDRESS_FLAG_LAST;
@@ -356,7 +348,7 @@ ucs_status_t ucp_address_unpack(const void *buffer, uint64_t *remote_uuid_p,
             ++address_count;
 
             ptr += tl_addr_len;
-        }
+        } while (!last_tl);
 
     } while (!last_dev);
 
@@ -373,8 +365,7 @@ ucs_status_t ucp_address_unpack(const void *buffer, uint64_t *remote_uuid_p,
     ptr     = aptr;
     do {
         /* pd_index */
-        empty_dev    = *(uint8_t*)ptr & UCP_ADDRESS_FLAG_EMPTY;
-        pd_index     = *(uint8_t*)ptr & ~UCP_ADDRESS_FLAG_EMPTY;
+        pd_index     = *(uint8_t*)ptr;
         ++ptr;
 
         /* device address length */
@@ -385,30 +376,25 @@ ucs_status_t ucp_address_unpack(const void *buffer, uint64_t *remote_uuid_p,
         dev_addr = ptr;
 
         ptr += dev_addr_len;
-        last_tl = empty_dev;
-        while (!last_tl) {
+        do {
             /* tl name */
             ptr = ucp_address_unpack_string(ptr, address->tl_name,
-                                            UCT_TL_NAME_MAX, &flags);
-
-            /* rsc_index TODO remove */
-            rsc_index   = (*(uint8_t*)ptr);
-            ++ptr;
+                                            UCT_TL_NAME_MAX);
 
             /* tl address length */
             tl_addr_len = (*(uint8_t*)ptr) & ~UCP_ADDRESS_FLAG_LAST;
             last_tl     = (*(uint8_t*)ptr) & UCP_ADDRESS_FLAG_LAST;
             ++ptr;
 
-            address->dev_addr  = dev_addr;
-            address->pd_index  = pd_index;
-            address->tl_addr   = ptr;
-            address->rsc_index = rsc_index;
-            address->flags     = flags;
+            address->dev_addr     = dev_addr;
+            address->dev_addr_len = dev_addr_len;
+            address->pd_index     = pd_index;
+            address->tl_addr      = ptr;
+            address->tl_addr_len  = tl_addr_len;
             ++address;
 
             ptr += tl_addr_len;
-        }
+        } while (!last_tl);
     } while (!last_dev);
 
     *address_count_p = address_count;

@@ -17,8 +17,6 @@
 #include <limits.h>
 
 
-
-
 /**
  * Endpoint wire-up state
  */
@@ -32,6 +30,14 @@ enum {
     UCP_EP_STATE_WIREUP_REPLY_SENT        = UCS_BIT(6), /* wireup reply message has been sent */
     UCP_EP_STATE_WIREUP_ACK_SENT          = UCS_BIT(7), /* wireup ack message has been sent */
     UCP_EP_STATE_STUB_EP                  = UCS_BIT(8), /* the current ep is a stub */
+};
+
+
+enum {
+    UCP_EP_OP_AM,     /* Transport used for active messages */
+    UCP_EP_OP_RMA,    /* Transport used for remote memory access (put, get) */
+    UCP_EP_OP_AMO,    /* Transport used for atomics */
+    UCP_EP_OP_LAST
 };
 
 

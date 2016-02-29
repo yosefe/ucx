@@ -4,7 +4,10 @@
 * See file LICENSE for terms.
 */
 
+#define __STDC_LIMIT_MACROS
+
 #include "ucp_test.h"
+
 extern "C" {
 #include <ucp/core/ucp_worker.h>
 #include <ucp/wireup/address.h>
@@ -73,14 +76,14 @@ void test_ucp_wireup::wait(void *req)
     ucp_request_release(req);
 }
 
-
 UCS_TEST_P(test_ucp_wireup, address) {
     ucs_status_t status;
     size_t size;
     void *buffer;
+    unsigned order[UCP_MAX_RESOURCES];
 
     entity *ent1 = create_entity();
-    status = ucp_address_pack(ent1->worker(), NULL, -1, -1, 0, &size, &buffer);
+    status = ucp_address_pack(ent1->worker(), NULL, -1, order, &size, &buffer);
     ASSERT_UCS_OK(status);
     ASSERT_TRUE(buffer != NULL);
     ASSERT_GT(size, 0ul);

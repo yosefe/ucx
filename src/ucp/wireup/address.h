@@ -15,16 +15,16 @@
  * Address entry.
  */
 typedef struct ucp_address_entry {
-    const uct_device_addr_t    *dev_addr; /* Points to device address */
+    const uct_device_addr_t    *dev_addr;                /* Points to device address */
+    size_t                     dev_addr_len;             /* Device address length */
     char                       tl_name[UCT_TL_NAME_MAX]; /* Transport name */
-    ucp_rsc_index_t            pd_index;  /* Protection domain index */
-    ucp_rsc_index_t            rsc_index; /* Resource index TODO remove */
-    unsigned                   flags;
+    ucp_rsc_index_t            pd_index;                 /* Protection domain index */
     union {
         const uct_iface_addr_t *iface_addr;    /* Interface address */
         const uct_ep_addr_t    *ep_addr;       /* Endpoint address */
         const void             *tl_addr;
     };
+    size_t                     tl_addr_len;
 } ucp_address_entry_t;
 
 
@@ -38,19 +38,19 @@ typedef struct ucp_address_entry {
  * @param [in]  worker      Worker object whose interface addresses to pack.
  * @param [in]  ep          Endpoint object whose uct_ep addresses to pack.
  *                            Can be set to NULL, to take addresses only from worker.
- * @param [in]  dev_bitmap  Specifies the resources whose device address should
- *                           be packed.
  * @param [in]  tl_bitmap   Specifies the resources whose transport address
  *                           (ep or iface) should be packed.
- * @param [in]  tl_flags    Pass one flags (which could be 0 or 1) for every packed
- *                           transport address.
+ * @param [out] order       Filled with the order of addresses as they were
+ *                           packed. For example: first entry in the array is
+ *                           the address index of the first transport specified
+ *                           by tl_bitmap. The array should be large enough to
+ *                           hold all transports specified by tl_bitmap.
  * @param [out] size_p      Filled with buffer size.
  * @param [out] buffer_p    Filled with pointer to packed buffer. It should be
  *                           released by ucs_free().
  */
-ucs_status_t ucp_address_pack(ucp_worker_h worker, ucp_ep_h ep, uint64_t dev_bitmap,
-                              uint64_t tl_bitmap, uint64_t tl_flags, size_t *size_p,
-                              void **buffer_p);
+ucs_status_t ucp_address_pack(ucp_worker_h worker, ucp_ep_h ep, uint64_t tl_bitmap,
+                              unsigned *order, size_t *size_p, void **buffer_p);
 
 /**
  * Unpack a list of addresses.
