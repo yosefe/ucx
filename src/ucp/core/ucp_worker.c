@@ -388,7 +388,7 @@ void ucp_worker_progress(ucp_worker_h worker)
 ucs_status_t ucp_worker_get_address(ucp_worker_h worker, ucp_address_t **address_p,
                                     size_t *address_length_p)
 {
-    return ucp_address_pack(worker, NULL, -1, 0, address_length_p,
+    return ucp_address_pack(worker, NULL, -1, NULL, address_length_p,
                             (void**)address_p);
 }
 

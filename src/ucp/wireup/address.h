@@ -40,8 +40,8 @@ typedef struct ucp_address_entry {
  *                            Can be set to NULL, to take addresses only from worker.
  * @param [in]  tl_bitmap   Specifies the resources whose transport address
  *                           (ep or iface) should be packed.
- * @param [out] order       Filled with the order of addresses as they were
- *                           packed. For example: first entry in the array is
+ * @param [out] order       If != NULL, filled with the order of addresses as they
+ *                           were packed. For example: first entry in the array is
  *                           the address index of the first transport specified
  *                           by tl_bitmap. The array should be large enough to
  *                           hold all transports specified by tl_bitmap.
@@ -51,6 +51,7 @@ typedef struct ucp_address_entry {
  */
 ucs_status_t ucp_address_pack(ucp_worker_h worker, ucp_ep_h ep, uint64_t tl_bitmap,
                               unsigned *order, size_t *size_p, void **buffer_p);
+
 
 /**
  * Unpack a list of addresses.

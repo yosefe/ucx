@@ -69,12 +69,6 @@ static void ucp_wireup_ep_ready_to_send(ucp_ep_h ep)
               ucp_ep_peer_name(ep), ep->worker->uuid, ep->dest_uuid);
 }
 
-static ucp_stub_ep_t * ucp_ep_get_stub_ep(ucp_ep_h ep)
-{
-    ucs_assert(ep->state & UCP_EP_STATE_STUB_EP);
-    return ucs_derived_of(ep->uct_ep, ucp_stub_ep_t);
-}
-
 void ucp_wireup_progress(ucp_ep_h ep)
 {
     ucp_stub_ep_t *stub_ep = ucp_ep_get_stub_ep(ep);
@@ -144,51 +138,6 @@ void ucp_wireup_progress(ucp_ep_h ep)
         --ep->worker->stub_pend_count;
     }
 }
-
-//static inline void * ucp_wireup_msg_addr(ucp_wireup_msg_t *msg)
-//{
-//    void *msg_data = msg + 1;
-//    return msg_data + msg->peer_name_len + msg->tl_name_len;
-//}
-//
-//static const void * ucp_wireup_msg_get_addr(const ucp_wireup_msg_t *msg)
-//{
-//    const void *msg_data = msg + 1;
-//    return msg_data + msg->peer_name_len + msg->tl_name_len;
-//}
-//
-//static inline char* ucp_wireup_msg_tl_name(ucp_wireup_msg_t *msg)
-//{
-//    void *msg_data = msg + 1;
-//    return msg_data + msg->peer_name_len;
-//}
-//
-//static inline char* ucp_wireup_msg_peer_name(ucp_wireup_msg_t *msg)
-//{
-//    return (char *)(msg + 1);
-//}
-//
-//static void ucp_wireup_msg_get_peer_name(const ucp_wireup_msg_t *msg,
-//                                         char *peer_name, size_t max)
-//{
-//    size_t length = ucs_min(max - 1, msg->peer_name_len);
-//    memcpy(peer_name, msg + 1, length);
-//    peer_name[length] = '\0';
-//}
-//
-//static void ucp_wireup_msg_get_tl_name(const ucp_wireup_msg_t *msg,
-//                                       char *tl_name, size_t max)
-//{
-//    size_t length = ucs_min(max - 1, msg->tl_name_len);
-//    memcpy(tl_name, (const char*)(msg + 1) + msg->peer_name_len, length);
-//    tl_name[length] = '\0';
-//}
-//
-//static uct_iface_addr_t * ucp_wireup_msg_get_aux_addr(ucp_wireup_msg_t *msg)
-//{
-//    void *msg_data = msg + 1;
-//    return msg_data + msg->peer_name_len + msg->tl_name_len + msg->addr_len;
-//}
 
 static double ucp_aux_score_func(ucp_worker_h worker, uct_iface_attr_t *iface_attr)
 {
@@ -320,7 +269,7 @@ static void ucp_wireup_msg_dump(ucp_worker_h worker, uct_am_trace_type_t type,
 
     p   = buffer;
     end = buffer + max;
-    snprintf(p, end - p, "WIREUP %s [%s uuid %"PRIx64"] ",
+    snprintf(p, end - p, "WIREUP %s [%s uuid %"PRIx64"]",
              (msg->type == UCP_WIREUP_MSG_REQUEST ) ? "REQ" :
              (msg->type == UCP_WIREUP_MSG_REPLY   ) ? "REP" :
              (msg->type == UCP_WIREUP_MSG_ACK     ) ? "ACK" : "",
@@ -328,10 +277,11 @@ static void ucp_wireup_msg_dump(ucp_worker_h worker, uct_am_trace_type_t type,
 
     p += strlen(p);
     for (ae = address_list; ae < address_list + address_count; ++ae) {
-        snprintf(p, end - p, " [%s len %zu%s]", ae->tl_name, ae->tl_addr_len,
+        snprintf(p, end - p, " [%s(%zu)%s]", ae->tl_name, ae->tl_addr_len,
                  ((ae - address_list) == msg->aux_index) ? " aux" :
                  ((ae - address_list) == msg->tl_index ) ? " tl" :
                  "");
+        p += strlen(p);
     }
 
     ucs_free(address_list);
@@ -408,6 +358,11 @@ static ucs_status_t ucp_wireup_msg_progress(uct_pending_req_t *self)
         wireup_pack_ctx.msg.aux_index = -1;
     }
 
+    ucs_assertv(wireup_pack_ctx.msg.aux_index != wireup_pack_ctx.msg.tl_index,
+                "aux_index=%d tl_index=%d rsc_index=%d aux_rsc_index=%d tl_bitmap=0x%"PRIx64,
+                wireup_pack_ctx.msg.aux_index, wireup_pack_ctx.msg.tl_index,
+                rsc_index, aux_rsc_index, tl_bitmap);
+
     packed_len = uct_ep_am_bcopy(ucp_wireup_msg_ep(ep), UCP_AM_ID_WIREUP,
                                  ucp_wireup_msg_pack, &wireup_pack_ctx);
     if (packed_len < 0) {
@@ -445,6 +400,8 @@ static ucs_status_t ucp_ep_wireup_send(ucp_ep_h ep, uint8_t type,
     if (ep->state & UCP_EP_STATE_STUB_EP) {
         ucs_atomic_add32(&ucp_ep_get_stub_ep(ep)->pending_count, 1);
     }
+
+    ucs_trace("add pending wireup req %p", req);
     ucp_ep_add_pending(ep, ucp_wireup_msg_ep(ep), req, 0);
     return UCS_OK;
 }

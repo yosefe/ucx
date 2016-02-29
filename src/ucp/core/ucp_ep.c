@@ -72,6 +72,7 @@ ucs_status_t ucp_ep_add_pending_uct(ucp_ep_h ep, uct_ep_h uct_ep,
     status = uct_ep_pending_add(uct_ep, req);
     if (status != UCS_ERR_BUSY) {
         ucs_assert(status == UCS_OK);
+        ucs_trace_data("added pending uct request %p to uct_ep %p", req, uct_ep);
         return UCS_OK; /* Added to pending */
     }
 
@@ -88,9 +89,6 @@ void ucp_ep_add_pending(ucp_ep_h ep, uct_ep_h uct_ep, ucp_request_t *req,
                         int progress)
 {
     ucs_status_t status;
-
-    ucs_trace_data("add pending request %p uct %p to uct_ep %p", req,
-                   &req->send.uct, uct_ep);
 
     req->send.ep = ep;
     status = ucp_ep_add_pending_uct(ep, uct_ep, &req->send.uct);

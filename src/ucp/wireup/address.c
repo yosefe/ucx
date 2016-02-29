@@ -5,6 +5,7 @@
  */
 
 #include "address.h"
+#include "stub_ep.h"
 
 #include <ucp/core/ucp_worker.h>
 #include <ucs/arch/bitops.h>
@@ -165,7 +166,8 @@ static size_t ucp_address_packed_size(ucp_worker_h worker,
 }
 
 static ucs_status_t ucp_address_do_pack(ucp_worker_h worker, ucp_ep_h ep,
-                                        void *buffer, size_t size, unsigned *order,
+                                        void *buffer, size_t size,
+                                        uint64_t tl_bitmap, unsigned *order,
                                         const ucp_address_packed_device_t *devices,
                                         ucp_rsc_index_t num_devices)
 {
@@ -174,9 +176,10 @@ static ucs_status_t ucp_address_do_pack(ucp_worker_h worker, ucp_ep_h ep,
     uct_iface_attr_t *iface_attr;
     ucs_status_t status;
     ucp_rsc_index_t i;
-    uint64_t tl_bitmap;
+    uint64_t dev_tl_bitmap;
     size_t tl_addr_len;
     unsigned index;
+    uct_ep_h uct_ep;
     void *ptr;
 
     ptr = buffer;
@@ -188,7 +191,7 @@ static ucs_status_t ucp_address_do_pack(ucp_worker_h worker, ucp_ep_h ep,
 
     for (dev = devices; dev < devices + num_devices; ++dev) {
 
-        tl_bitmap = dev->tl_bitmap & UCS_MASK(context->num_tls);
+        dev_tl_bitmap = dev->tl_bitmap & UCS_MASK(context->num_tls);
 
         /* PD index */
         *(uint8_t*)ptr = context->tl_rscs[dev->rsc_index].pd_index;
@@ -224,14 +227,19 @@ static ucs_status_t ucp_address_do_pack(ucp_worker_h worker, ucp_ep_h ep,
                 if (ep != NULL) {
                     tl_addr_len = iface_attr->ep_addr_len;
                     ucs_assert(ep->rsc_index == i);
-                    status = uct_ep_get_address(ep->uct_ep, (uct_ep_addr_t*)(ptr + 1));
+                    if (ep->state & UCP_EP_STATE_STUB_EP) {
+                        uct_ep = ucp_ep_get_stub_ep(ep)->next_ep;
+                    } else {
+                        uct_ep = ep->uct_ep;
+                    }
+                    status = uct_ep_get_address(uct_ep, (uct_ep_addr_t*)(ptr + 1));
                 } else {
                     tl_addr_len = 0;
                     status      = UCS_OK;
                 }
             } else if (iface_attr->cap.flags & UCT_IFACE_FLAG_CONNECT_TO_IFACE) {
                 tl_addr_len = iface_attr->iface_addr_len;
-                status = uct_iface_get_address(worker->ifaces[dev->rsc_index],
+                status = uct_iface_get_address(worker->ifaces[i],
                                                (uct_iface_addr_t*)(ptr + 1));
             } else {
                 ucs_bug("");
@@ -241,10 +249,12 @@ static ucs_status_t ucp_address_do_pack(ucp_worker_h worker, ucp_ep_h ep,
             }
 
             /* Save the address index of this transport */
-            order[ucs_count_one_bits(tl_bitmap) & UCS_MASK(i)] = index++;
+            if (order != NULL) {
+                order[ucs_count_one_bits(tl_bitmap & UCS_MASK(i))] = index++;
+            }
 
             ucs_assert(tl_addr_len < UCP_ADDRESS_FLAG_LAST);
-            *(uint8_t*)ptr = tl_addr_len | ((i == ucs_ilog2(tl_bitmap)) ?
+            *(uint8_t*)ptr = tl_addr_len | ((i == ucs_ilog2(dev_tl_bitmap)) ?
                                             UCP_ADDRESS_FLAG_LAST : 0);
             ptr += 1 + tl_addr_len;
         }
@@ -285,8 +295,8 @@ ucs_status_t ucp_address_pack(ucp_worker_h worker, ucp_ep_h ep, uint64_t tl_bitm
     }
 
     /* Pack the address */
-    status = ucp_address_do_pack(worker, ep, buffer, size, order, devices,
-                                 num_devices);
+    status = ucp_address_do_pack(worker, ep, buffer, size, tl_bitmap, order,
+                                 devices, num_devices);
     if (status != UCS_OK) {
         ucs_free(buffer);
         goto out_free_devices;
