@@ -443,6 +443,7 @@ static ucs_status_t ucp_wireup_start_aux(ucp_ep_h ep,
     /*
      * Create auxiliary endpoint which would be used to transfer wireup messages.
      */
+    ucs_assert(aux_addr->tl_addr_len > 0);
     status = uct_ep_create_connected(worker->ifaces[aux_rsc_index],
                                      aux_addr->dev_addr, aux_addr->iface_addr,
                                      &ucp_ep_get_stub_ep(ep)->aux_ep);
@@ -805,6 +806,7 @@ ucs_status_t ucp_wireup_start(ucp_ep_h ep, ucp_address_entry_t *address_list,
      * If the selected transport can be connected directly, do it.
      */
     if (iface_attr->cap.flags & UCT_IFACE_FLAG_CONNECT_TO_IFACE) {
+        ucs_assert(address_list[addr_index].tl_addr_len > 0);
         status = uct_ep_create_connected(worker->ifaces[ep->rsc_index],
                                          address_list[addr_index].dev_addr,
                                          address_list[addr_index].iface_addr,

@@ -122,15 +122,15 @@ ucp_address_gather_devices(ucp_worker_h worker, uint64_t tl_bitmap, int has_ep,
                                      devices, &num_devices);
 
         iface_attr = &worker->iface_attrs[i];
-        if (iface_attr->cap.flags & UCT_IFACE_FLAG_CONNECT_TO_EP) {
+        if (iface_attr->cap.flags & UCT_IFACE_FLAG_CONNECT_TO_IFACE) {
+                    dev->tl_addrs_size += iface_attr->iface_addr_len;
+        } else if (iface_attr->cap.flags & UCT_IFACE_FLAG_CONNECT_TO_EP) {
             if (has_ep) {
                 dev->tl_addrs_size += iface_attr->ep_addr_len;
             } else {
                 /* Empty address */
             }
-        } else if (iface_attr->cap.flags & UCT_IFACE_FLAG_CONNECT_TO_IFACE) {
-            dev->tl_addrs_size += iface_attr->iface_addr_len;
-        } else {
+        } else  {
             continue;
         }
 
@@ -223,7 +223,11 @@ static ucs_status_t ucp_address_do_pack(ucp_worker_h worker, ucp_ep_h ep,
 
             /* Transport address length */
             iface_attr = &worker->iface_attrs[i];
-            if (iface_attr->cap.flags & UCT_IFACE_FLAG_CONNECT_TO_EP) {
+            if (iface_attr->cap.flags & UCT_IFACE_FLAG_CONNECT_TO_IFACE) {
+                tl_addr_len = iface_attr->iface_addr_len;
+                status = uct_iface_get_address(worker->ifaces[i],
+                                               (uct_iface_addr_t*)(ptr + 1));
+            } else if (iface_attr->cap.flags & UCT_IFACE_FLAG_CONNECT_TO_EP) {
                 if (ep != NULL) {
                     tl_addr_len = iface_attr->ep_addr_len;
                     ucs_assert(ep->rsc_index == i);
@@ -237,10 +241,6 @@ static ucs_status_t ucp_address_do_pack(ucp_worker_h worker, ucp_ep_h ep,
                     tl_addr_len = 0;
                     status      = UCS_OK;
                 }
-            } else if (iface_attr->cap.flags & UCT_IFACE_FLAG_CONNECT_TO_IFACE) {
-                tl_addr_len = iface_attr->iface_addr_len;
-                status = uct_iface_get_address(worker->ifaces[i],
-                                               (uct_iface_addr_t*)(ptr + 1));
             } else {
                 ucs_bug("");
             }
