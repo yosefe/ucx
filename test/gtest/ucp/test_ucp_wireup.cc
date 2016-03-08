@@ -88,7 +88,6 @@ UCS_TEST_P(test_ucp_wireup, address) {
     ASSERT_TRUE(buffer != NULL);
     ASSERT_GT(size, 0ul);
     EXPECT_LE(size, 512ul); /* Expect a reasonable address size */
-    UCS_TEST_MESSAGE << "address size: " << size;
 
     char name[UCP_WORKER_NAME_MAX];
     uint64_t uuid;
@@ -102,6 +101,34 @@ UCS_TEST_P(test_ucp_wireup, address) {
     EXPECT_LE(address_count, ent1->ucph()->num_tls);
 
     /* TODO test addresses */
+
+    ucs_free(address_list);
+    ucs_free(buffer);
+}
+
+UCS_TEST_P(test_ucp_wireup, empty_address) {
+    ucs_status_t status;
+    size_t size;
+    void *buffer;
+    unsigned order[UCP_MAX_RESOURCES];
+
+    entity *ent1 = create_entity();
+    status = ucp_address_pack(ent1->worker(), NULL, 0, order, &size, &buffer);
+    ASSERT_UCS_OK(status);
+    ASSERT_TRUE(buffer != NULL);
+    ASSERT_GT(size, 0ul);
+
+    char name[UCP_WORKER_NAME_MAX];
+    uint64_t uuid;
+    unsigned address_count;
+    ucp_address_entry_t *address_list;
+
+    ucp_address_unpack(buffer, &uuid, name, sizeof(name), &address_count,
+                       &address_list);
+    EXPECT_EQ(ent1->worker()->uuid, uuid);
+    EXPECT_EQ(std::string(ucp_worker_get_name(ent1->worker())), std::string(name));
+    EXPECT_LE(address_count, ent1->ucph()->num_tls);
+    EXPECT_EQ(0u, address_count);
 
     ucs_free(address_list);
     ucs_free(buffer);

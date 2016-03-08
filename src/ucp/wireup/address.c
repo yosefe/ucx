@@ -24,6 +24,9 @@
  * [ device2_pd_index | device2_address(var) ]
  *    ...
  *
+ *   * If the address list is empty, then it will contain only a single pd_index
+ *     which equals to UCP_NULL_RESOURCE.
+ *
  */
 
 
@@ -156,11 +159,16 @@ static size_t ucp_address_packed_size(ucp_worker_h worker,
 
     size = sizeof(uint64_t) +
            ucp_address_string_packed_size(ucp_worker_get_name(worker));
-    for (dev = devices; dev < devices + num_devices; ++dev) {
-        size += 1;                  /* device pd_index */
-        size += 1;                  /* device address length */
-        size += dev->dev_addr_len;  /* device address */
-        size += dev->tl_addrs_size; /* transport addresses */
+
+    if (num_devices == 0) {
+        size += 1;                      /* NULL pd_index */
+    } else {
+        for (dev = devices; dev < devices + num_devices; ++dev) {
+            size += 1;                  /* device pd_index */
+            size += 1;                  /* device address length */
+            size += dev->dev_addr_len;  /* device address */
+            size += dev->tl_addrs_size; /* transport addresses */
+        }
     }
     return size;
 }
@@ -188,6 +196,12 @@ static ucs_status_t ucp_address_do_pack(ucp_worker_h worker, ucp_ep_h ep,
     *(uint64_t*)ptr = worker->uuid;
     ptr += sizeof(uint64_t);
     ptr = ucp_address_pack_string(ucp_worker_get_name(worker), ptr);
+
+    if (num_devices == 0) {
+        *((uint8_t*)ptr) = UCP_NULL_RESOURCE;
+        ++ptr;
+        goto out;
+    }
 
     for (dev = devices; dev < devices + num_devices; ++dev) {
 
@@ -260,6 +274,7 @@ static ucs_status_t ucp_address_do_pack(ucp_worker_h worker, ucp_ep_h ep,
         }
     }
 
+out:
     ucs_assertv(buffer + size == ptr, "buffer=%p size=%zu ptr=%p", buffer, size,
                 ptr);
     return UCS_OK;
@@ -279,9 +294,6 @@ ucs_status_t ucp_address_pack(ucp_worker_h worker, ucp_ep_h ep, uint64_t tl_bitm
                                         &devices, &num_devices);
     if (status != UCS_OK) {
         goto out;
-    } else if (num_devices == 0) {
-        status = UCS_ERR_NO_DEVICE;
-        goto out_free_devices;
     }
 
     /* Calculate packed size */
@@ -339,6 +351,10 @@ ucs_status_t ucp_address_unpack(const void *buffer, uint64_t *remote_uuid_p,
     ptr = aptr;
     do {
         /* pd_index */
+        pd_index     = *(uint8_t*)ptr;
+        if (pd_index == UCP_NULL_RESOURCE) {
+            break;
+        }
         ++ptr;
 
         /* device address length */
@@ -356,6 +372,7 @@ ucs_status_t ucp_address_unpack(const void *buffer, uint64_t *remote_uuid_p,
             ++ptr;
 
             ++address_count;
+            ucs_assert(address_count <= UCP_MAX_RESOURCES);
 
             ptr += tl_addr_len;
         } while (!last_tl);
@@ -376,6 +393,9 @@ ucs_status_t ucp_address_unpack(const void *buffer, uint64_t *remote_uuid_p,
     do {
         /* pd_index */
         pd_index     = *(uint8_t*)ptr;
+        if (pd_index == UCP_NULL_RESOURCE) {
+            break;
+        }
         ++ptr;
 
         /* device address length */
