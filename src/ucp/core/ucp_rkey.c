@@ -73,6 +73,8 @@ ucs_status_t ucp_ep_rkey_unpack(ucp_ep_h ep, void *rkey_buffer, ucp_rkey_h *rkey
     uint64_t pd_map;
     void *p;
 
+    ucs_assert(ep->dst_pd_index != UCP_NULL_RESOURCE);
+
     /* Count the number of remote PDs in the rkey buffer */
     p = rkey_buffer;
 
@@ -132,7 +134,7 @@ ucs_status_t ucp_ep_rkey_unpack(ucp_ep_h ep, void *rkey_buffer, ucp_rkey_h *rkey
     }
 
     if (rkey->pd_map == 0) {
-        ucs_debug("The unpacked rkey from the destination is unreachable");
+        ucs_debug("The unpacked rkey from the destination is unreachable di=%d", ep->dst_pd_index);
         status = UCS_ERR_UNREACHABLE;
         goto err_destroy;
     }

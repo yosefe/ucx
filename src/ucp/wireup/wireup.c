@@ -429,6 +429,7 @@ ucs_status_t ucp_wireup_create_stub_ep(ucp_ep_h ep)
 }
 
 static ucs_status_t ucp_wireup_start_aux(ucp_ep_h ep,
+                                         ucp_rsc_index_t dst_pd_index,
                                          ucp_rsc_index_t aux_rsc_index,
                                          const ucp_address_entry_t *aux_addr)
 {
@@ -464,6 +465,8 @@ static ucs_status_t ucp_wireup_start_aux(ucp_ep_h ep,
     if (status != UCS_OK) {
         goto err_destroy_aux_ep;
     }
+
+    ep->dst_pd_index = dst_pd_index;
 
     ep->state |= UCP_EP_STATE_NEXT_EP;
     ucs_debug("created next ep %p to %s using " UCT_TL_RESOURCE_DESC_FMT,
@@ -540,19 +543,24 @@ static void ucp_wireup_process_request(ucp_worker_h worker, ucp_wireup_msg_t *ms
     ucs_status_t status;
     uct_ep_h uct_ep;
 
+    ucs_assert(msg->tl_index != (uint8_t)-1);
+    tl_addr = &address_list[msg->tl_index];
+
     if (ep == NULL) {
         status = ucp_ep_new(worker, uuid, peer_name, "remote-request", &ep);
         if (status != UCS_OK) {
             return;
         }
+
+        ep->dst_pd_index = tl_addr->pd_index;
     } else if (ep->state & UCP_EP_STATE_NEXT_EP_LOCAL_CONNECTED) {
         /* TODO possibly switch to different transport */
+        ucs_assertv(ep->dst_pd_index == tl_addr->pd_index,
+                    "ep->dst_pd_index=%d tl_addr->pd_index=%d", ep->dst_pd_index,
+                    tl_addr->pd_index);
         ucs_trace("ignoring connection request - already connected");
         return;
     }
-
-    tl_addr = &address_list[msg->tl_index];
-    ep->dst_pd_index = tl_addr->pd_index;
 
     status = ucp_select_transport(worker, tl_addr, 1, &ep->rsc_index, &addr_index,
                                   ucp_runtime_score_func, "runtime-on-demand");
@@ -614,7 +622,8 @@ static void ucp_wireup_process_request(ucp_worker_h worker, ucp_wireup_msg_t *ms
                 return;
             }
 
-            status = ucp_wireup_start_aux(ep, aux_rsc_index, aux_addr);
+            status = ucp_wireup_start_aux(ep, tl_addr->pd_index, aux_rsc_index,
+                                          aux_addr);
             if (status != UCS_OK) {
                 return;
             }
@@ -691,7 +700,11 @@ static void ucp_wireup_process_reply(ucp_worker_h worker, ucp_wireup_msg_t *msg,
             return;
         }
 
-        ucs_debug("connected next ep %p", ucp_ep_get_stub_ep(ep)->next_ep);
+        ucs_assert(ep->dst_pd_index == tl_addr->pd_index);
+
+        ucs_debug("connected next ep %p pd %d", ucp_ep_get_stub_ep(ep)->next_ep,
+                  ep->dst_pd_index);
+
         ep->state |= UCP_EP_STATE_NEXT_EP_LOCAL_CONNECTED;
     }
 
@@ -816,8 +829,10 @@ ucs_status_t ucp_wireup_start(ucp_ep_h ep, ucp_address_entry_t *address_list,
             goto out;
         }
 
-        ucs_debug("created connected ep %p to %s using " UCT_TL_RESOURCE_DESC_FMT,
-                  ep->uct_ep, ucp_ep_peer_name(ep),
+        ep->dst_pd_index = address_list[addr_index].pd_index;
+
+        ucs_debug("created connected ep %p to %s pd %d using " UCT_TL_RESOURCE_DESC_FMT,
+                  ep->uct_ep, ucp_ep_peer_name(ep), ep->dst_pd_index,
                   UCT_TL_RESOURCE_DESC_ARG(&worker->context->tl_rscs[ep->rsc_index].tl_rsc));
         ucp_wireup_ep_ready_to_send(ep);
         goto out;
@@ -840,7 +855,8 @@ ucs_status_t ucp_wireup_start(ucp_ep_h ep, ucp_address_entry_t *address_list,
     /*
      * Start connection establishment protocol on the auxiliary address.
      */
-    status = ucp_wireup_start_aux(ep, aux_rsc_index, &address_list[aux_addr_index]);
+    status = ucp_wireup_start_aux(ep, address_list[addr_index].pd_index,
+                                  aux_rsc_index, &address_list[aux_addr_index]);
     if (status != UCS_OK) {
         goto out;
     }
