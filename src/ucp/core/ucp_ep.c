@@ -17,6 +17,7 @@ ucs_status_t ucp_ep_new(ucp_worker_h worker, uint64_t dest_uuid,
                         const char *peer_name, const char *message, ucp_ep_h *ep_p)
 {
     ucp_ep_h ep;
+    int i;
 
     ep = ucs_calloc(1, sizeof(*ep), "ucp ep");
     if (ep == NULL) {
@@ -25,11 +26,15 @@ ucs_status_t ucp_ep_new(ucp_worker_h worker, uint64_t dest_uuid,
     }
 
     ep->worker               = worker;
-    ep->uct_ep               = NULL;
     ep->dest_uuid            = dest_uuid;
-    ep->rsc_index            = worker->context->num_tls;
-    ep->dst_pd_index         = UCP_NULL_RESOURCE;
+    ep->rma_dst_pdi          = UCP_NULL_RESOURCE;
+    ep->amo_dst_pdi          = UCP_NULL_RESOURCE;
+    ep->cfg_index            = 0;
     ep->state                = 0;
+
+    for (i = 0; i < UCP_EP_OP_LAST; ++i) {
+        ep->uct_eps[i]           = NULL;
+    }
     sglib_hashed_ucp_ep_t_add(worker->ep_hash, ep);
 #if ENABLE_DEBUG_DATA
     ucs_snprintf_zero(ep->peer_name, UCP_WORKER_NAME_MAX, "%s", peer_name);
@@ -122,7 +127,6 @@ ucs_status_t ucp_ep_create(ucp_worker_h worker, const ucp_address_t *address,
     ep = ucp_worker_ep_find(worker, dest_uuid);
     if (ep != NULL) {
         /* TODO handle a case where the existing endpoint is incomplete */
-        ucs_assert(ep->dst_pd_index != UCP_NULL_RESOURCE);
         ucs_debug("returning existing ep %p which is already connected to %"PRIx64,
                   ep, ep->dest_uuid);
         *ep_p = ep;
@@ -154,20 +158,20 @@ out:
 
 void ucp_ep_destroy(ucp_ep_h ep)
 {
+    int i;
+
     ucs_debug("destroy ep %p", ep);
 
     sglib_hashed_ucp_ep_t_delete(ep->worker->ep_hash, ep);
     ucp_wireup_stop(ep);
-    if (ep->state & UCP_EP_STATE_READY_TO_SEND) {
-        ucp_ep_destroy_uct_ep_safe(ep, ep->uct_ep);
-    } else {
-        ucs_assert(ep->uct_ep == NULL);
+    for (i = 0; i < UCP_EP_OP_LAST; ++i) {
+        ucp_ep_destroy_uct_ep_safe(ep, ep->uct_eps[i]);
     }
     ucs_free(ep);
 }
 
-void ucp_ep_send_reply(ucp_request_t *req, int progress)
+void ucp_ep_send_reply(ucp_request_t *req, ucp_ep_op_t optype, int progress)
 {
     ucp_ep_h ep = req->send.ep;
-    ucp_ep_add_pending(ep, ep->uct_ep, req, progress);
+    ucp_ep_add_pending(ep, ep->uct_eps[optype], req, progress);
 }

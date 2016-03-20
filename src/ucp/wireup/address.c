@@ -200,10 +200,9 @@ static ucs_status_t ucp_address_do_pack(ucp_worker_h worker, ucp_ep_h ep,
     const ucp_address_packed_device_t *dev;
     uct_iface_attr_t *iface_attr;
     ucs_status_t status;
-    ucp_rsc_index_t i;
+    ucp_rsc_index_t i, j;
     size_t tl_addr_len;
     unsigned index;
-    uct_ep_h uct_ep;
     void *ptr;
 
     ptr = buffer;
@@ -257,18 +256,22 @@ static ucs_status_t ucp_address_do_pack(ucp_worker_h worker, ucp_ep_h ep,
                 status = uct_iface_get_address(worker->ifaces[i],
                                                (uct_iface_addr_t*)(ptr + 1));
             } else if (iface_attr->cap.flags & UCT_IFACE_FLAG_CONNECT_TO_EP) {
-                if (ep != NULL) {
-                    tl_addr_len = iface_attr->ep_addr_len;
-                    ucs_assert(ep->rsc_index == i);
-                    if (ep->state & UCP_EP_STATE_STUB_EP) {
-                        uct_ep = ucp_ep_get_stub_ep(ep)->next_ep;
-                    } else {
-                        uct_ep = ep->uct_ep;
-                    }
-                    status = uct_ep_get_address(uct_ep, (uct_ep_addr_t*)(ptr + 1));
-                } else {
+                if (ep == NULL) {
                     tl_addr_len = 0;
                     status      = UCS_OK;
+                } else {
+                    tl_addr_len = iface_attr->ep_addr_len;
+                    status      = UCS_ERR_INVALID_ADDR;
+                    for (j = 0; j < UCP_EP_OP_LAST; ++j) {
+                        if (ucp_ep_config(ep)->rscs[j] == i) {
+                            /* TODO stub_ep should support get_address */
+                            status = uct_ep_get_address(ep->uct_eps[j],
+                                                        (uct_ep_addr_t*)(ptr + 1));
+                            break;
+                        }
+                    }
+                    ucs_assertv(status == UCS_OK,
+                                "provided ucp_ep without required transport");
                 }
             } else {
                 tl_addr_len = 0;

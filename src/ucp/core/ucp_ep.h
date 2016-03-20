@@ -33,7 +33,18 @@ enum {
 };
 
 
+typedef enum ucp_ep_op {
+    UCP_EP_OP_AM,
+    UCP_EP_OP_RMA,
+    UCP_EP_OP_AMO,
+    UCP_EP_OP_LAST
+} ucp_ep_op_t;
+
+
 typedef struct ucp_ep_config {
+    /* Resource index for every operation */
+    ucp_rsc_index_t        rscs[UCP_EP_OP_LAST];
+
     /* Limits for protocols using short message only */
     size_t                 max_eager_short;  /* Maximal payload of eager short */
     size_t                 max_put_short;    /* Maximal payload of put short */
@@ -67,16 +78,21 @@ typedef struct ucp_ep_config {
 } ucp_ep_config_t;
 
 
+typedef struct ucp_ep_rsc {
+} ucp_ep_rsc_t;
+
 /**
  * Remote protocol layer endpoint
  */
 typedef struct ucp_ep {
     ucp_worker_h                  worker;        /* Worker this endpoint belongs to */
-    uct_ep_h                      uct_ep;        /* Current transport for operations */
 
-    ucp_rsc_index_t               rsc_index;     /* Resource index the endpoint uses */
-    ucp_rsc_index_t               dst_pd_index;  /* Destination protection domain index */
-    volatile uint32_t             state;         /* Endpoint state */
+    uct_ep_h                      uct_eps[UCP_EP_OP_LAST]; /* Transports for operations */
+
+    ucp_rsc_index_t               rma_dst_pdi;   /* Destination protection domain index for RMA */
+    ucp_rsc_index_t               amo_dst_pdi;   /* Destination protection domain index for AMO */
+    uint8_t                       cfg_index;     /* Configuration index */
+    volatile uint16_t             state;         /* Endpoint state */
 
     uint64_t                      dest_uuid;     /* Destination worker uuid */
     ucp_ep_h                      next;          /* Next in hash table linked list */
@@ -101,7 +117,7 @@ ucs_status_t ucp_ep_add_pending_uct(ucp_ep_h ep, uct_ep_h uct_ep,
 void ucp_ep_add_pending(ucp_ep_h ep, uct_ep_h uct_ep, ucp_request_t *req,
                         int progress);
 
-void ucp_ep_send_reply(ucp_request_t *req, int progress);
+void ucp_ep_send_reply(ucp_request_t *req, ucp_ep_op_t optype, int progress);
 
 
 static inline const char* ucp_ep_peer_name(ucp_ep_h ep)
