@@ -17,19 +17,8 @@
 #include <limits.h>
 
 
-/**
- * Endpoint wire-up state
- */
 enum {
-    UCP_EP_STATE_READY_TO_SEND            = UCS_BIT(0), /* uct_ep can send to remote */
-    UCP_EP_STATE_READY_TO_RECEIVE         = UCS_BIT(1), /* remote can send to me */
-    UCP_EP_STATE_AUX_EP                   = UCS_BIT(2), /* aux_ep was created */
-    UCP_EP_STATE_NEXT_EP                  = UCS_BIT(3), /* next_ep was created */
-    UCP_EP_STATE_NEXT_EP_LOCAL_CONNECTED  = UCS_BIT(4), /* next_ep connected to remote */
-    UCP_EP_STATE_NEXT_EP_REMOTE_CONNECTED = UCS_BIT(5), /* remote also connected to our next_ep */
-    UCP_EP_STATE_WIREUP_REPLY_SENT        = UCS_BIT(6), /* wireup reply message has been sent */
-    UCP_EP_STATE_WIREUP_ACK_SENT          = UCS_BIT(7), /* wireup ack message has been sent */
-    UCP_EP_STATE_STUB_EP                  = UCS_BIT(8), /* the current ep is a stub */
+    UCP_EP_FLAG_REMOTE_CONNECTED = UCS_BIT(0),
 };
 
 
@@ -92,7 +81,7 @@ typedef struct ucp_ep {
     ucp_rsc_index_t               rma_dst_pdi;   /* Destination protection domain index for RMA */
     ucp_rsc_index_t               amo_dst_pdi;   /* Destination protection domain index for AMO */
     uint8_t                       cfg_index;     /* Configuration index */
-    volatile uint16_t             state;         /* Endpoint state */
+    uint8_t                       flags;         /* Endpoint flags */
 
     uint64_t                      dest_uuid;     /* Destination worker uuid */
     ucp_ep_h                      next;          /* Next in hash table linked list */

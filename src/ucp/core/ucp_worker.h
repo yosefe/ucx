@@ -34,18 +34,15 @@ typedef struct ucp_worker {
     ucs_mpool_t                   req_mp;        /* Memory pool for requests */
     ucp_worker_wakeup_t           wakeup;        /* Wakeup-related context */
 
-#if ENABLE_ASSERT
     int                           inprogress;
-#endif
-
-#if ENABLE_DEBUG_DATA
     char                          name[UCP_WORKER_NAME_MAX]; /* Worker name */
-#endif
 
     unsigned                      stub_pend_count;/* Number of pending requests on stub endpoints*/
     ucp_ep_t                      **ep_hash;     /* Hash table of all endpoints */
     uct_iface_h                   *ifaces;       /* Array of interfaces, one for each resource */
     uct_iface_attr_t              *iface_attrs;  /* Array of interface attributes */
+    unsigned                      ep_config_max; /* Maximal number of configurations */
+    unsigned                      ep_config_count; /* Current number of configurations */
     ucp_ep_config_t               ep_config[0];  /* Array of transport limits and thresholds */
 } ucp_worker_t;
 
@@ -61,6 +58,8 @@ SGLIB_DEFINE_HASHED_CONTAINER_PROTOTYPES(ucp_ep_t, UCP_WORKER_EP_HASH_SIZE, ucp_
 ucp_ep_h ucp_worker_get_reply_ep(ucp_worker_h worker, uint64_t dest_uuid);
 
 ucp_request_t *ucp_worker_allocate_reply(ucp_worker_h worker, uint64_t dest_uuid);
+
+unsigned ucp_worker_get_ep_config(ucp_worker_h worker, const ucp_rsc_index_t *rscs);
 
 
 static inline const char* ucp_worker_get_name(ucp_worker_h worker)

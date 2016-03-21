@@ -29,8 +29,8 @@ ucs_status_t ucp_ep_new(ucp_worker_h worker, uint64_t dest_uuid,
     ep->dest_uuid            = dest_uuid;
     ep->rma_dst_pdi          = UCP_NULL_RESOURCE;
     ep->amo_dst_pdi          = UCP_NULL_RESOURCE;
-    ep->cfg_index            = 0;
-    ep->state                = 0;
+    ep->cfg_index            = -1;
+    ep->flags                = 0;
 
     for (i = 0; i < UCP_EP_OP_LAST; ++i) {
         ep->uct_eps[i]           = NULL;

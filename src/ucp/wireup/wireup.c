@@ -12,7 +12,6 @@
 #include <ucp/core/ucp_worker.h>
 #include <ucp/dt/dt_contig.h>
 #include <ucp/tag/eager.h>
-#include <ucs/arch/atomic.h>
 #include <ucs/arch/bitops.h>
 #include <ucs/async/async.h>
 #include <ucs/datastruct/queue.h>
@@ -55,27 +54,7 @@
  */
 
 
-/**
- * Calculates a score of specific wireup.
- */
-typedef double (*ucp_wireup_score_function_t)(ucp_worker_h worker,
-                                              uct_iface_attr_t *iface_attr,
-                                              char *reason, size_t max);
-
-
 static void ucp_wireup_stop_aux(ucp_ep_h ep);
-
-static void ucp_wireup_ep_ready_to_send(ucp_ep_h ep)
-{
-    ep->state |= UCP_EP_STATE_READY_TO_SEND;
-    if (ep->state & UCP_EP_STATE_NEXT_EP_REMOTE_CONNECTED) {
-        ep->state |= UCP_EP_STATE_READY_TO_RECEIVE;
-    }
-
-    ucs_debug("ready to send%s to %s 0x%"PRIx64"->0x%"PRIx64,
-              (ep->state & UCP_EP_STATE_READY_TO_RECEIVE) ? " and receive" : "",
-              ucp_ep_peer_name(ep), ep->worker->uuid, ep->dest_uuid);
-}
 
 void ucp_wireup_progress(ucp_ep_h ep)
 {
@@ -147,82 +126,89 @@ void ucp_wireup_progress(ucp_ep_h ep)
     }
 }
 
-static double ucp_aux_score_func(ucp_worker_h worker, uct_iface_attr_t *iface_attr,
-                                 char *reason, size_t max)
+static int ucp_wireup_check_runtime(uct_iface_attr_t *iface_attr,
+                                    char *reason, size_t max)
 {
-    if (!(iface_attr->cap.flags & UCT_IFACE_FLAG_AM_BCOPY)) {
-        strncpy(reason, "am_bcopy for wireup", max);
-        return 0.0;
-    }
-
-    if (!(iface_attr->cap.flags & UCT_IFACE_FLAG_CONNECT_TO_IFACE)) {
-        strncpy(reason, "connecting to iface", max);
-        return 0.0;
-    }
-
-    if (!(iface_attr->cap.flags & UCT_IFACE_FLAG_CONNECT_TO_IFACE)) {
-        strncpy(reason, "async am callback", max);
-        return 0.0;
-    }
-
-    if (!(iface_attr->cap.flags & UCT_IFACE_FLAG_CONNECT_TO_IFACE)) {
-        strncpy(reason, "pending", max);
-        return 0.0;
-    }
-
-    return (1e-3 / iface_attr->latency) +
-           (1e3 * ucs_max(iface_attr->cap.am.max_bcopy, iface_attr->cap.am.max_short));
-}
-
-static double ucp_runtime_score_func(ucp_worker_h worker, uct_iface_attr_t *iface_attr,
-                                     char *reason, size_t max)
-{
-    ucp_context_t *context = worker->context;
-
     if (iface_attr->cap.flags & UCT_IFACE_FLAG_AM_DUP) {
         strncpy(reason, "full reliability", max);
-        return 0.0;
+        return 0;
     }
 
     if (iface_attr->cap.flags & UCT_IFACE_FLAG_CONNECT_TO_EP) {
         if (!(iface_attr->cap.flags & UCT_IFACE_FLAG_AM_BCOPY)) {
             strncpy(reason, "am_bcopy for wireup", max);
-            return 0.0;
+            return 0;
         }
     }
 
-    if (context->config.features & UCP_FEATURE_TAG) {
-        if (!(iface_attr->cap.flags & UCT_IFACE_FLAG_AM_SHORT)) {
-            strncpy(reason, "am_short for tag", max);
-            return 0.0;
-        }
-        if (!(iface_attr->cap.flags & UCT_IFACE_FLAG_PENDING)) {
-            strncpy(reason, "pending", max);
-            return 0.0;
-        }
-        if (!(iface_attr->cap.flags & UCT_IFACE_FLAG_AM_CB_SYNC)) {
-            strncpy(reason, "sync am callback for tag", max);
-            return 0.0;
-        }
+    if (!(iface_attr->cap.flags & UCT_IFACE_FLAG_PENDING)) {
+        strncpy(reason, "pending", max);
+        return 0;
     }
 
-    if (context->config.features & UCP_FEATURE_RMA) {
-        /* TODO remove this requirement once we have RMA emulation */
-        if (!(iface_attr->cap.flags & UCT_IFACE_FLAG_PUT_SHORT)) {
-            strncpy(reason, "put_short for rma", max);
-            return 0.0;
-        }
-        if (!(iface_attr->cap.flags & UCT_IFACE_FLAG_PUT_BCOPY)) {
-            strncpy(reason, "put_bcopy for rma", max);
-            return 0.0;
-        }
-        if (!(iface_attr->cap.flags & UCT_IFACE_FLAG_GET_BCOPY)) {
-            strncpy(reason, "get_bcopy for rma", max);
-            return 0.0;
-        }
+    return 1;
+}
+
+static double ucp_wireup_am_score_func(ucp_worker_h worker,
+                                       uct_iface_attr_t *iface_attr,
+                                       char *reason, size_t max)
+{
+
+    if (!ucp_wireup_check_runtime(iface_attr, reason, max)) {
+        return 0.0;
     }
 
-    if (context->config.features & UCP_FEATURE_AMO32) {
+    if (!(iface_attr->cap.flags & UCT_IFACE_FLAG_AM_SHORT)) {
+        strncpy(reason, "am_short for tag", max);
+        return 0.0;
+    }
+
+    if (!(iface_attr->cap.flags & UCT_IFACE_FLAG_AM_CB_SYNC)) {
+        strncpy(reason, "sync am callback for tag", max);
+        return 0.0;
+    }
+
+    return 1e-3 / (iface_attr->latency + (iface_attr->overhead * 2));
+}
+
+static double ucp_wireup_rma_score_func(ucp_worker_h worker,
+                                        uct_iface_attr_t *iface_attr,
+                                        char *reason, size_t max)
+{
+    if (!ucp_wireup_check_runtime(iface_attr, reason, max)) {
+        return 0.0;
+    }
+
+    /* TODO remove this requirement once we have RMA emulation */
+    if (!(iface_attr->cap.flags & UCT_IFACE_FLAG_PUT_SHORT)) {
+        strncpy(reason, "put_short for rma", max);
+        return 0.0;
+    }
+    if (!(iface_attr->cap.flags & UCT_IFACE_FLAG_PUT_BCOPY)) {
+        strncpy(reason, "put_bcopy for rma", max);
+        return 0.0;
+    }
+    if (!(iface_attr->cap.flags & UCT_IFACE_FLAG_GET_BCOPY)) {
+        strncpy(reason, "get_bcopy for rma", max);
+        return 0.0;
+    }
+
+    /* best for 4k messages */
+    return 1e-3 / (iface_attr->latency + iface_attr->overhead +
+                    (4096.0 / iface_attr->bandwidth));
+}
+
+static double ucp_wireup_amo_score_func(ucp_worker_h worker,
+                                        uct_iface_attr_t *iface_attr,
+                                        char *reason, size_t max)
+{
+    uint64_t features = worker->context->config.features;
+
+    if (!ucp_wireup_check_runtime(iface_attr, reason, max)) {
+        return 0.0;
+    }
+
+    if (features & UCP_FEATURE_AMO32) {
         /* TODO remove this requirement once we have SW atomics */
         if (!ucs_test_all_flags(iface_attr->cap.flags,
                                 UCT_IFACE_FLAG_ATOMIC_ADD32 |
@@ -235,7 +221,7 @@ static double ucp_runtime_score_func(ucp_worker_h worker, uct_iface_attr_t *ifac
         }
     }
 
-    if (context->config.features & UCP_FEATURE_AMO64) {
+    if (features & UCP_FEATURE_AMO64) {
         /* TODO remove this requirement once we have SW atomics */
         if (!ucs_test_all_flags(iface_attr->cap.flags,
                                 UCT_IFACE_FLAG_ATOMIC_ADD64 |
@@ -248,7 +234,7 @@ static double ucp_runtime_score_func(ucp_worker_h worker, uct_iface_attr_t *ifac
         }
     }
 
-    if (context->config.features & UCP_FEATURE_WAKEUP) {
+    if (features & UCP_FEATURE_WAKEUP) {
         if (!(iface_attr->cap.flags & UCT_IFACE_FLAG_WAKEUP)) {
             strncpy(reason, "wakeup", max);
             return 0.0;
@@ -261,14 +247,13 @@ static double ucp_runtime_score_func(ucp_worker_h worker, uct_iface_attr_t *ifac
 /**
  * Select a local and remote transport
  */
-static ucs_status_t ucp_select_transport(ucp_worker_h worker, const char *peer_name,
-                                         const ucp_address_entry_t *address_list,
-                                         unsigned address_count,
-                                         ucp_rsc_index_t pd_index,
-                                         ucp_rsc_index_t *rsc_index_p,
-                                         unsigned *dst_addr_index_p,
-                                         ucp_wireup_score_function_t score_func,
-                                         const char *title)
+ucs_status_t ucp_select_transport(ucp_worker_h worker, const char *peer_name,
+                                  const ucp_address_entry_t *address_list,
+                                  unsigned address_count, ucp_rsc_index_t pd_index,
+                                  ucp_rsc_index_t *rsc_index_p,
+                                  unsigned *dst_addr_index_p,
+                                  ucp_wireup_score_function_t score_func,
+                                  const char *title)
 {
     ucp_context_h context = worker->context;
     uct_tl_resource_desc_t *resource;
@@ -392,24 +377,6 @@ static void ucp_wireup_msg_dump(ucp_worker_h worker, uct_am_trace_type_t type,
     ucs_free(address_list);
 }
 
-static uct_ep_h ucp_wireup_msg_ep(ucp_ep_h ep)
-{
-    /* If the transport is fully wired, use it for messages */
-    if (ep->state & UCP_EP_STATE_READY_TO_SEND) {
-        return ep->uct_ep;
-    } else if (ucs_test_all_flags(ep->state, UCP_EP_STATE_NEXT_EP_LOCAL_CONNECTED|
-                                  UCP_EP_STATE_NEXT_EP_REMOTE_CONNECTED))
-    {
-        /* If next_ep is fully wired, use it for messages */
-        return ucp_ep_get_stub_ep(ep)->next_ep;
-    } else if (ep->state & UCP_EP_STATE_AUX_EP) {
-        /* Otherwise we have no choice but to use the auxiliary */
-        return ucp_ep_get_stub_ep(ep)->aux_ep;
-    }
-
-    ucs_fatal("no valid transport to send wireup message");
-}
-
 typedef struct {
     ucp_wireup_msg_t msg;
     void             *address;
@@ -495,8 +462,8 @@ static ucs_status_t ucp_wireup_msg_progress(uct_pending_req_t *self)
     return status;
 }
 
-static ucs_status_t ucp_ep_wireup_send(ucp_ep_h ep, uint8_t type,
-                                       ucp_rsc_index_t aux_rsc_index)
+ucs_status_t ucp_wireup_msg_send(ucp_ep_h ep, uint8_t type,
+                                 ucp_rsc_index_t aux_rsc_index)
 {
     ucp_request_t* req;
 
@@ -510,137 +477,8 @@ static ucs_status_t ucp_ep_wireup_send(ucp_ep_h ep, uint8_t type,
     req->send.uct.func                 = ucp_wireup_msg_progress;
     req->send.wireup.type              = type;
     req->send.wireup.aux_rsc_index     = aux_rsc_index;
-    if (ep->state & UCP_EP_STATE_STUB_EP) {
-        ucs_atomic_add32(&ucp_ep_get_stub_ep(ep)->pending_count, 1);
-    }
-
-    ucs_trace("add pending wireup req %p", req);
     ucp_ep_add_pending(ep, ucp_wireup_msg_ep(ep), req, 0);
     return UCS_OK;
-}
-
-/*
- * Until the transport is connected, send operations should return NO_RESOURCE.
- * Plant a stub endpoint object which will do it.
- */
-ucs_status_t ucp_wireup_create_stub_ep(ucp_ep_h ep)
-{
-    ucs_status_t status;
-
-    if (ep->state & UCP_EP_STATE_STUB_EP) {
-        return UCS_OK;
-    }
-
-    status = UCS_CLASS_NEW(ucp_stub_ep_t, &ep->uct_ep, ep);
-    if (status != UCS_OK) {
-        return status;
-    }
-
-    ep->state |= UCP_EP_STATE_STUB_EP;
-    ucs_debug("created stub ep %p to %s", ep->uct_ep, ucp_ep_peer_name(ep));
-    return UCS_OK;
-}
-
-static ucs_status_t ucp_wireup_start_aux(ucp_ep_h ep,
-                                         ucp_rsc_index_t dst_pd_index,
-                                         ucp_rsc_index_t aux_rsc_index,
-                                         const ucp_address_entry_t *aux_addr)
-{
-    ucp_worker_h worker = ep->worker;
-    ucs_status_t status;
-
-    status = ucp_wireup_create_stub_ep(ep);
-    if (status != UCS_OK) {
-        goto err;
-    }
-
-    /*
-     * Create auxiliary endpoint which would be used to transfer wireup messages.
-     */
-    ucs_assert(aux_addr->tl_addr_len > 0);
-    status = uct_ep_create_connected(worker->ifaces[aux_rsc_index],
-                                     aux_addr->dev_addr, aux_addr->iface_addr,
-                                     &ucp_ep_get_stub_ep(ep)->aux_ep);
-    if (status != UCS_OK) {
-        goto err_destroy_stub_ep;
-    }
-
-    ep->state |= UCP_EP_STATE_AUX_EP;
-    ucs_debug("created connected aux ep %p to %s using " UCT_TL_RESOURCE_DESC_FMT,
-              ucp_ep_get_stub_ep(ep)->aux_ep, ucp_ep_peer_name(ep),
-              UCT_TL_RESOURCE_DESC_ARG(&worker->context->tl_rscs[aux_rsc_index].tl_rsc));
-
-    /*
-     * Create endpoint for the transport we need to wire-up.
-     */
-    status = uct_ep_create(worker->ifaces[ep->rsc_index],
-                           &ucp_ep_get_stub_ep(ep)->next_ep);
-    if (status != UCS_OK) {
-        goto err_destroy_aux_ep;
-    }
-
-    ep->dst_pd_index = dst_pd_index;
-
-    ep->state |= UCP_EP_STATE_NEXT_EP;
-    ucs_debug("created next ep %p to %s using " UCT_TL_RESOURCE_DESC_FMT,
-              ucp_ep_get_stub_ep(ep)->next_ep, ucp_ep_peer_name(ep),
-              UCT_TL_RESOURCE_DESC_ARG(&worker->context->tl_rscs[ep->rsc_index].tl_rsc));
-
-    /*
-     * Send initial connection request for wiring-up the transport
-     */
-    status = ucp_ep_wireup_send(ep, UCP_WIREUP_MSG_REQUEST, aux_rsc_index);
-    if (status != UCS_OK) {
-        goto err_destroy_aux_ep;
-    }
-
-    return UCS_OK;
-
-err_destroy_aux_ep:
-    uct_ep_destroy(ucp_ep_get_stub_ep(ep)->aux_ep);
-err_destroy_stub_ep:
-    uct_ep_destroy(ep->uct_ep);
-err:
-    ep->state &= ~(UCP_EP_STATE_STUB_EP|UCP_EP_STATE_AUX_EP|UCP_EP_STATE_NEXT_EP);
-    return status;
-}
-
-static void ucp_wireup_stop_aux(ucp_ep_h ep)
-{
-    uct_ep_h uct_eps_to_destroy[3];
-    unsigned i, num_eps;
-
-    num_eps = 0;
-
-    ucs_debug("%p: ucp_wireup_stop_aux state=0x%x", ep,
-              ep->state);
-
-    if (ep->state & UCP_EP_STATE_NEXT_EP) {
-        ucs_assert(ucp_ep_get_stub_ep(ep)->next_ep != NULL);
-        uct_eps_to_destroy[num_eps++] = ucp_ep_get_stub_ep(ep)->next_ep;
-        ep->state &= ~(UCP_EP_STATE_NEXT_EP|
-                       UCP_EP_STATE_NEXT_EP_LOCAL_CONNECTED|
-                       UCP_EP_STATE_NEXT_EP_REMOTE_CONNECTED);
-        ucp_ep_get_stub_ep(ep)->next_ep = NULL;
-    }
-
-    if (ep->state & UCP_EP_STATE_AUX_EP) {
-        ucs_assert(ucp_ep_get_stub_ep(ep)->aux_ep != NULL);
-        uct_eps_to_destroy[num_eps++] = ucp_ep_get_stub_ep(ep)->aux_ep;
-        ucp_ep_get_stub_ep(ep)->aux_ep = NULL;
-        ep->state &= ~UCP_EP_STATE_AUX_EP;
-    }
-
-    if (ep->state & UCP_EP_STATE_STUB_EP) {
-        ucs_assert(ucp_ep_get_stub_ep(ep) != NULL);
-        uct_eps_to_destroy[num_eps++] = &ucp_ep_get_stub_ep(ep)->super;
-        ep->uct_ep = NULL;
-        ep->state &= ~UCP_EP_STATE_STUB_EP;
-    }
-
-    for (i = 0; i < num_eps; ++i) {
-        ucp_ep_destroy_uct_ep_safe(ep, uct_eps_to_destroy[i]);
-    }
 }
 
 static void ucp_wireup_process_request(ucp_worker_h worker, ucp_wireup_msg_t *msg,
@@ -917,76 +755,115 @@ ucs_status_t ucp_wireup_start(ucp_ep_h ep, ucp_address_entry_t *address_list,
                               unsigned address_count)
 {
     ucp_worker_h worker = ep->worker;
+    ucp_context_h context = worker->context;
     uct_iface_attr_t *iface_attr;
-    unsigned addr_index, aux_addr_index;
-    ucp_rsc_index_t aux_rsc_index;
+    ucp_rsc_index_t rscs[UCP_EP_OP_LAST];
+    unsigned addr_indices[UCP_EP_OP_LAST];
+    ucp_rsc_index_t rsc_index;
+    unsigned addr_index;
     ucs_status_t status;
+    int has_2ep;
+    int optype;
 
     UCS_ASYNC_BLOCK(&worker->async);
 
-    /*
-     * Select best transport for runtime
-     */
-    status = ucp_select_transport(worker, ucp_ep_peer_name(ep), address_list,
-                                  address_count, UCP_NULL_RESOURCE,
-                                  &ep->rsc_index, &addr_index,
-                                  ucp_runtime_score_func, "runtime");
-    if (status != UCS_OK) {
-        goto out;
-    }
-
-    iface_attr = &worker->iface_attrs[ep->rsc_index];
-
-    /*
-     * If the selected transport can be connected directly, do it.
-     */
-    if (iface_attr->cap.flags & UCT_IFACE_FLAG_CONNECT_TO_IFACE) {
-        ucs_assert(address_list[addr_index].tl_addr_len > 0);
-        status = uct_ep_create_connected(worker->ifaces[ep->rsc_index],
-                                         address_list[addr_index].dev_addr,
-                                         address_list[addr_index].iface_addr,
-                                         &ep->uct_ep);
-        if (status != UCS_OK) {
-            ucs_debug("failed to create ep");
-            goto out;
+    /* select best transport for every type of operation */
+    has_2ep = 0;
+    for (optype = 0; optype < UCP_EP_OP_LAST; ++optype) {
+        if (!(context->config.features & ucp_wireup_ep_ops[optype].features)) {
+            rscs[optype]          = UCP_NULL_RESOURCE;
+            addr_indices[optype] = -1;
+            continue;
         }
 
-        ep->dst_pd_index = address_list[addr_index].pd_index;
+        status = ucp_select_transport(worker, ucp_ep_peer_name(ep), address_list,
+                                      address_count, UCP_NULL_RESOURCE,
+                                      &rscs[optype], &addr_indices[optype],
+                                      ucp_wireup_ep_ops[optype].score_func,
+                                      ucp_wireup_ep_ops[optype].title);
+        if (status != UCS_OK) {
+            goto err;
+        }
 
-        ucs_debug("created connected ep %p to %s pd %d using " UCT_TL_RESOURCE_DESC_FMT,
-                  ep->uct_ep, ucp_ep_peer_name(ep), ep->dst_pd_index,
-                  UCT_TL_RESOURCE_DESC_ARG(&worker->context->tl_rscs[ep->rsc_index].tl_rsc));
-        ucp_wireup_ep_ready_to_send(ep);
-        goto out;
-    } else if (!(iface_attr->cap.flags & UCT_IFACE_FLAG_CONNECT_TO_EP)) {
-        status = UCS_ERR_UNREACHABLE;
-        goto out;
+        if (iface_attr->cap.flags & UCT_IFACE_FLAG_CONNECT_TO_EP) {
+            has_2ep = 1;
+        }
     }
 
-    /*
-     * If we cannot connect the selected transport directly, select another
-     * transport to be an auxiliary.
+    /* if one of the selected transports is p2p, we also need AM transport for
+     * sending final ACK.
+     * TODO use aux_ep for sending final ACK, may require to change uct_ep_flush()
      */
-    status = ucp_select_transport(worker, ucp_ep_peer_name(ep), address_list,
-                                  address_count, UCP_NULL_RESOURCE,
-                                  &aux_rsc_index, &aux_addr_index,
-                                  ucp_aux_score_func, "auxiliary");
-    if (status != UCS_OK) {
-        goto out;
+    if (has_2ep && (rscs[UCP_EP_OP_AM] = UCP_NULL_RESOURCE)) {
+        status = ucp_select_transport(worker, ucp_ep_peer_name(ep), address_list,
+                                      address_count, UCP_NULL_RESOURCE,
+                                      &rscs[UCP_EP_OP_AM], &addr_indices[UCP_EP_OP_AM],
+                                      ucp_wireup_ep_ops[UCP_EP_OP_AM].score_func,
+                                      ucp_wireup_ep_ops[UCP_EP_OP_AM].title);
+        if (status != UCS_OK) {
+            goto err;
+        }
     }
 
-    /*
-     * Start connection establishment protocol on the auxiliary address.
+    /* group eps by their configuration of transports */
+    ep->cfg_index   = ucp_worker_get_ep_config(worker, rscs);
+
+    /* save remote protection domain index for rma and amo. this is used
+     * to select the remote key for these operations.
      */
-    status = ucp_wireup_start_aux(ep, address_list[addr_index].pd_index,
-                                  aux_rsc_index, &address_list[aux_addr_index]);
-    if (status != UCS_OK) {
-        goto out;
+    ep->rma_dst_pdi = address_list[addr_indices[UCP_EP_OP_RMA]].pd_index;
+    ep->amo_dst_pdi = address_list[addr_indices[UCP_EP_OP_AMO]].pd_index;
+
+    /* establish connections on all underlying endpoint */
+    for (optype = 0; optype < UCP_EP_OP_LAST; ++optype) {
+        rsc_index  = rscs[optype];
+        addr_index = addr_indices[optype];
+
+        if (rsc_index == UCP_NULL_RESOURCE) {
+            continue;
+        }
+
+        iface_attr = &worker->iface_attrs[rsc_index];
+
+        /* if the selected transport can be connected directly to the remote
+         * interface, just create a connected uct endpoint.
+         */
+        if (iface_attr->cap.flags & UCT_IFACE_FLAG_CONNECT_TO_IFACE) {
+            /* create an endpoint connected to the remote interface */
+            ucs_assert(address_list[addr_index].tl_addr_len > 0);
+            status = uct_ep_create_connected(worker->ifaces[rsc_index],
+                                             address_list[addr_index].dev_addr,
+                                             address_list[addr_index].iface_addr,
+                                             &ep->uct_eps[optype]);
+            if (status != UCS_OK) {
+                ucs_debug("failed to create ep");
+                goto err;
+            }
+        } else if (iface_attr->cap.flags & UCT_IFACE_FLAG_CONNECT_TO_EP) {
+            /* create a stub endpoint which will start connection establishment
+             * protocol using an auxiliary transport.
+             */
+            status = ucp_stub_ep_create(ep, optype, address_count, address_list,
+                                        &ep->uct_eps[optype]);
+            if (status != UCS_OK) {
+                goto err;
+            }
+        } else {
+            status = UCS_ERR_UNREACHABLE;
+            goto err;
+        }
     }
 
-    status = UCS_OK;
+    UCS_ASYNC_UNBLOCK(&worker->async);
+    return UCS_OK;
 
-out:
+err:
+    for (optype = 0; optype < UCP_EP_OP_LAST; ++optype) {
+        if (ep->uct_eps[optype] != NULL) {
+            uct_ep_destroy(ep->uct_eps[optype]);
+            ep->uct_eps[optype] = NULL;
+        }
+    }
     UCS_ASYNC_UNBLOCK(&worker->async);
     return status;
 }
@@ -1006,10 +883,28 @@ ucs_status_t ucp_wireup_connect_remote(ucp_ep_h ep)
 {
     ucs_status_t status;
 
-    ucs_assert(!(ep->state & UCP_EP_STATE_READY_TO_RECEIVE));
+    ucs_assert(!(ep->flags & UCP_EP_FLAG_REMOTE_CONNECTED));
     status = ucp_ep_wireup_send(ep, UCP_WIREUP_MSG_REQUEST, -1);
     return status;
 }
 
 UCP_DEFINE_AM(-1, UCP_AM_ID_WIREUP, ucp_wireup_msg_handler, 
               ucp_wireup_msg_dump, UCT_AM_CB_FLAG_ASYNC);
+
+ucp_wireup_ep_op_t ucp_wireup_ep_ops[] = {
+    [UCP_EP_OP_AM]  = {
+        .title      = "active messages",
+        .features   = UCP_FEATURE_TAG,
+        .score_func = ucp_wireup_am_score_func
+    },
+    [UCP_EP_OP_RMA] = {
+        .title      = "remote memory access",
+        .features   = UCP_FEATURE_RMA,
+        .score_func = ucp_wireup_rma_score_func
+    },
+    [UCP_EP_OP_AMO] = {
+        .title      = "atomics",
+        .features   = UCP_FEATURE_AMO32 | UCP_FEATURE_AMO64,
+        .score_func = ucp_wireup_amo_score_func
+    }
+};

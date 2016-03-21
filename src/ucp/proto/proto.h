@@ -60,7 +60,7 @@ ucs_status_t ucp_proto_progress_am_bcopy_single(uct_pending_req_t *self);
  */
 static inline void ucp_ep_connect_remote(ucp_ep_h ep)
 {
-    if (ucs_unlikely(!(ep->state & UCP_EP_STATE_READY_TO_RECEIVE))) {
+    if (ucs_unlikely(!(ep->flags & UCP_EP_FLAG_REMOTE_CONNECTED))) {
         ucp_wireup_connect_remote(ep);
     }
 }
