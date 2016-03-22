@@ -16,10 +16,17 @@
 #include <ucs/datastruct/queue_types.h>
 
 
-ucs_status_t ucp_stub_ep_create(ucp_ep_h ep, ucp_ep_op_t optype, uct_ep_h *ep_p);
+ucs_status_t ucp_stub_ep_create(ucp_ep_h ep, ucp_ep_op_t optype,
+                                unsigned address_count,
+                                const ucp_address_entry_t *address_list,
+                                uct_ep_h *ep_p);
 
-ucs_status_t ucp_stub_ep_wireup_start(uct_ep_h uct_ep, unsigned address_count,
-                                      const ucp_address_entry_t *address_list);
+/**
+ * @return Auxiliary resource index used by the stub endpoint.
+ *   If the endpoint is not a stub endpoint, return UCP_NULL_RESOURCE.
+ */
+ucp_rsc_index_t ucp_stub_ep_get_aux_rsc_index(uct_ep_h uct_ep);
+
 
 static inline ucs_queue_elem_t* ucp_stub_ep_req_priv(uct_pending_req_t *req)
 {

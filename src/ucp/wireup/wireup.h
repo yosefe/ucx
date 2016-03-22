@@ -12,6 +12,7 @@
 
 #include <ucp/api/ucp.h>
 #include <ucp/core/ucp_context.h>
+#include <ucp/core/ucp_ep.h>
 #include <uct/api/uct.h>
 
 
@@ -38,10 +39,11 @@ typedef double (*ucp_wireup_score_function_t)(ucp_worker_h worker,
  * Packet structure for wireup requests.
  */
 typedef struct ucp_wireup_msg {
-    uint8_t               type;        /* Message type */
-    uint8_t               dst_pd_index;/* PD to select at destination */
-    uint8_t               tl_index;    /* Index of runtime address */
-    uint8_t               aux_index;   /* Index of auxiliary address */
+    uint8_t          type;                /* Message type */
+    uint8_t          rma_dst_pdi;         /* PD to select at destination for RMA */
+    uint8_t          amo_dst_pdi;         /* PD to select at destination for AMO */
+    uint8_t          tli[UCP_EP_OP_LAST]; /* Index of runtime address for every operation */
+    uint8_t          auxi;                /* Index of auxiliary address */
     /* packed addresses follow */
 } UCS_S_PACKED ucp_wireup_msg_t;
 
@@ -67,9 +69,6 @@ void ucp_wireup_stop(ucp_ep_h ep);
 
 void ucp_wireup_progress(ucp_ep_h ep);
 
-ucs_status_t ucp_wireup_msg_send(ucp_ep_h ep, uint8_t type,
-                                 ucp_rsc_index_t aux_rsc_index);
-
 ucs_status_t ucp_select_transport(ucp_worker_h worker, const char *peer_name,
                                   const ucp_address_entry_t *address_list,
                                   unsigned address_count, ucp_rsc_index_t pd_index,
@@ -77,5 +76,7 @@ ucs_status_t ucp_select_transport(ucp_worker_h worker, const char *peer_name,
                                   unsigned *dst_addr_index_p,
                                   ucp_wireup_score_function_t score_func,
                                   const char *title);
+
+ucs_status_t ucp_wireup_msg_progress(uct_pending_req_t *self);
 
 #endif

@@ -10,6 +10,7 @@
 #include <ucp/core/ucp_ep.h>
 #include <ucp/core/ucp_worker.h>
 #include <ucp/core/ucp_context.h>
+#include <ucp/core/ucp_request.h>
 #include <ucp/dt/dt_contig.h>
 #include <ucs/datastruct/mpool.inl>
 

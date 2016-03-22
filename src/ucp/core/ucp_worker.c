@@ -259,12 +259,14 @@ out:
 
 unsigned ucp_worker_get_ep_config(ucp_worker_h worker, const ucp_rsc_index_t *rscs)
 {
-    ucp_context_h context        = worker->context;
+    ucp_context_h context = worker->context;
     uct_iface_attr_t *iface_attr_am;
     uct_iface_attr_t *iface_attr_rma;
+    uint64_t tl_bitmap, tl_mask;
     uct_pd_attr_t *pd_attr_am;
     ucp_ep_config_t *config;
     double zcopy_thresh;
+    ucp_ep_op_t optype;
     unsigned i;
 
     for (i = 0; i < worker->ep_config_count; ++i) {
@@ -283,6 +285,21 @@ unsigned ucp_worker_get_ep_config(ucp_worker_h worker, const ucp_rsc_index_t *rs
     config         = &worker->ep_config[worker->ep_config_count];
 
     memset(config, 0, sizeof(*config));
+
+    /* copy resource index list */
+    memcpy(config->rscs, rscs, sizeof(config->rscs));
+
+    /* find duplicate resources */
+    tl_bitmap = 0;
+    for (optype = 0; optype < UCP_EP_OP_LAST; ++optype) {
+        tl_mask = UCS_BIT(config->rscs[optype]);
+        if (tl_bitmap & tl_mask) {
+            config->dups[optype] |= tl_mask; /* duplicate occurrence */
+        } else {
+            config->dups[optype] = UCP_EP_OP_LAST; /* not present - add it */
+            tl_bitmap |= tl_mask;
+        }
+    }
 
     if (iface_attr_am->cap.flags & UCT_IFACE_FLAG_AM_SHORT) {
         config->max_eager_short  = iface_attr_am->cap.am.max_short - sizeof(ucp_eager_hdr_t);

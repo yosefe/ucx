@@ -15,6 +15,7 @@
 #include <uct/api/uct.h>
 #include <ucs/datastruct/mpool.h>
 #include <ucs/datastruct/queue_types.h>
+#include <ucp/wireup/wireup.h>
 
 
 /**
@@ -73,7 +74,6 @@ typedef struct ucp_send_state {
 /**
  * Request in progress.
  */
-typedef struct ucp_request ucp_request_t;
 struct ucp_request {
     uint16_t                      flags;   /* Request flags */
 
@@ -91,10 +91,7 @@ struct ucp_request {
             union {
                 ucp_tag_t         tag;      /* Tagged send */
 
-                struct {
-                    uint8_t       type;
-                    ucp_rsc_index_t aux_rsc_index;
-                } wireup;
+                ucp_wireup_msg_t  wireup;
 
                 struct {
                     uint64_t      remote_addr; /* remote address */

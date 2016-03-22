@@ -9,7 +9,6 @@
 #define UCP_EP_H_
 
 #include "ucp_context.h"
-#include "ucp_request.h"
 
 #include <uct/api/uct.h>
 #include <ucs/debug/log.h>
@@ -31,8 +30,13 @@ typedef enum ucp_ep_op {
 
 
 typedef struct ucp_ep_config {
-    /* Resource index for every operation */
-    ucp_rsc_index_t        rscs[UCP_EP_OP_LAST];
+    /* Transport configuration */
+    ucp_rsc_index_t        rscs[UCP_EP_OP_LAST]; /* Resource index for every operation */
+    ucp_ep_op_t            dups[UCP_EP_OP_LAST]; /* List of which resources are
+                                                    duplicate of others. if an
+                                                    entry is not UCP_EP_OP_LAST,
+                                                    it's the index of the first
+                                                    instance of the resource. */
 
     /* Limits for protocols using short message only */
     size_t                 max_eager_short;  /* Maximal payload of eager short */

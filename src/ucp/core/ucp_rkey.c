@@ -5,6 +5,7 @@
 */
 
 #include "ucp_mm.h"
+#include "ucp_request.h"
 
 #include <inttypes.h>
 

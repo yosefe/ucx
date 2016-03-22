@@ -5,6 +5,7 @@
 */
 
 #include "ucp_ep.h"
+#include "ucp_request.h"
 #include "ucp_worker.h"
 
 #include <ucp/wireup/wireup.h>

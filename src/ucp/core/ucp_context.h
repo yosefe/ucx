@@ -20,6 +20,7 @@
 #define UCP_NULL_RESOURCE       ((ucp_rsc_index_t)-1)
 
 typedef uint8_t                 ucp_rsc_index_t;
+typedef struct ucp_request      ucp_request_t;
 
 
 /**
