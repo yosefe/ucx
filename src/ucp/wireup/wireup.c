@@ -501,10 +501,8 @@ static void ucp_wireup_process_request(ucp_worker_h worker, ucp_wireup_msg_t *ms
     ucp_rsc_index_t aux_rsc_index;
     unsigned addr_index;
     ucs_status_t status;
+    ucp_ep_op_t optype;
     uct_ep_h uct_ep;
-
-    ucs_assert(msg->tl_index != (uint8_t)-1);
-    tl_addr = &address_list[msg->tl_index];
 
     if (ep == NULL) {
         status = ucp_ep_new(worker, uuid, peer_name, "remote-request", &ep);
@@ -512,15 +510,16 @@ static void ucp_wireup_process_request(ucp_worker_h worker, ucp_wireup_msg_t *ms
             return;
         }
 
-     } else if (ep->state & UCP_EP_STATE_NEXT_EP_LOCAL_CONNECTED) {
-        /* TODO possibly switch to different transport */
-        ucs_assertv(ep->dst_pd_index == tl_addr->pd_index,
-                    "ep->dst_pd_index=%d tl_addr->pd_index=%d", ep->dst_pd_index,
-                    tl_addr->pd_index);
-        ucs_assert(ucp_ep_pd_index(ep) == msg->dst_pd_index);
-        ucs_trace("ignoring connection request - already connected");
-        return;
+        for (optype = 0; optype < UCP_EP_OP_LAST; ++optype) {
+            tl_addr = &address_list[msg->tli[optype]];
+
+            if ()
+
+
+        }
     }
+
+
 
     status = ucp_select_transport(worker, peer_name, tl_addr, 1, msg->dst_pd_index,
                                   &ep->rsc_index, &addr_index,

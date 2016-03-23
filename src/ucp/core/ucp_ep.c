@@ -34,7 +34,7 @@ ucs_status_t ucp_ep_new(ucp_worker_h worker, uint64_t dest_uuid,
     ep->flags                = 0;
 
     for (i = 0; i < UCP_EP_OP_LAST; ++i) {
-        ep->uct_eps[i]           = NULL;
+        ep->uct_eps[i]       = NULL;
     }
     sglib_hashed_ucp_ep_t_add(worker->ep_hash, ep);
 #if ENABLE_DEBUG_DATA
