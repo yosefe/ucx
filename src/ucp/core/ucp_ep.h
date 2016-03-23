@@ -17,7 +17,10 @@
 
 
 enum {
-    UCP_EP_FLAG_REMOTE_CONNECTED = UCS_BIT(0),
+    UCP_EP_FLAG_LOCAL_CONNECTED  = UCS_BIT(0), /* At least one transport has to
+                                                  be connected directly to ep */
+    UCP_EP_FLAG_CONNECT_REQ_SENT = UCS_BIT(1), /* Remote side would be able to
+                                                  send replies back to us */
 };
 
 
@@ -97,10 +100,13 @@ typedef struct ucp_ep {
 } ucp_ep_t;
 
 
-ucs_status_t ucp_ep_new(ucp_worker_h worker, uint64_t dest_uuid,
-                        const char *peer_name, const char *message, ucp_ep_h *ep_p);
+ucs_status_t ucp_ep_create_connected(ucp_worker_h worker, uint64_t dest_uuid,
+                                     const char *peer_name, unsigned address_count,
+                                     const ucp_address_entry_t *address_list,
+                                     const char *message, ucp_ep_h *ep_p);
 
-void ucp_ep_delete(ucp_ep_h ep);
+ucs_status_t ucp_ep_create_stub(ucp_worker_h worker, uint64_t dest_uuid,
+                                const char *message, ucp_ep_h *ep_p);
 
 void ucp_ep_destroy_uct_ep_safe(ucp_ep_h ep, uct_ep_h uct_ep);
 

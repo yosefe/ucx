@@ -27,13 +27,12 @@ ucs_status_t ucp_stub_ep_create(ucp_ep_h ep, ucp_ep_op_t optype,
  */
 ucp_rsc_index_t ucp_stub_ep_get_aux_rsc_index(uct_ep_h uct_ep);
 
+void ucp_stub_ep_remote_connected(uct_ep_h uct_ep);
 
 static inline ucs_queue_elem_t* ucp_stub_ep_req_priv(uct_pending_req_t *req)
 {
     UCS_STATIC_ASSERT(sizeof(ucs_queue_elem_t) <= UCT_PENDING_REQ_PRIV_LEN);
     return (ucs_queue_elem_t*)req->priv;
 }
-
-void ucp_stub_ep_progress(void *arg);
 
 #endif

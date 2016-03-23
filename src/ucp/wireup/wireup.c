@@ -54,78 +54,6 @@
  */
 
 
-static void ucp_wireup_stop_aux(ucp_ep_h ep);
-
-void ucp_wireup_progress(ucp_ep_h ep)
-{
-    ucp_stub_ep_t *stub_ep = ucp_ep_get_stub_ep(ep);
-    ucs_queue_head_t tmp_pending_queue;
-    ucp_worker_h worker = ep->worker;
-    uct_pending_req_t *req;
-    ucs_status_t status;
-    uct_ep_h uct_ep;
-
-    /*
-     * We switch the endpoint in this function (instead in wireup code) since
-     * this is guaranteed to run from the main thread.
-     * Don't start using the transport before the wireup protocol finished
-     * sending ack/reply.
-     */
-    sched_yield();
-    ucs_async_check_miss(&ep->worker->async);
-
-    /*
-     * Check that we are ready to switch:
-     * - Remote side must also be connected.
-     * - We should have sent a wireup reply to remote side
-     * - We should have sent all pending wireup operations (so we won't discard them)
-     */
-    if (!(ep->state & UCP_EP_STATE_NEXT_EP) ||
-        !(ep->state & UCP_EP_STATE_NEXT_EP_REMOTE_CONNECTED) ||
-        !(ep->state & (UCP_EP_STATE_WIREUP_REPLY_SENT|UCP_EP_STATE_WIREUP_ACK_SENT)) ||
-        (stub_ep->pending_count != 0))
-    {
-        return;
-    }
-
-    ucs_memory_cpu_fence();
-    UCS_ASYNC_BLOCK(&worker->async);
-
-    /* Take out next_ep */
-    uct_ep = stub_ep->next_ep;
-    ucs_assert(uct_ep != NULL);
-    stub_ep->next_ep = NULL;
-    ep->state &= ~UCP_EP_STATE_NEXT_EP;
-
-    /* Move stub pending queue to temporary queue and remove references to
-     * the stub progress function
-     */
-    ucs_queue_head_init(&tmp_pending_queue);
-    ucs_queue_for_each_extract(req, &stub_ep->pending_q, priv, 1) {
-        uct_worker_progress_unregister(ep->worker->uct, ucp_stub_ep_progress,
-                                       stub_ep);
-        ucs_queue_push(&tmp_pending_queue, ucp_stub_ep_req_priv(req));
-    }
-
-    /* Destroy temporary endpoints */
-    stub_ep = NULL;
-    ucp_wireup_stop_aux(ep);
-
-    /* Switch to real transport */
-    ep->uct_ep = uct_ep;
-    ucp_wireup_ep_ready_to_send(ep);
-
-    UCS_ASYNC_UNBLOCK(&worker->async);
-
-    /* Replay pending requests */
-    ucs_queue_for_each_extract(req, &tmp_pending_queue, priv, 1) {
-        do {
-            status = ucp_ep_add_pending_uct(ep, uct_ep, req);
-        } while (status != UCS_OK);
-        --ep->worker->stub_pend_count;
-    }
-}
-
 static int ucp_wireup_check_runtime(uct_iface_attr_t *iface_attr,
                                     char *reason, size_t max)
 {
@@ -368,8 +296,7 @@ static void ucp_wireup_msg_dump(ucp_worker_h worker, uct_am_trace_type_t type,
     p += strlen(p);
     for (ae = address_list; ae < address_list + address_count; ++ae) {
         snprintf(p, end - p, " [%s(%zu)%s]", ae->tl_name, ae->tl_addr_len,
-                 ((ae - address_list) == msg->auxi) ? " aux" :
-                 ((ae - address_list) == msg->tli[UCP_EP_OP_AM] ) ? " am" :
+                 ((ae - address_list) == msg->tli[UCP_EP_OP_AM] )  ? " am" :
                  ((ae - address_list) == msg->tli[UCP_EP_OP_RMA] ) ? " rma" :
                  ((ae - address_list) == msg->tli[UCP_EP_OP_AMO] ) ? " amo" :
                  "");
@@ -415,8 +342,14 @@ static unsigned ucp_wireup_address_index(const unsigned *order,
     return order[ucs_count_one_bits(tl_bitmap & UCS_MASK(tl_index))];
 }
 
+static int ucp_worker_is_tl_p2p(ucp_worker_h worker, ucp_rsc_index_t rsc_index)
+{
+    return worker->iface_attrs[rsc_index].cap.flags & UCT_IFACE_FLAG_CONNECT_TO_EP;
+}
+
 static ucs_status_t ucp_wireup_msg_send(ucp_ep_h ep, uint8_t type)
 {
+    ucp_worker_h worker = ep->worker;
     uct_ep_h am_ep = ep->uct_eps[UCP_EP_OP_AM];
     ucp_rsc_index_t rsc_index, aux_rsc_index;
     ucs_status_t status;
@@ -442,16 +375,25 @@ static ucs_status_t ucp_wireup_msg_send(ucp_ep_h ep, uint8_t type)
     req->send.wireup.rma_dst_pdi = ep->rma_dst_pdi;
     req->send.wireup.amo_dst_pdi = ep->amo_dst_pdi;
 
-    aux_rsc_index = ucp_stub_ep_get_aux_rsc_index(am_ep);
-
-    /* make a bitmap of all addresses we are sending */
+    /* Make a bitmap of all addresses we are sending:
+     *  REQUEST - all addresses (incl. auxiliary)
+     *  REPLY   - only p2p addresses
+     *  ACK     - no addresses
+     */
     tl_bitmap = 0;
-    if (req->send.wireup.type != UCP_WIREUP_MSG_ACK) {
+    if (req->send.wireup.type == UCP_WIREUP_MSG_REQUEST) {
+        aux_rsc_index = ucp_stub_ep_get_aux_rsc_index(am_ep);
         if (aux_rsc_index != UCP_NULL_RESOURCE) {
             tl_bitmap |= UCS_BIT(aux_rsc_index);
         }
-        for (optype = 0; optype < UCP_EP_OP_LAST; ++optype) {
-            tl_bitmap |= UCS_BIT(ucp_ep_config(ep)->rscs[optype]);
+    }
+    for (optype = 0; optype < UCP_EP_OP_LAST; ++optype) {
+        rsc_index = ucp_ep_config(ep)->rscs[optype];
+        if ((req->send.wireup.type == UCP_WIREUP_MSG_REQUEST) ||
+            ((req->send.wireup.type == UCP_WIREUP_MSG_REPLY) &&
+             ucp_worker_is_tl_p2p(worker, rsc_index)))
+        {
+            tl_bitmap |= UCS_BIT(rsc_index);
         }
     }
 
@@ -465,14 +407,6 @@ static ucs_status_t ucp_wireup_msg_send(ucp_ep_h ep, uint8_t type)
 
     req->send.buffer = address;
 
-    /* send the index of auxiliary address */
-    if (aux_rsc_index == UCP_NULL_RESOURCE) {
-        req->send.wireup.auxi = -1;
-    } else {
-        req->send.wireup.auxi = ucp_wireup_address_index(order, tl_bitmap,
-                                                         aux_rsc_index);
-    }
-
     /* send the indices of runtime addresses for each operation */
     for (optype = 0; optype < UCP_EP_OP_LAST; ++optype) {
         if (req->send.wireup.type == UCP_WIREUP_MSG_ACK) {
@@ -482,7 +416,6 @@ static ucs_status_t ucp_wireup_msg_send(ucp_ep_h ep, uint8_t type)
             req->send.wireup.tli[optype] = ucp_wireup_address_index(order,
                                                                     tl_bitmap,
                                                                     rsc_index);
-            ucs_assert(req->send.wireup.auxi != req->send.wireup.tli[optype]);
         }
     }
 
@@ -490,132 +423,96 @@ static ucs_status_t ucp_wireup_msg_send(ucp_ep_h ep, uint8_t type)
     return UCS_OK;
 }
 
-static void ucp_wireup_process_request(ucp_worker_h worker, ucp_wireup_msg_t *msg,
+static ucs_status_t ucp_wireup_connect_local(ucp_ep_h ep, const uint8_t *tli,
+                                           unsigned address_count,
+                                           const ucp_address_entry_t *address_list)
+{
+    ucp_worker_h worker = ep->worker;
+    const ucp_address_entry_t *address;
+    ucp_rsc_index_t rsc_index;
+    ucs_status_t status;
+    ucp_ep_op_t optype;
+
+    for (optype = 0; optype < UCP_EP_OP_LAST; ++optype) {
+        if (ucp_ep_config(ep)->dups[optype] != UCP_EP_OP_LAST) {
+            continue;
+        }
+
+        rsc_index = ucp_ep_config(ep)->rscs[optype];
+        if (!ucp_worker_is_tl_p2p(worker, rsc_index)) {
+            continue;
+        }
+
+        address = &address_list[tli[optype]];
+        ucs_assert(address->tl_addr_len > 0);
+        status = uct_ep_connect_to_ep(ep->uct_eps[optype], address->dev_addr,
+                                      address->ep_addr);
+        if (status != UCS_OK) {
+            return status;
+        }
+    }
+
+    return UCS_OK;
+}
+
+static void ucp_wireup_ep_remote_connected(ucp_ep_h ep)
+{
+    ucp_worker_h worker = ep->worker;
+    ucp_rsc_index_t rsc_index;
+    ucp_ep_op_t optype;
+
+    for (optype = 0; optype < UCP_EP_OP_LAST; ++optype) {
+        if (ucp_ep_config(ep)->dups[optype] != UCP_EP_OP_LAST) {
+            continue;
+        }
+
+        rsc_index = ucp_ep_config(ep)->rscs[optype];
+        if (!ucp_worker_is_tl_p2p(worker, rsc_index)) {
+            continue;
+        }
+
+        ucp_stub_ep_remote_connected(ep->uct_eps[optype]);
+    }
+}
+
+static void ucp_wireup_process_request(ucp_worker_h worker, const ucp_wireup_msg_t *msg,
                                        uint64_t uuid, const char *peer_name,
                                        unsigned address_count,
                                        const ucp_address_entry_t *address_list)
 {
     ucp_ep_h ep = ucp_worker_ep_find(worker, uuid);
-    const ucp_address_entry_t *tl_addr, *aux_addr;
-    uct_iface_attr_t *iface_attr;
-    ucp_rsc_index_t aux_rsc_index;
-    unsigned addr_index;
     ucs_status_t status;
-    ucp_ep_op_t optype;
-    uct_ep_h uct_ep;
 
     if (ep == NULL) {
-        status = ucp_ep_new(worker, uuid, peer_name, "remote-request", &ep);
+        /* Create a new endpoint and connect it to remote address
+         * TODO seperate create_connected to new+select_transports
+         */
+        status = ucp_ep_create_connected(worker, uuid, peer_name, address_count,
+                                         address_list, "remote-request", &ep);
         if (status != UCS_OK) {
             return;
         }
-
-        for (optype = 0; optype < UCP_EP_OP_LAST; ++optype) {
-            tl_addr = &address_list[msg->tli[optype]];
-
-            if ()
-
-
+    } else if (ep->cfg_index == (uint8_t)-1) {
+        /* Fill the transports of an existing stub endpoint */
+        status = ucp_ep_init_trasports(ep, address_count, address_list);
+        if (status != UCS_OK) {
+            return;
         }
     }
 
-
-
-    status = ucp_select_transport(worker, peer_name, tl_addr, 1, msg->dst_pd_index,
-                                  &ep->rsc_index, &addr_index,
-                                  ucp_runtime_score_func, "runtime-on-demand");
-    if (status != UCS_OK) {
-        return;
-    }
-
-    ucs_assert(addr_index == 0);
-
-    ep->dst_pd_index = tl_addr->pd_index;
-
-    ucs_debug("using " UCT_TL_RESOURCE_DESC_FMT,
-              UCT_TL_RESOURCE_DESC_ARG(&worker->context->tl_rscs[ep->rsc_index].tl_rsc));
-
-    iface_attr = &worker->iface_attrs[ep->rsc_index];
-
-    if (iface_attr->cap.flags & UCT_IFACE_FLAG_CONNECT_TO_IFACE) {
-
-        status = uct_ep_create_connected(worker->ifaces[ep->rsc_index],
-                                         tl_addr->dev_addr, tl_addr->iface_addr,
-                                         &uct_ep);
-        if (status != UCS_OK) {
-            ucs_debug("failed to create ep");
-            return;
-        }
-
-        if (ep->state & UCP_EP_STATE_STUB_EP) {
-             ucp_ep_get_stub_ep(ep)->next_ep = uct_ep;
-             ep->state |= UCP_EP_STATE_NEXT_EP;
-             ep->state |= UCP_EP_STATE_NEXT_EP_LOCAL_CONNECTED;
-             ep->state |= UCP_EP_STATE_NEXT_EP_REMOTE_CONNECTED;
-        } else {
-             ep->uct_ep = uct_ep;
-             ep->state |= UCP_EP_STATE_READY_TO_SEND;
-             ep->state |= UCP_EP_STATE_READY_TO_RECEIVE;
-        }
-
-        /* Send a reply, which also includes the address of next_ep */
-        status = ucp_ep_wireup_send(ep, UCP_WIREUP_MSG_ACK, UCP_NULL_RESOURCE);
+    /* Connect p2p addresses to remote endpoint */
+    if (!(ep->flags & UCP_EP_FLAG_LOCAL_CONNECTED)) {
+        status = ucp_wireup_connect_local(ep, msg->tli, address_count, address_list);
         if (status != UCS_OK) {
             return;
         }
 
-        ucs_memory_cpu_fence();
-        ep->state |= UCP_EP_STATE_WIREUP_ACK_SENT;
-
-    } else if (iface_attr->cap.flags & UCT_IFACE_FLAG_CONNECT_TO_EP) {
-
-        /* Create auxiliary transport and put the real transport in next_ep */
-        if (((msg->aux_index != (uint8_t)-1)) && (!(ep->state & UCP_EP_STATE_AUX_EP))) {
-
-            ucs_assert(!(ep->state & UCP_EP_STATE_NEXT_EP));
-
-            aux_addr = &address_list[msg->aux_index];
-            status = ucp_select_transport(worker, ucp_ep_peer_name(ep),
-                                          aux_addr, 1, UCP_NULL_RESOURCE,
-                                          &aux_rsc_index, &addr_index,
-                                          ucp_aux_score_func, "aux-on-demand");
-            if (status != UCS_OK) {
-                ucs_error("No suitable auxiliary transport found");
-                return;
-            }
-
-            status = ucp_wireup_start_aux(ep, tl_addr->pd_index, aux_rsc_index,
-                                          aux_addr);
-            if (status != UCS_OK) {
-                return;
-            }
-        }
-
-        ucs_assert(ep->state & UCP_EP_STATE_NEXT_EP);
-
-        /* Connect next_ep to the address passed in the wireup message */
-        if (!(ep->state & UCP_EP_STATE_NEXT_EP_LOCAL_CONNECTED)) {
-            ucs_assert(ep->state & UCP_EP_STATE_NEXT_EP);
-            status = uct_ep_connect_to_ep(ucp_ep_get_stub_ep(ep)->next_ep,
-                                          tl_addr->dev_addr, tl_addr->ep_addr);
-            if (status != UCS_OK) {
-                /* TODO send reject? */
-                ucs_debug("failed to connect");
-                return;
-            }
-
-            ucs_debug("connected next ep %p", ucp_ep_get_stub_ep(ep)->next_ep);
-            ep->state |= UCP_EP_STATE_NEXT_EP_LOCAL_CONNECTED;
-        }
-
-        /* Send a reply, which also includes the address of next_ep */
-        status = ucp_ep_wireup_send(ep, UCP_WIREUP_MSG_REPLY, -1);
+        status = ucp_wireup_msg_send(ep, UCP_WIREUP_MSG_REPLY);
         if (status != UCS_OK) {
             return;
         }
 
-        ucs_memory_cpu_fence();
-        ep->state |= UCP_EP_STATE_WIREUP_REPLY_SENT;
+        ep->flags |= UCP_EP_FLAG_LOCAL_CONNECTED;
     }
 }
 
@@ -624,7 +521,6 @@ static void ucp_wireup_process_reply(ucp_worker_h worker, ucp_wireup_msg_t *msg,
                                      const ucp_address_entry_t *address_list)
 {
     ucp_ep_h ep = ucp_worker_ep_find(worker, uuid);
-    const ucp_address_entry_t *tl_addr;
     ucs_status_t status;
 
     if (ep == NULL) {
@@ -632,67 +528,25 @@ static void ucp_wireup_process_reply(ucp_worker_h worker, ucp_wireup_msg_t *msg,
         return;
     }
 
-    if (ep->state & UCP_EP_STATE_READY_TO_SEND) {
-        ucs_debug("ignoring conn_rep - already connected");
-        return;
-    }
-
-    if (ep->state & UCP_EP_STATE_NEXT_EP_REMOTE_CONNECTED) {
-        ucs_debug("ignoring conn_rep - remote already connected");
-        return;
-    }
-
-    ucs_assert_always(ep->state & UCP_EP_STATE_NEXT_EP);
-
-    /*
-     * If we got a reply, it means the remote side got our address and connected
-     * to us.
-     */
-    ep->state |= UCP_EP_STATE_NEXT_EP_REMOTE_CONNECTED;
-
-    /* If we have not connected yet, do it now */
-    if (!(ep->state & UCP_EP_STATE_NEXT_EP_LOCAL_CONNECTED)) {
-        ucs_assert(ep->state & UCP_EP_STATE_NEXT_EP);
-
-        tl_addr = &address_list[msg->tl_index];
-        status = uct_ep_connect_to_ep(ucp_ep_get_stub_ep(ep)->next_ep,
-                                      tl_addr->dev_addr, tl_addr->ep_addr);
+    /* Connect p2p addresses to remote endpoint */
+    if (!(ep->flags & UCP_EP_FLAG_LOCAL_CONNECTED)) {
+        status = ucp_wireup_connect_local(ep, msg->tli, address_count, address_list);
         if (status != UCS_OK) {
-            ucs_error("failed to connect");
             return;
         }
 
-        /* The remote side must be connected with same PD we asked for */
-        ucs_assert(ep->dst_pd_index == tl_addr->pd_index);
+        ucp_wireup_ep_remote_connected(ep);
 
-        /* The remote side should ask to be connected to our PD */
-        ucs_assert(ucp_ep_pd_index(ep) == msg->dst_pd_index);
+        /* If remote is connected - just send an ACK (because we already sent the address)
+         * Otherwise - send a REPLY message with the ep addresses.
+         */
+        status = ucp_wireup_msg_send(ep, UCP_WIREUP_MSG_ACK);
+        if (status != UCS_OK) {
+            return;
+        }
 
-        ucs_debug("connected next ep %p pd %d", ucp_ep_get_stub_ep(ep)->next_ep,
-                  ep->dst_pd_index);
-
-        ep->state |= UCP_EP_STATE_NEXT_EP_LOCAL_CONNECTED;
+        ep->flags |= UCP_EP_FLAG_LOCAL_CONNECTED;
     }
-
-    /* If we already sent a reply to the remote side, no need to send an ACK. */
-    if (ep->state & (UCP_EP_STATE_WIREUP_REPLY_SENT|UCP_EP_STATE_WIREUP_ACK_SENT)) {
-        ucs_debug("ep %p not sending wireup_ack - state is 0x%x", ep, ep->state);
-        return;
-    }
-
-    /*
-     * Send ACK to let remote side know it can start sending.
-     *
-     * We can use the new ep even from async thread, because main thread will not
-     * started using it before ACK_SENT is turned on.
-     */
-    status = ucp_ep_wireup_send(ep, UCP_WIREUP_MSG_ACK, UCP_NULL_RESOURCE);
-    if (status != UCS_OK) {
-        return;
-    }
-
-    ucs_memory_cpu_fence();
-    ep->state |= UCP_EP_STATE_WIREUP_ACK_SENT;
 }
 
 static void ucp_wireup_process_ack(ucp_worker_h worker, uint64_t uuid)
@@ -704,20 +558,7 @@ static void ucp_wireup_process_ack(ucp_worker_h worker, uint64_t uuid)
         return;
     }
 
-    if (ep->state & UCP_EP_STATE_NEXT_EP_REMOTE_CONNECTED) {
-        ucs_debug("ignoring connection ack - remote already connected");
-        return;
-    }
-
-    /*
-     * If we got CONN_ACK, it means remote side got our reply, and also
-     * connected to us.
-     */
-    if (ep->state & UCP_EP_STATE_READY_TO_SEND) {
-        ep->state |= UCP_EP_STATE_READY_TO_RECEIVE;
-    } else {
-        ep->state |= UCP_EP_STATE_NEXT_EP_REMOTE_CONNECTED;
-    }
+    ucp_wireup_ep_remote_connected(ep);
 }
 
 static ucs_status_t ucp_wireup_msg_handler(void *arg, void *data,
@@ -759,8 +600,9 @@ out:
     return UCS_OK;
 }
 
-ucs_status_t ucp_wireup_start(ucp_ep_h ep, ucp_address_entry_t *address_list,
-                              unsigned address_count)
+/* TODO unite this with ucp_ep_create */
+ucs_status_t ucp_ep_init_trasports(ucp_ep_h ep, unsigned address_count,
+                                   const ucp_address_entry_t *address_list)
 {
     ucp_worker_h worker = ep->worker;
     ucp_context_h context = worker->context;
@@ -771,12 +613,12 @@ ucs_status_t ucp_wireup_start(ucp_ep_h ep, ucp_address_entry_t *address_list,
     ucp_ep_op_t optype, dup;
     unsigned addr_index;
     ucs_status_t status;
-    int has_2ep;
+    int has_p2p;
 
-    UCS_ASYNC_BLOCK(&worker->async);
+    ucs_assert(ep->cfg_index == (uint8_t)-1);
 
     /* select best transport for every type of operation */
-    has_2ep = 0;
+    has_p2p = 0;
     for (optype = 0; optype < UCP_EP_OP_LAST; ++optype) {
         if (!(context->config.features & ucp_wireup_ep_ops[optype].features)) {
             rscs[optype]          = UCP_NULL_RESOURCE;
@@ -793,14 +635,14 @@ ucs_status_t ucp_wireup_start(ucp_ep_h ep, ucp_address_entry_t *address_list,
             goto err;
         }
 
-        has_2ep = has_2ep || (iface_attr->cap.flags & UCT_IFACE_FLAG_CONNECT_TO_EP);
+        has_p2p = has_p2p || ucp_worker_is_tl_p2p(worker, rscs[optype]);
     }
 
     /* If one of the selected transports is p2p, we also need AM transport for
      * taking care of the wireup and sending final ACK.
      * The auxiliary wireup, if needed, will happen on the AM transport only.
      */
-    if (has_2ep && (rscs[UCP_EP_OP_AM] = UCP_NULL_RESOURCE)) {
+    if (has_p2p && (rscs[UCP_EP_OP_AM] = UCP_NULL_RESOURCE)) {
         status = ucp_select_transport(worker, ucp_ep_peer_name(ep), address_list,
                                       address_count, UCP_NULL_RESOURCE,
                                       &rscs[UCP_EP_OP_AM], &addr_indices[UCP_EP_OP_AM],
@@ -838,6 +680,8 @@ ucs_status_t ucp_wireup_start(ucp_ep_h ep, ucp_address_entry_t *address_list,
             continue;
         }
 
+        ucs_assert(ep->uct_eps[optype] == NULL); // TODO takeover stub ep
+
         iface_attr = &worker->iface_attrs[rsc_index];
 
         /* if the selected transport can be connected directly to the remote
@@ -869,15 +713,10 @@ ucs_status_t ucp_wireup_start(ucp_ep_h ep, ucp_address_entry_t *address_list,
         }
     }
 
-    if (has_2ep) {
-        /* send initial wireup message */
-        status = ucp_wireup_msg_send(ep, UCP_WIREUP_MSG_REQUEST);
-        if (status != UCS_OK) {
-            goto err;
-        }
+    if (!has_p2p) {
+        ep->flags |= UCP_EP_FLAG_LOCAL_CONNECTED;
     }
 
-    UCS_ASYNC_UNBLOCK(&worker->async);
     return UCS_OK;
 
 err:
@@ -887,27 +726,15 @@ err:
             ep->uct_eps[optype] = NULL;
         }
     }
-    UCS_ASYNC_UNBLOCK(&worker->async);
     return status;
 }
 
-void ucp_wireup_stop(ucp_ep_h ep)
-{
-    ucp_worker_h worker = ep->worker;
-
-    ucs_trace_func("ep=%p", ep);
-
-    UCS_ASYNC_BLOCK(&worker->async);
-    ucp_wireup_stop_aux(ep);
-    UCS_ASYNC_UNBLOCK(&worker->async);
-}
-
-ucs_status_t ucp_wireup_connect_remote(ucp_ep_h ep)
+ucs_status_t ucp_wireup_send_request(ucp_ep_h ep)
 {
     ucs_status_t status;
 
-    ucs_assert(!(ep->flags & UCP_EP_FLAG_REMOTE_CONNECTED));
-    status = ucp_ep_wireup_send(ep, UCP_WIREUP_MSG_REQUEST, -1);
+    status = ucp_wireup_msg_send(ep, UCP_WIREUP_MSG_REQUEST);
+    ep->flags |= UCP_EP_FLAG_CONNECT_REQ_SENT;
     return status;
 }
 
