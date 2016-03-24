@@ -287,7 +287,7 @@ UCS_CLASS_INIT_FUNC(ucp_stub_ep_t, ucp_ep_h ep, ucp_ep_op_t optype,
     self->state         = 0;
     ucs_queue_head_init(&self->pending_q);
 
-    if (ep->cfg_index != (uint8_t)-1) {
+    if (address_count > 0) {
         status = ucp_stub_ep_connect(&self->super, address_count, address_list);
         if (status != UCS_OK) {
             return status;

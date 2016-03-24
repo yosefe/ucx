@@ -31,7 +31,7 @@ static ucs_status_t ucp_ep_new(ucp_worker_h worker, uint64_t dest_uuid,
     ep->dest_uuid            = dest_uuid;
     ep->rma_dst_pdi          = UCP_NULL_RESOURCE;
     ep->amo_dst_pdi          = UCP_NULL_RESOURCE;
-    ep->cfg_index            = -1;
+    ep->cfg_index            = 0;
     ep->flags                = 0;
 #if ENABLE_DEBUG_DATA
     ucs_snprintf_zero(ep->peer_name, UCP_WORKER_NAME_MAX, "%s", peer_name);

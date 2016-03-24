@@ -359,6 +359,24 @@ unsigned ucp_worker_get_ep_config(ucp_worker_h worker, const ucp_rsc_index_t *rs
     return worker->ep_config_count++;
 }
 
+static void ucp_worker_set_stub_config(ucp_worker_h worker)
+{
+    ucp_ep_config_t *config = &worker->ep_config[0];
+    ucp_ep_op_t optype;
+
+    memset(config, 0, sizeof(*config));
+
+    for (optype = 0; optype < UCP_EP_OP_LAST; ++optype) {
+        config->rscs[optype] = UCP_NULL_RESOURCE;
+        config->dups[optype] = UCP_EP_OP_LAST;
+    }
+    config->max_am_bcopy      = 256;
+    config->zcopy_thresh      = SIZE_MAX;
+    config->sync_zcopy_thresh = SIZE_MAX;
+    config->rndv_thresh       = SIZE_MAX;
+    config->sync_rndv_thresh  = SIZE_MAX;
+}
+
 ucs_status_t ucp_worker_create(ucp_context_h context, ucs_thread_mode_t thread_mode,
                                ucp_worker_h *worker_p)
 {
@@ -448,6 +466,10 @@ ucs_status_t ucp_worker_create(ucp_context_h context, ucs_thread_mode_t thread_m
             goto err_close_ifaces;
         }
     }
+
+    /* configuration index 0 is for stub endpoints */
+    ucp_worker_set_stub_config(worker);
+    ++worker->ep_config_count;
 
     *worker_p = worker;
     return UCS_OK;

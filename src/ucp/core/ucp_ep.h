@@ -17,9 +17,9 @@
 
 
 enum {
-    UCP_EP_FLAG_LOCAL_CONNECTED  = UCS_BIT(0), /* At least one transport has to
-                                                  be connected directly to ep */
-    UCP_EP_FLAG_CONNECT_REQ_SENT = UCS_BIT(1), /* Remote side would be able to
+    UCP_EP_FLAG_LOCAL_CONNECTED  = UCS_BIT(0),
+    UCP_EP_FLAG_REMOTE_CONNECTED = UCS_BIT(1),
+    UCP_EP_FLAG_CONNECT_REQ_SENT = UCS_BIT(2), /* Remote side would be able to
                                                   send replies back to us */
 };
 
