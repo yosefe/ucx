@@ -29,13 +29,7 @@ static ucs_status_t ucp_stub_ep_connect_to_ep(uct_ep_h uct_ep,
                                               const uct_ep_addr_t *ep_addr)
 {
     ucp_stub_ep_t *stub_ep = ucs_derived_of(uct_ep, ucp_stub_ep_t);
-    ucs_status_t status;
-
-    status = uct_ep_connect_to_ep(stub_ep->next_ep, dev_addr, ep_addr);
-    if (status == UCS_OK) {
-        stub_ep->state |= UCP_STUB_EP_LOCAL_CONNECTED;
-    }
-    return status;
+    return uct_ep_connect_to_ep(stub_ep->next_ep, dev_addr, ep_addr);
 }
 
 void ucp_stub_ep_progress(ucp_stub_ep_t *stub_ep)
@@ -63,7 +57,7 @@ void ucp_stub_ep_progress(ucp_stub_ep_t *stub_ep)
      * - We should have sent a wireup reply to remote side
      * - We should have sent all pending wireup operations (so we won't discard them)
      */
-    if (!ucs_test_all_flags(stub_ep->state, UCP_STUB_EP_CONNECTED) ||
+    if (!(stub_ep->state & UCP_STUB_EP_CONNECTED) ||
         (stub_ep->pending_count != 0))
     {
         return;
@@ -129,7 +123,7 @@ static uct_ep_h ucp_stub_ep_get_wireup_msg_ep(ucp_stub_ep_t *stub_ep)
 {
     uct_ep_h wireup_msg_ep;
 
-    if (ucs_test_all_flags(stub_ep->state, UCP_STUB_EP_CONNECTED)) {
+    if (stub_ep->state & UCP_STUB_EP_CONNECTED) {
         wireup_msg_ep = stub_ep->next_ep;
     } else {
         wireup_msg_ep = stub_ep->aux_ep;
@@ -281,38 +275,22 @@ ucp_stub_ep_connect_aux(ucp_stub_ep_t *stub_ep, unsigned address_count,
 UCS_CLASS_INIT_FUNC(ucp_stub_ep_t, ucp_ep_h ep, ucp_ep_op_t optype,
                     unsigned address_count, const ucp_address_entry_t *address_list)
 {
-    ucp_worker_h worker = ep->worker;
-    ucp_rsc_index_t rsc_index;
     ucs_status_t status;
 
     self->super.iface   = &ucp_stub_iface;
     self->ep            = ep;
     self->aux_ep        = NULL;
+    self->next_ep       = NULL;
     self->optype        = optype;
     self->aux_rsc_index = UCP_NULL_RESOURCE;
     self->pending_count = 0;
     self->state         = 0;
     ucs_queue_head_init(&self->pending_q);
 
-    /* create endpoint for the real transport, which we would eventually connect */
     if (ep->cfg_index != (uint8_t)-1) {
-        rsc_index = ucp_ep_config(ep)->rscs[optype];
-        status = uct_ep_create(worker->ifaces[rsc_index], &self->next_ep);
+        status = ucp_stub_ep_connect(&self->super, address_count, address_list);
         if (status != UCS_OK) {
             return status;
-        }
-
-        ucs_debug("created next_ep %p to %s using " UCT_TL_RESOURCE_DESC_FMT,
-                  self->next_ep, ucp_ep_peer_name(ep),
-                  UCT_TL_RESOURCE_DESC_ARG(&worker->context->tl_rscs[rsc_index].tl_rsc));
-
-        /* we need to create an auxiliary transport only for active messages */
-        if (optype == UCP_EP_OP_AM) {
-            status = ucp_stub_ep_connect_aux(self, address_count, address_list);
-            if (status != UCS_OK) {
-                uct_ep_destroy(self->next_ep);
-                return status;
-            }
         }
     }
 
@@ -347,12 +325,57 @@ ucp_rsc_index_t ucp_stub_ep_get_aux_rsc_index(uct_ep_h uct_ep)
     return stub_ep->aux_rsc_index;
 }
 
+ucs_status_t ucp_stub_ep_connect(uct_ep_h uct_ep, unsigned address_count,
+                                 const ucp_address_entry_t *address_list)
+{
+    ucp_stub_ep_t *stub_ep = ucs_derived_of(uct_ep, ucp_stub_ep_t);
+    ucp_ep_h ep            = stub_ep->ep;
+    ucp_worker_h worker    = ep->worker;
+    ucp_rsc_index_t rsc_index;
+    ucs_status_t status;
+
+    rsc_index = ucp_ep_config(ep)->rscs[stub_ep->optype];
+    status = uct_ep_create(worker->ifaces[rsc_index], &stub_ep->next_ep);
+    if (status != UCS_OK) {
+        goto err;
+    }
+
+    ucs_debug("created next_ep %p to %s using " UCT_TL_RESOURCE_DESC_FMT,
+              stub_ep->next_ep, ucp_ep_peer_name(ep),
+              UCT_TL_RESOURCE_DESC_ARG(&worker->context->tl_rscs[rsc_index].tl_rsc));
+
+    /* we need to create an auxiliary transport only for active messages */
+    if (stub_ep->optype == UCP_EP_OP_AM) {
+        status = ucp_stub_ep_connect_aux(stub_ep, address_count, address_list);
+        if (status != UCS_OK) {
+            goto err_destroy_next_ep;
+        }
+    }
+
+    return UCS_OK;
+
+err_destroy_next_ep:
+    uct_ep_destroy(stub_ep->next_ep);
+err:
+    return status;
+}
+
+void ucp_stub_ep_set_next_ep(uct_ep_h uct_ep, uct_ep_h next_ep)
+{
+    ucp_stub_ep_t *stub_ep = ucs_derived_of(uct_ep, ucp_stub_ep_t);
+
+    ucs_assert(uct_ep->iface == &ucp_stub_iface);
+    ucs_assert(stub_ep->next_ep == NULL);
+    stub_ep->next_ep = next_ep;
+}
+
 void ucp_stub_ep_remote_connected(uct_ep_h uct_ep)
 {
     ucp_stub_ep_t *stub_ep = ucs_derived_of(uct_ep, ucp_stub_ep_t);
 
     ucs_assert(uct_ep->iface == &ucp_stub_iface);
+    ucs_assert(stub_ep->next_ep != NULL);
     ucs_trace("stub ep %p is remote-connected", stub_ep);
-    stub_ep->state |= UCP_STUB_EP_REMOTE_CONNECTED;
+    stub_ep->state |= UCP_STUB_EP_CONNECTED;
     ucp_worker_stub_ep_add(stub_ep->ep->worker, stub_ep);
 }

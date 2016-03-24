@@ -119,13 +119,6 @@ static ucs_status_t ucp_pending_req_release(uct_pending_req_t *self)
     return UCS_OK;
 }
 
-void ucp_ep_destroy_uct_ep_safe(ucp_ep_h ep, uct_ep_h uct_ep)
-{
-    ucs_assert_always(uct_ep != NULL);
-    uct_ep_pending_purge(uct_ep, ucp_pending_req_release);
-    uct_ep_destroy(uct_ep);
-}
-
 ucs_status_t ucp_ep_add_pending_uct(ucp_ep_h ep, uct_ep_h uct_ep,
                                     uct_pending_req_t *req)
 {
@@ -220,28 +213,34 @@ out:
     return status;
 }
 
-void ucp_ep_destroy(ucp_ep_h ep)
+static void ucp_ep_destory_uct_eps(ucp_ep_h ep)
 {
-    ucp_worker_h worker = ep->worker;
-    ucp_ep_config_t *config = ucp_ep_config(ep);
+    uct_ep_h uct_ep;
     int optype;
 
-    ucs_debug("destroy ep %p", ep);
-
-    // TODO purge pending before blocking
-    UCS_ASYNC_BLOCK(&worker->async);
-    sglib_hashed_ucp_ep_t_delete(ep->worker->ep_hash, ep);
     for (optype = 0; optype < UCP_EP_OP_LAST; ++optype) {
-        if ((config->rscs[optype] == UCP_NULL_RESOURCE) ||
-            (config->dups[optype] != UCP_EP_OP_LAST))
-        {
+        if (!ucp_ep_is_op_primary(ep, optype)) {
             continue;
         }
 
-        ucs_debug("destroy ep %p op %d uct_ep %p", ep, optype,
-                  ep->uct_eps[optype]);
-        ucp_ep_destroy_uct_ep_safe(ep, ep->uct_eps[optype]);
+        uct_ep = ep->uct_eps[optype];
+
+        // TODO purge pending before blocking
+        uct_ep_pending_purge(uct_ep, ucp_pending_req_release);
+        ucs_debug("destroy ep %p op %d uct_ep %p", ep, optype, uct_ep);
+        uct_ep_destroy(uct_ep);
     }
+}
+
+void ucp_ep_destroy(ucp_ep_h ep)
+{
+    ucp_worker_h worker = ep->worker;
+
+    ucs_debug("destroy ep %p", ep);
+
+    UCS_ASYNC_BLOCK(&worker->async);
+    sglib_hashed_ucp_ep_t_delete(worker->ep_hash, ep);
+    ucp_ep_destory_uct_eps(ep);
     UCS_ASYNC_UNBLOCK(&worker->async);
 
     ucs_free(ep);
@@ -251,4 +250,11 @@ void ucp_ep_send_reply(ucp_request_t *req, ucp_ep_op_t optype, int progress)
 {
     ucp_ep_h ep = req->send.ep;
     ucp_ep_add_pending(ep, ep->uct_eps[optype], req, progress);
+}
+
+int ucp_ep_is_op_primary(ucp_ep_h ep, ucp_ep_op_t optype)
+{
+    ucp_ep_config_t *config = ucp_ep_config(ep);
+    return (config->rscs[optype] != UCP_NULL_RESOURCE) && /* exists */
+           (config->dups[optype] == UCP_EP_OP_LAST);      /* not a duplicate */
 }

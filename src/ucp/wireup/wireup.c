@@ -320,6 +320,17 @@ ucs_status_t ucp_wireup_msg_progress(uct_pending_req_t *self)
     ucp_ep_h ep = req->send.ep;
     ssize_t packed_len;
 
+    if (req->send.wireup.type == UCP_WIREUP_MSG_REQUEST) {
+        if (ep->flags & UCP_EP_FLAG_LOCAL_CONNECTED) {
+            ucs_trace("not sending wireup message - already connected");
+            goto out;
+        }
+        if (ep->flags & UCP_EP_FLAG_CONNECT_REQ_SENT) {
+            ucs_trace("not sending wireup message - already sent");
+            goto out;
+        }
+    }
+
     /* send the active message */
     packed_len = uct_ep_am_bcopy(ep->uct_eps[UCP_EP_OP_AM], UCP_AM_ID_WIREUP,
                                  ucp_wireup_msg_pack, req);
@@ -330,6 +341,7 @@ ucs_status_t ucp_wireup_msg_progress(uct_pending_req_t *self)
         return (ucs_status_t)packed_len;
     }
 
+out:
     ucs_free((void*)req->send.buffer);
     ucs_mpool_put(req);
     return UCS_OK;
@@ -428,7 +440,7 @@ static ucs_status_t ucp_wireup_connect_local(ucp_ep_h ep, const uint8_t *tli,
     ucp_ep_op_t optype;
 
     for (optype = 0; optype < UCP_EP_OP_LAST; ++optype) {
-        if (ucp_ep_config(ep)->dups[optype] != UCP_EP_OP_LAST) {
+        if (!ucp_ep_is_op_primary(ep, optype)) {
             continue;
         }
 
@@ -456,7 +468,7 @@ static void ucp_wireup_ep_remote_connected(ucp_ep_h ep)
     ucp_ep_op_t optype;
 
     for (optype = 0; optype < UCP_EP_OP_LAST; ++optype) {
-        if (ucp_ep_config(ep)->dups[optype] != UCP_EP_OP_LAST) {
+        if (!ucp_ep_is_op_primary(ep, optype)) {
             continue;
         }
 
@@ -615,6 +627,7 @@ ucs_status_t ucp_ep_init_trasports(ucp_ep_h ep, unsigned address_count,
     ucp_ep_op_t optype, dup;
     unsigned addr_index;
     ucs_status_t status;
+    uct_ep_h new_uct_ep;
     int has_p2p;
 
     ucs_assert(ep->cfg_index == (uint8_t)-1);
@@ -691,8 +704,6 @@ ucs_status_t ucp_ep_init_trasports(ucp_ep_h ep, unsigned address_count,
             continue;
         }
 
-        ucs_assert(ep->uct_eps[optype] == NULL); // TODO takeover stub ep
-
         iface_attr = &worker->iface_attrs[rsc_index];
 
         /* if the selected transport can be connected directly to the remote
@@ -704,17 +715,35 @@ ucs_status_t ucp_ep_init_trasports(ucp_ep_h ep, unsigned address_count,
             status = uct_ep_create_connected(worker->ifaces[rsc_index],
                                              address_list[addr_index].dev_addr,
                                              address_list[addr_index].iface_addr,
-                                             &ep->uct_eps[optype]);
+                                             &new_uct_ep);
             if (status != UCS_OK) {
-                ucs_debug("failed to create ep");
                 goto err;
+            }
+
+            /* If ep already exists, it's a stub, and we need to update its next_ep
+             * instead of replacing it.
+             */
+            if (ep->uct_eps[optype] == NULL) {
+                ep->uct_eps[optype] = new_uct_ep;
+            } else {
+                ucp_stub_ep_set_next_ep(ep->uct_eps[optype], new_uct_ep);
+                ucp_stub_ep_remote_connected(ep->uct_eps[optype]);
             }
         } else if (iface_attr->cap.flags & UCT_IFACE_FLAG_CONNECT_TO_EP) {
             /* create a stub endpoint which will start connection establishment
              * protocol using an auxiliary transport.
              */
-            status = ucp_stub_ep_create(ep, optype, address_count, address_list,
-                                        &ep->uct_eps[optype]);
+
+            /* If ep already exists, it's a stub, and we need to start auxiliary
+             * wireup on this stub.
+             */
+            if (ep->uct_eps[optype] == NULL) {
+                status = ucp_stub_ep_create(ep, optype, address_count,
+                                            address_list, &ep->uct_eps[optype]);
+            } else {
+                status = ucp_stub_ep_connect(ep->uct_eps[optype], address_count,
+                                             address_list);
+            }
             if (status != UCS_OK) {
                 goto err;
             }
@@ -744,6 +773,8 @@ ucs_status_t ucp_wireup_send_request(ucp_ep_h ep)
 {
     ucs_status_t status;
 
+    ucs_assert(!(ep->flags & UCP_EP_FLAG_LOCAL_CONNECTED));
+    ucs_debug("send wireup request ep %p flags=%d", ep, ep->flags);
     status = ucp_wireup_msg_send(ep, UCP_WIREUP_MSG_REQUEST);
     ep->flags |= UCP_EP_FLAG_CONNECT_REQ_SENT;
     return status;

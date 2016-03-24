@@ -118,6 +118,7 @@ void ucp_ep_add_pending(ucp_ep_h ep, uct_ep_h uct_ep, ucp_request_t *req,
 
 void ucp_ep_send_reply(ucp_request_t *req, ucp_ep_op_t optype, int progress);
 
+int ucp_ep_is_op_primary(ucp_ep_h ep, ucp_ep_op_t optype);
 
 static inline const char* ucp_ep_peer_name(ucp_ep_h ep)
 {

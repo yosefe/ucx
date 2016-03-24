@@ -20,10 +20,7 @@
  * Endpoint wire-up state
  */
 enum {
-    UCP_STUB_EP_LOCAL_CONNECTED  = UCS_BIT(0), /* next_ep connected to remote */
-    UCP_STUB_EP_REMOTE_CONNECTED = UCS_BIT(1), /* remote also connected to our next_ep */
-    UCP_STUB_EP_CONNECTED        = UCP_STUB_EP_LOCAL_CONNECTED |
-                                   UCP_STUB_EP_REMOTE_CONNECTED
+    UCP_STUB_EP_CONNECTED = UCS_BIT(0), /* remote connected to our next_ep */
 };
 
 
@@ -57,6 +54,12 @@ ucs_status_t ucp_stub_ep_create(ucp_ep_h ep, ucp_ep_op_t optype,
  *   If the endpoint is not a stub endpoint, return UCP_NULL_RESOURCE.
  */
 ucp_rsc_index_t ucp_stub_ep_get_aux_rsc_index(uct_ep_h uct_ep);
+
+/* create endpoint for the real transport, which we would eventually connect */
+ucs_status_t ucp_stub_ep_connect(uct_ep_h uct_ep, unsigned address_count,
+                                 const ucp_address_entry_t *address_list);
+
+void ucp_stub_ep_set_next_ep(uct_ep_h uct_ep, uct_ep_h next_ep);
 
 void ucp_stub_ep_remote_connected(uct_ep_h uct_ep);
 
