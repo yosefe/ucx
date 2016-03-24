@@ -75,6 +75,10 @@ static ucs_config_field_t ucp_config_table[] = {
    ucs_offsetof(ucp_config_t, ctx.log_data_size), UCS_CONFIG_TYPE_MEMUNITS},
 
 #if ENABLE_DEBUG_DATA
+//  {"WORKER_NAME", "%h:%p",
+//   "Maximal length of worker name. Affects the size of worker address.",
+//   ucs_offsetof(ucp_config_t, ctx.max_worker_name), UCS_CONFIG_TYPE_UINT},
+
   {"MAX_WORKER_NAME", UCS_PP_MAKE_STRING(UCP_WORKER_NAME_MAX),
    "Maximal length of worker name. Affects the size of worker address.",
    ucs_offsetof(ucp_config_t, ctx.max_worker_name), UCS_CONFIG_TYPE_UINT},

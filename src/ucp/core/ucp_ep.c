@@ -16,7 +16,8 @@
 
 
 static ucs_status_t ucp_ep_new(ucp_worker_h worker, uint64_t dest_uuid,
-                               const char *message, ucp_ep_h *ep_p)
+                               const char *peer_name, const char *message,
+                               ucp_ep_h *ep_p)
 {
     ucp_ep_h ep;
 
@@ -32,21 +33,21 @@ static ucs_status_t ucp_ep_new(ucp_worker_h worker, uint64_t dest_uuid,
     ep->amo_dst_pdi          = UCP_NULL_RESOURCE;
     ep->cfg_index            = -1;
     ep->flags                = 0;
-    *ep_p                    = ep;
-
-    return UCS_OK;
-}
-
-static void ucp_ep_add(ucp_ep_h ep, const char *peer_name, const char *message)
-{
-    ucp_worker_h worker = ep->worker;
-
 #if ENABLE_DEBUG_DATA
     ucs_snprintf_zero(ep->peer_name, UCP_WORKER_NAME_MAX, "%s", peer_name);
 #endif
     sglib_hashed_ucp_ep_t_add(worker->ep_hash, ep);
+
+    *ep_p                    = ep;
     ucs_debug("created ep %p to %s 0x%"PRIx64"->0x%"PRIx64" %s", ep, peer_name,
               worker->uuid, ep->dest_uuid, message);
+    return UCS_OK;
+}
+
+static void ucp_ep_delete(ucp_ep_h ep)
+{
+    sglib_hashed_ucp_ep_t_delete(ep->worker->ep_hash, ep);
+    ucs_free(ep);
 }
 
 ucs_status_t ucp_ep_create_connected(ucp_worker_h worker, uint64_t dest_uuid,
@@ -57,7 +58,7 @@ ucs_status_t ucp_ep_create_connected(ucp_worker_h worker, uint64_t dest_uuid,
     ucs_status_t status;
     ucp_ep_h ep;
 
-    status = ucp_ep_new(worker, dest_uuid, message, &ep);
+    status = ucp_ep_new(worker, dest_uuid, peer_name, message, &ep);
     if (status != UCS_OK) {
         goto err;
     }
@@ -65,16 +66,14 @@ ucs_status_t ucp_ep_create_connected(ucp_worker_h worker, uint64_t dest_uuid,
     /* initialize transport endpoints */
     status = ucp_ep_init_trasports(ep, address_count, address_list);
     if (status != UCS_OK) {
-        goto err_free;
+        goto err_delete;
     }
-
-    ucp_ep_add(ep, peer_name, message);
 
     *ep_p = ep;
     return UCS_OK;
 
-err_free:
-    ucs_free(ep);
+err_delete:
+    ucp_ep_delete(ep);
 err:
     return status;
 }
@@ -86,7 +85,7 @@ ucs_status_t ucp_ep_create_stub(ucp_worker_h worker, uint64_t dest_uuid,
     ucp_ep_op_t optype;
     ucp_ep_h ep;
 
-    status = ucp_ep_new(worker, dest_uuid, message, &ep);
+    status = ucp_ep_new(worker, dest_uuid, "??", message, &ep);
     if (status != UCS_OK) {
         goto err;
     }
@@ -98,8 +97,6 @@ ucs_status_t ucp_ep_create_stub(ucp_worker_h worker, uint64_t dest_uuid,
         }
     }
 
-    ucp_ep_add(ep, "??", message);
-
     *ep_p = ep;
     return UCS_OK;
 
@@ -109,15 +106,9 @@ err_destroy_uct_eps:
             uct_ep_destroy(ep->uct_eps[optype]);
         }
     }
-    ucs_free(ep);
+    ucp_ep_delete(ep);
 err:
     return status;
-}
-
-void ucp_ep_delete(ucp_ep_h ep)
-{
-    sglib_hashed_ucp_ep_t_delete(ep->worker->ep_hash, ep);
-    ucs_free(ep);
 }
 
 static ucs_status_t ucp_pending_req_release(uct_pending_req_t *self)
@@ -145,7 +136,8 @@ ucs_status_t ucp_ep_add_pending_uct(ucp_ep_h ep, uct_ep_h uct_ep,
     status = uct_ep_pending_add(uct_ep, req);
     if (status != UCS_ERR_BUSY) {
         ucs_assert(status == UCS_OK);
-        ucs_trace_data("added pending uct request %p to uct_ep %p", req, uct_ep);
+        ucs_trace_data("added pending uct request %p to ep %p uct_ep %p", req,
+                       ep, uct_ep);
         return UCS_OK; /* Added to pending */
     }
 
@@ -231,15 +223,24 @@ out:
 void ucp_ep_destroy(ucp_ep_h ep)
 {
     ucp_worker_h worker = ep->worker;
-    int i;
+    ucp_ep_config_t *config = ucp_ep_config(ep);
+    int optype;
 
     ucs_debug("destroy ep %p", ep);
 
     // TODO purge pending before blocking
     UCS_ASYNC_BLOCK(&worker->async);
     sglib_hashed_ucp_ep_t_delete(ep->worker->ep_hash, ep);
-    for (i = 0; i < UCP_EP_OP_LAST; ++i) {
-        ucp_ep_destroy_uct_ep_safe(ep, ep->uct_eps[i]);
+    for (optype = 0; optype < UCP_EP_OP_LAST; ++optype) {
+        if ((config->rscs[optype] == UCP_NULL_RESOURCE) ||
+            (config->dups[optype] != UCP_EP_OP_LAST))
+        {
+            continue;
+        }
+
+        ucs_debug("destroy ep %p op %d uct_ep %p", ep, optype,
+                  ep->uct_eps[optype]);
+        ucp_ep_destroy_uct_ep_safe(ep, ep->uct_eps[optype]);
     }
     UCS_ASYNC_UNBLOCK(&worker->async);
 

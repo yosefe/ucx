@@ -7,6 +7,7 @@
 #include "ucp_worker.h"
 
 #include <ucp/wireup/address.h>
+#include <ucp/wireup/stub_ep.h>
 #include <ucp/tag/eager.h>
 #include <ucs/datastruct/mpool.inl>
 
@@ -384,6 +385,7 @@ ucs_status_t ucp_worker_create(ucp_context_h context, ucs_thread_mode_t thread_m
     worker->inprogress      = 0;
     worker->ep_config_max   = config_count;
     worker->ep_config_count = 0;
+    ucs_list_head_init(&worker->stub_ep_list);
 
     name_length = ucs_min(UCP_WORKER_NAME_MAX,
                           context->config.ext.max_worker_name + 1);
@@ -692,6 +694,36 @@ ucp_request_t *ucp_worker_allocate_reply(ucp_worker_h worker, uint64_t dest_uuid
 SGLIB_DEFINE_LIST_FUNCTIONS(ucp_ep_t, ucp_worker_ep_compare, next);
 SGLIB_DEFINE_HASHED_CONTAINER_FUNCTIONS(ucp_ep_t, UCP_WORKER_EP_HASH_SIZE,
                                         ucp_worker_ep_hash);
+
+void ucp_worker_progress_stub_eps(void *arg)
+{
+    ucp_worker_h worker = arg;
+    ucp_stub_ep_t *stub_ep, *tmp;
+
+    UCS_ASYNC_BLOCK(&worker->async);
+    ucs_list_for_each_safe(stub_ep, tmp, &worker->stub_ep_list, list) {
+        ucp_stub_ep_progress(stub_ep);
+    }
+    UCS_ASYNC_UNBLOCK(&worker->async);
+}
+
+void ucp_worker_stub_ep_add(ucp_worker_h worker, ucp_stub_ep_t *stub_ep)
+{
+    UCS_ASYNC_BLOCK(&worker->async);
+    ucs_list_add_head(&worker->stub_ep_list, &stub_ep->list);
+    uct_worker_progress_register(worker->uct, ucp_worker_progress_stub_eps,
+                                 worker);
+    UCS_ASYNC_UNBLOCK(&worker->async);
+}
+
+void ucp_worker_stub_ep_remove(ucp_worker_h worker, ucp_stub_ep_t *stub_ep)
+{
+    UCS_ASYNC_BLOCK(&worker->async);
+    ucs_list_del(&stub_ep->list);
+    uct_worker_progress_unregister(worker->uct, ucp_worker_progress_stub_eps,
+                                   worker);
+    UCS_ASYNC_UNBLOCK(&worker->async);
+}
 
 static void ucp_worker_print_config(FILE *stream, const char * const *names,
                                     const size_t *values, unsigned count,

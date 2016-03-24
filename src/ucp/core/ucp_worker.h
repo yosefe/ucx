@@ -38,6 +38,8 @@ typedef struct ucp_worker {
     char                          name[UCP_WORKER_NAME_MAX]; /* Worker name */
 
     unsigned                      stub_pend_count;/* Number of pending requests on stub endpoints*/
+    ucs_list_link_t               stub_ep_list;  /* List of stub endpoints to progress */
+
     ucp_ep_t                      **ep_hash;     /* Hash table of all endpoints */
     uct_iface_h                   *ifaces;       /* Array of interfaces, one for each resource */
     uct_iface_attr_t              *iface_attrs;  /* Array of interface attributes */
@@ -61,14 +63,16 @@ ucp_request_t *ucp_worker_allocate_reply(ucp_worker_h worker, uint64_t dest_uuid
 
 unsigned ucp_worker_get_ep_config(ucp_worker_h worker, const ucp_rsc_index_t *rscs);
 
+void ucp_worker_progress_stub_eps(void *arg);
+
+void ucp_worker_stub_ep_add(ucp_worker_h worker, ucp_stub_ep_t *stub_ep);
+
+void ucp_worker_stub_ep_remove(ucp_worker_h worker, ucp_stub_ep_t *stub_ep);
+
 
 static inline const char* ucp_worker_get_name(ucp_worker_h worker)
 {
-#if ENABLE_DEBUG_DATA
     return worker->name;
-#else
-    return "";
-#endif
 }
 
 static inline ucp_ep_h ucp_worker_ep_find(ucp_worker_h worker, uint64_t dest_uuid)

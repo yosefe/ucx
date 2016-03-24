@@ -40,8 +40,6 @@ typedef double (*ucp_wireup_score_function_t)(ucp_worker_h worker,
  */
 typedef struct ucp_wireup_msg {
     uint8_t          type;                /* Message type */
-    uint8_t          rma_dst_pdi;         /* PD to select at destination for RMA */
-    uint8_t          amo_dst_pdi;         /* PD to select at destination for AMO */
     uint8_t          tli[UCP_EP_OP_LAST]; /* Index of runtime address for every operation */
     /* packed addresses follow */
 } UCS_S_PACKED ucp_wireup_msg_t;

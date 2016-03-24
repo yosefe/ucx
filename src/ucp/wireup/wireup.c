@@ -265,7 +265,7 @@ ucs_status_t ucp_select_transport(ucp_worker_h worker, const char *peer_name,
         return UCS_ERR_UNREACHABLE;
     }
 
-    ucs_debug("selected for %s: " UCT_TL_RESOURCE_DESC_FMT " -> %s address[%d] score %.2f",
+    ucs_debug("selected for %s: " UCT_TL_RESOURCE_DESC_FMT " -> '%s' address[%d] score %.2f",
               title, UCT_TL_RESOURCE_DESC_ARG(&context->tl_rscs[*rsc_index_p].tl_rsc),
               peer_name, *dst_addr_index_p, best_score);
     return UCS_OK;
@@ -287,11 +287,11 @@ static void ucp_wireup_msg_dump(ucp_worker_h worker, uct_am_trace_type_t type,
 
     p   = buffer;
     end = buffer + max;
-    snprintf(p, end - p, "WIREUP %s [%s uuid 0x%"PRIx64" -> pd m:%d a:%d]",
+    snprintf(p, end - p, "WIREUP %s [%s uuid 0x%"PRIx64"]",
              (msg->type == UCP_WIREUP_MSG_REQUEST ) ? "REQ" :
              (msg->type == UCP_WIREUP_MSG_REPLY   ) ? "REP" :
              (msg->type == UCP_WIREUP_MSG_ACK     ) ? "ACK" : "",
-             peer_name, uuid, msg->rma_dst_pdi, msg->amo_dst_pdi);
+             peer_name, uuid);
 
     p += strlen(p);
     for (ae = address_list; ae < address_list + address_count; ++ae) {
@@ -344,7 +344,7 @@ static unsigned ucp_wireup_address_index(const unsigned *order,
 
 static int ucp_worker_is_tl_p2p(ucp_worker_h worker, ucp_rsc_index_t rsc_index)
 {
-    return worker->iface_attrs[rsc_index].cap.flags & UCT_IFACE_FLAG_CONNECT_TO_EP;
+    return !!(worker->iface_attrs[rsc_index].cap.flags & UCT_IFACE_FLAG_CONNECT_TO_EP);
 }
 
 static ucs_status_t ucp_wireup_msg_send(ucp_ep_h ep, uint8_t type)
@@ -367,13 +367,7 @@ static ucs_status_t ucp_wireup_msg_send(ucp_ep_h ep, uint8_t type)
     req->flags                   = UCP_REQUEST_FLAG_RELEASED;
     req->cb.send                 = (ucp_send_callback_t)ucs_empty_function;
     req->send.uct.func           = ucp_wireup_msg_progress;
-    req->send.wireup.type        = req->send.wireup.type;
-
-    /* destination pd indices for rma and amo */
-    ucs_assert((ep->rma_dst_pdi != UCP_NULL_RESOURCE) &&
-               (ep->amo_dst_pdi != UCP_NULL_RESOURCE));
-    req->send.wireup.rma_dst_pdi = ep->rma_dst_pdi;
-    req->send.wireup.amo_dst_pdi = ep->amo_dst_pdi;
+    req->send.wireup.type        = type;
 
     /* Make a bitmap of all addresses we are sending:
      *  REQUEST - all addresses (incl. auxiliary)
@@ -483,9 +477,11 @@ static void ucp_wireup_process_request(ucp_worker_h worker, const ucp_wireup_msg
     ucp_ep_h ep = ucp_worker_ep_find(worker, uuid);
     ucs_status_t status;
 
+    ucs_trace("got wireup request from %s on ep %p", peer_name, ep);
+
     if (ep == NULL) {
         /* Create a new endpoint and connect it to remote address
-         * TODO seperate create_connected to new+select_transports
+         * TODO separate create_connected to new+select_transports
          */
         status = ucp_ep_create_connected(worker, uuid, peer_name, address_count,
                                          address_list, "remote-request", &ep);
@@ -507,6 +503,8 @@ static void ucp_wireup_process_request(ucp_worker_h worker, const ucp_wireup_msg
             return;
         }
 
+        ucs_trace("sending wireup reply");
+
         status = ucp_wireup_msg_send(ep, UCP_WIREUP_MSG_REPLY);
         if (status != UCS_OK) {
             return;
@@ -527,6 +525,8 @@ static void ucp_wireup_process_reply(ucp_worker_h worker, ucp_wireup_msg_t *msg,
         ucs_debug("ignoring connection reply - not exists");
         return;
     }
+
+    ucs_trace("got wireup reply on ep %p", ep);
 
     /* Connect p2p addresses to remote endpoint */
     if (!(ep->flags & UCP_EP_FLAG_LOCAL_CONNECTED)) {
@@ -557,6 +557,8 @@ static void ucp_wireup_process_ack(ucp_worker_h worker, uint64_t uuid)
         ucs_debug("ignoring connection ack - ep not exists");
         return;
     }
+
+    ucs_trace("got wireup ack on ep %p", ep);
 
     ucp_wireup_ep_remote_connected(ep);
 }
@@ -628,14 +630,15 @@ ucs_status_t ucp_ep_init_trasports(ucp_ep_h ep, unsigned address_count,
 
         status = ucp_select_transport(worker, ucp_ep_peer_name(ep), address_list,
                                       address_count, UCP_NULL_RESOURCE,
-                                      &rscs[optype], &addr_indices[optype],
+                                      &rsc_index, &addr_indices[optype],
                                       ucp_wireup_ep_ops[optype].score_func,
                                       ucp_wireup_ep_ops[optype].title);
         if (status != UCS_OK) {
             goto err;
         }
 
-        has_p2p = has_p2p || ucp_worker_is_tl_p2p(worker, rscs[optype]);
+        rscs[optype] = rsc_index;
+        has_p2p      = has_p2p || ucp_worker_is_tl_p2p(worker, rsc_index);
     }
 
     /* If one of the selected transports is p2p, we also need AM transport for
@@ -659,8 +662,16 @@ ucs_status_t ucp_ep_init_trasports(ucp_ep_h ep, unsigned address_count,
     /* save remote protection domain index for rma and amo. this is used
      * to select the remote key for these operations.
      */
-    ep->rma_dst_pdi = address_list[addr_indices[UCP_EP_OP_RMA]].pd_index;
-    ep->amo_dst_pdi = address_list[addr_indices[UCP_EP_OP_AMO]].pd_index;
+    if (context->config.features & UCP_FEATURE_RMA) {
+        ep->rma_dst_pdi = address_list[addr_indices[UCP_EP_OP_RMA]].pd_index;
+    } else {
+        ep->rma_dst_pdi = -1;
+    }
+    if (context->config.features & (UCP_FEATURE_AMO32|UCP_FEATURE_AMO64)) {
+        ep->amo_dst_pdi = address_list[addr_indices[UCP_EP_OP_AMO]].pd_index;
+    } else {
+        ep->amo_dst_pdi = -1;
+    }
 
     /* establish connections on all underlying endpoint */
     for (optype = 0; optype < UCP_EP_OP_LAST; ++optype) {

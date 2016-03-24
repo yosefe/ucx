@@ -22,6 +22,7 @@
 typedef uint8_t                 ucp_rsc_index_t;
 typedef struct ucp_request      ucp_request_t;
 typedef struct ucp_address_entry ucp_address_entry_t;
+typedef struct ucp_stub_ep      ucp_stub_ep_t;
 
 
 /**

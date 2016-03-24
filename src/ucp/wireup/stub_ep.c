@@ -12,35 +12,6 @@
 #include <ucs/datastruct/queue.h>
 #include <ucs/type/class.h>
 
-
-/**
- * Endpoint wire-up state
- */
-enum {
-    UCP_STUB_EP_LOCAL_CONNECTED  = UCS_BIT(0), /* next_ep connected to remote */
-    UCP_STUB_EP_REMOTE_CONNECTED = UCS_BIT(1), /* remote also connected to our next_ep */
-    UCP_STUB_EP_CONNECTED        = UCP_STUB_EP_LOCAL_CONNECTED |
-                                   UCP_STUB_EP_REMOTE_CONNECTED
-};
-
-
-/**
- * Stub endpoint, to hold off send requests until wireup process completes.
- * It is placed instead UCT endpoint before it's fully connected, and for AM
- * endpoint it also contains an auxiliary endpoint which can send wireup messages.
- */
-typedef struct ucp_stub_ep {
-    uct_ep_t            super;         /* Derive from uct_ep */
-    ucp_ep_h            ep;            /* Pointer to the ucp_ep we're wiring */
-    ucs_queue_head_t    pending_q;     /* Queue of pending operations */
-    uct_ep_h            aux_ep;        /* Used to wireup the "real" endpoint */
-    uct_ep_h            next_ep;       /* Next transport being wired up */
-
-    ucp_ep_op_t         optype;        /* Which operation type inside the ucp_ep */
-    ucp_rsc_index_t     aux_rsc_index; /* Index of auxiliary transport */
-    volatile uint32_t   pending_count; /* Number of pending wireup operations */
-    volatile uint32_t   state;         /* Endpoint state */
-} ucp_stub_ep_t;
 UCS_CLASS_DECLARE(ucp_stub_ep_t, ucp_ep_h, ucp_ep_op_t, unsigned,
                   const ucp_address_entry_t*);
 
@@ -67,9 +38,8 @@ static ucs_status_t ucp_stub_ep_connect_to_ep(uct_ep_h uct_ep,
     return status;
 }
 
-static void ucp_stub_ep_progress(void *arg)
+void ucp_stub_ep_progress(ucp_stub_ep_t *stub_ep)
 {
-    ucp_stub_ep_t *stub_ep = arg;
     ucp_ep_h ep = stub_ep->ep;
     ucs_queue_head_t tmp_pending_queue;
     ucp_worker_h worker = ep->worker;
@@ -99,19 +69,21 @@ static void ucp_stub_ep_progress(void *arg)
         return;
     }
 
+    ucs_trace("switching stub_ep %p (ep %p) to ready state", stub_ep, ep);
+
     ucs_memory_cpu_fence();
     UCS_ASYNC_BLOCK(&worker->async);
 
     /* Take out next_ep */
     uct_ep = stub_ep->next_ep;
+    stub_ep->next_ep = NULL;
 
     /* Move stub pending queue to temporary queue and remove references to
      * the stub progress function
      */
     ucs_queue_head_init(&tmp_pending_queue);
     ucs_queue_for_each_extract(req, &stub_ep->pending_q, priv, 1) {
-        uct_worker_progress_unregister(ep->worker->uct, ucp_stub_ep_progress,
-                                       stub_ep);
+        ucs_trace("move request %p to tmp pending queue", req);
         ucs_queue_push(&tmp_pending_queue, ucp_stub_ep_req_priv(req));
     }
 
@@ -123,10 +95,14 @@ static void ucp_stub_ep_progress(void *arg)
         }
     }
 
-    /* Destroy temporary endpoints */
-    uct_ep_destroy(stub_ep->aux_ep);
+    ucp_worker_stub_ep_remove(stub_ep->ep->worker, stub_ep);
+
+    /* Destroy stub endpoint (destroys aux_ep as well) */
+    ucs_trace("destroying stub_ep %p", stub_ep);
+    optype = stub_ep->optype;
     uct_ep_destroy(&stub_ep->super);
     stub_ep = NULL;
+    ucs_trace("switched ep %p op %d to uct_ep %p", ep, optype, uct_ep);
 
     UCS_ASYNC_UNBLOCK(&worker->async);
 
@@ -141,15 +117,11 @@ static void ucp_stub_ep_progress(void *arg)
 
 static ucs_status_t ucp_stub_ep_send_func(uct_ep_h uct_ep)
 {
-    ucp_stub_ep_t *stub_ep = ucs_derived_of(uct_ep, ucp_stub_ep_t);
-    ucp_stub_ep_progress(stub_ep);
     return UCS_ERR_NO_RESOURCE;
 }
 
 static ssize_t ucp_stub_ep_bcopy_send_func(uct_ep_h uct_ep)
 {
-    ucp_stub_ep_t *stub_ep = ucs_derived_of(uct_ep, ucp_stub_ep_t);
-    ucp_stub_ep_progress(stub_ep);
     return UCS_ERR_NO_RESOURCE;
 }
 
@@ -169,23 +141,23 @@ static uct_ep_h ucp_stub_ep_get_wireup_msg_ep(ucp_stub_ep_t *stub_ep)
 static ucs_status_t ucp_stub_pending_add(uct_ep_h uct_ep, uct_pending_req_t *req)
 {
     ucp_stub_ep_t *stub_ep = ucs_derived_of(uct_ep, ucp_stub_ep_t);
+    uct_ep_h wireup_msg_ep;
+    ucs_status_t status;
     ucp_ep_h ep;
 
     if (req->func == ucp_wireup_msg_progress) {
-        return uct_ep_pending_add(ucp_stub_ep_get_wireup_msg_ep(stub_ep), req);
+        wireup_msg_ep = ucp_stub_ep_get_wireup_msg_ep(stub_ep);
+        ucs_trace("putting pending request %p on ep %p", req, wireup_msg_ep);
+        status = uct_ep_pending_add(wireup_msg_ep, req);
+        if (status == UCS_OK) {
+//            ucs_atomic_add32(&stub_ep->pending_count, 1);
+        }
+        return status;
     }
 
     ep = stub_ep->ep;
     ucs_queue_push(&stub_ep->pending_q, ucp_stub_ep_req_priv(req));
-    ucs_atomic_add32(&stub_ep->pending_count, 1);
     ++ep->worker->stub_pend_count;
-
-    /* Add a reference to the dummy progress function. If we have a pending
-     * request and this endpoint is still doing wireup, we must make sure progress
-     * is made.
-     * TODO one progress per worker
-     * */
-    uct_worker_progress_register(ep->worker->uct, ucp_stub_ep_progress, stub_ep);
     return UCS_OK;
 }
 
@@ -200,7 +172,6 @@ static ssize_t ucp_stub_ep_am_bcopy(uct_ep_h uct_ep, uint8_t id,
 
     }
 
-    ucp_stub_ep_progress(stub_ep);
     return UCS_ERR_NO_RESOURCE;
 }
 
@@ -301,6 +272,9 @@ ucp_stub_ep_connect_aux(ucp_stub_ep_t *stub_ep, unsigned address_count,
         return status;
     }
 
+    ucs_debug("created aux_ep %p to %s using " UCT_TL_RESOURCE_DESC_FMT,
+              stub_ep->aux_ep, ucp_ep_peer_name(ep),
+              UCT_TL_RESOURCE_DESC_ARG(&worker->context->tl_rscs[aux_addr_index].tl_rsc));
     return UCS_OK;
 }
 
@@ -328,6 +302,10 @@ UCS_CLASS_INIT_FUNC(ucp_stub_ep_t, ucp_ep_h ep, ucp_ep_op_t optype,
             return status;
         }
 
+        ucs_debug("created next_ep %p to %s using " UCT_TL_RESOURCE_DESC_FMT,
+                  self->next_ep, ucp_ep_peer_name(ep),
+                  UCT_TL_RESOURCE_DESC_ARG(&worker->context->tl_rscs[rsc_index].tl_rsc));
+
         /* we need to create an auxiliary transport only for active messages */
         if (optype == UCP_EP_OP_AM) {
             status = ucp_stub_ep_connect_aux(self, address_count, address_list);
@@ -338,12 +316,9 @@ UCS_CLASS_INIT_FUNC(ucp_stub_ep_t, ucp_ep_h ep, ucp_ep_op_t optype,
         }
     }
 
-    // TODO print also aux_ep,next_ep if exist
-    ucs_debug("created stub ep to %s for %s "
-//              "[next_ep %p " UCT_TL_RESOURCE_DESC_FMT "] ",
-              , ucp_ep_peer_name(ep), ucp_wireup_ep_ops[optype].title
-//            ,  self->next_ep, UCT_TL_RESOURCE_DESC_ARG(&worker->context->tl_rscs[rsc_index].tl_rsc)
-              );
+    ucs_debug("created stub ep %p to %s for %s [next_ep %p aux_ep %p] ",
+              self, ucp_ep_peer_name(ep), ucp_wireup_ep_ops[optype].title,
+              self->next_ep, self->aux_ep);
     return UCS_OK;
 }
 
@@ -353,7 +328,9 @@ static UCS_CLASS_CLEANUP_FUNC(ucp_stub_ep_t)
     if (self->aux_ep != NULL) {
         uct_ep_destroy(self->aux_ep);
     }
-    uct_ep_destroy(self->next_ep);
+    if (self->next_ep != NULL) {
+        uct_ep_destroy(self->next_ep);
+    }
 }
 
 UCS_CLASS_DEFINE(ucp_stub_ep_t, void);
@@ -374,6 +351,8 @@ void ucp_stub_ep_remote_connected(uct_ep_h uct_ep)
 {
     ucp_stub_ep_t *stub_ep = ucs_derived_of(uct_ep, ucp_stub_ep_t);
 
-    ucs_assert(uct_ep->iface != &ucp_stub_iface);
+    ucs_assert(uct_ep->iface == &ucp_stub_iface);
+    ucs_trace("stub ep %p is remote-connected", stub_ep);
     stub_ep->state |= UCP_STUB_EP_REMOTE_CONNECTED;
+    ucp_worker_stub_ep_add(stub_ep->ep->worker, stub_ep);
 }
