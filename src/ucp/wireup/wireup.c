@@ -322,11 +322,8 @@ ucs_status_t ucp_wireup_msg_progress(uct_pending_req_t *self)
 
     if (req->send.wireup.type == UCP_WIREUP_MSG_REQUEST) {
         if (ep->flags & UCP_EP_FLAG_REMOTE_CONNECTED) {
-            ucs_trace("not sending wireup message - remote already connected");
-            goto out;
-        }
-        if (ep->flags & UCP_EP_FLAG_CONNECT_REQ_SENT) {
-            ucs_trace("not sending wireup message - already sent");
+            ucs_trace("ep %p: not sending wireup message - remote already connected",
+                      ep);
             goto out;
         }
     }
@@ -439,6 +436,8 @@ static ucs_status_t ucp_wireup_connect_local(ucp_ep_h ep, const uint8_t *tli,
     ucs_status_t status;
     ucp_ep_op_t optype;
 
+    ucs_trace("ep %p: connect local transports", ep);
+
     for (optype = 0; optype < UCP_EP_OP_LAST; ++optype) {
         if (!ucp_ep_is_op_primary(ep, optype)) {
             continue;
@@ -467,6 +466,8 @@ static void ucp_wireup_ep_remote_connected(ucp_ep_h ep)
     ucp_rsc_index_t rsc_index;
     ucp_ep_op_t optype;
 
+    ucs_trace("ep %p: remote connected", ep);
+
     for (optype = 0; optype < UCP_EP_OP_LAST; ++optype) {
         if (!ucp_ep_is_op_primary(ep, optype)) {
             continue;
@@ -489,7 +490,7 @@ static void ucp_wireup_process_request(ucp_worker_h worker, const ucp_wireup_msg
     ucp_ep_h ep = ucp_worker_ep_find(worker, uuid);
     ucs_status_t status;
 
-    ucs_trace("got wireup request from %s on ep %p", peer_name, ep);
+    ucs_trace("ep %p: got wireup request from %s", ep, peer_name);
 
     if (ep == NULL) {
         /* Create a new endpoint and connect it to remote address
@@ -515,7 +516,7 @@ static void ucp_wireup_process_request(ucp_worker_h worker, const ucp_wireup_msg
             return;
         }
 
-        ucs_trace("sending wireup reply");
+        ucs_trace("ep %p: sending wireup reply", ep);
 
         status = ucp_wireup_msg_send(ep, UCP_WIREUP_MSG_REPLY);
         if (status != UCS_OK) {
@@ -538,16 +539,17 @@ static void ucp_wireup_process_reply(ucp_worker_h worker, ucp_wireup_msg_t *msg,
         return;
     }
 
-    ucs_trace("got wireup reply on ep %p", ep);
+    ucs_trace("ep %p: got wireup reply", ep);
+
 
     /* Connect p2p addresses to remote endpoint */
-    if (!(ep->flags & UCP_EP_FLAG_REMOTE_CONNECTED)) {
+    if (!(ep->flags & UCP_EP_FLAG_LOCAL_CONNECTED)) {
         status = ucp_wireup_connect_local(ep, msg->tli, address_count, address_list);
         if (status != UCS_OK) {
             return;
         }
 
-        ucp_wireup_ep_remote_connected(ep);
+        ep->flags |= UCP_EP_FLAG_LOCAL_CONNECTED;
 
         /* If remote is connected - just send an ACK (because we already sent the address)
          * Otherwise - send a REPLY message with the ep addresses.
@@ -556,8 +558,11 @@ static void ucp_wireup_process_reply(ucp_worker_h worker, ucp_wireup_msg_t *msg,
         if (status != UCS_OK) {
             return;
         }
+    }
 
-        ep->flags |= UCP_EP_FLAG_REMOTE_CONNECTED | UCP_EP_FLAG_LOCAL_CONNECTED;
+    if (!(ep->flags & UCP_EP_FLAG_REMOTE_CONNECTED)) {
+        ucp_wireup_ep_remote_connected(ep);
+        ep->flags |= UCP_EP_FLAG_REMOTE_CONNECTED;
     }
 }
 
@@ -570,8 +575,9 @@ static void ucp_wireup_process_ack(ucp_worker_h worker, uint64_t uuid)
         return;
     }
 
-    ucs_trace("got wireup ack on ep %p", ep);
+    ucs_trace("ep %p: got wireup ack", ep);
 
+    ep->flags |= UCP_EP_FLAG_REMOTE_CONNECTED;
     ucp_wireup_ep_remote_connected(ep);
 }
 
@@ -629,6 +635,8 @@ ucs_status_t ucp_ep_init_trasports(ucp_ep_h ep, unsigned address_count,
     ucs_status_t status;
     uct_ep_h new_uct_ep;
     int has_p2p;
+
+    ucs_trace("ep %p: initialize transports", ep);
 
     ucs_assert(ep->cfg_index == 0);
 
@@ -773,7 +781,11 @@ ucs_status_t ucp_wireup_send_request(ucp_ep_h ep)
 {
     ucs_status_t status;
 
-    ucs_debug("send wireup request ep %p flags=%d", ep, ep->flags);
+    if (ep->flags & UCP_EP_FLAG_CONNECT_REQ_SENT) {
+        return UCS_OK;
+    }
+
+    ucs_debug("ep %p: send wireup request", ep);
     status = ucp_wireup_msg_send(ep, UCP_WIREUP_MSG_REQUEST);
     ep->flags |= UCP_EP_FLAG_CONNECT_REQ_SENT;
     return status;

@@ -119,6 +119,8 @@ ucs_status_t uct_rc_ep_connect_to_ep(uct_ep_h tl_ep, const uct_device_addr_t *de
                                     IBV_ACCESS_REMOTE_WRITE|
                                     IBV_ACCESS_REMOTE_READ|
                                     IBV_ACCESS_REMOTE_ATOMIC;
+    ucs_debug("to INIT qpn 0x%x pki %d port %d", ep->qp->qp_num,
+              qp_attr.pkey_index, qp_attr.port_num);
     ret = ibv_modify_qp(ep->qp, &qp_attr,
                         IBV_QP_STATE      |
                         IBV_QP_PKEY_INDEX |
