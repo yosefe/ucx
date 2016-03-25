@@ -14,7 +14,11 @@
 
 class test_ucp_perf : public ucp_test, public test_perf {
 public:
-    using ucp_test::get_ctx_params;
+    static ucp_params_t get_ctx_params() {
+        ucp_params_t params = ucp_test::get_ctx_params();
+        params.features |= UCP_FEATURE_TAG | UCP_FEATURE_RMA | UCP_FEATURE_AMO64;
+        return params;
+    }
 protected:
     static test_spec tests[];
 };

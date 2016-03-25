@@ -19,7 +19,7 @@ std::ostream& operator<<(std::ostream& os, const ucp_test_param& test_param)
         if (iter != transports.begin()) {
             os << ",";
         }
-        os << *iter;
+        os << "\\" << *iter; /* disable aliases */
     }
     return os;
 }
@@ -203,7 +203,9 @@ void ucp_test::entity::connect(const ucp_test::entity* other) {
     ASSERT_UCS_OK(status);
 
     ucp_ep_h ep;
+    disable_errors();
     status = ucp_ep_create(m_worker, address, &ep);
+    restore_errors();
     if (status == UCS_ERR_UNREACHABLE) {
         ucp_worker_release_address(other->worker(), address);
         UCS_TEST_SKIP_R("could not find a valid transport");
