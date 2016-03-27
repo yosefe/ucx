@@ -332,6 +332,8 @@ static UCS_CLASS_CLEANUP_FUNC(ucp_stub_ep_t)
     ucs_assert(ucs_queue_is_empty(&self->pending_q));
     ucs_assert(self->pending_count == 0);
 
+    ucs_debug("destroy stub ep %p", self);
+
     if (self->aux_ep != NULL) {
         uct_ep_destroy(self->aux_ep);
     }

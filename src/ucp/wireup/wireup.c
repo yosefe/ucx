@@ -339,8 +339,7 @@ ucs_status_t ucp_wireup_msg_progress(uct_pending_req_t *self)
     }
 
 out:
-    ucs_free((void*)req->send.buffer);
-    ucs_mpool_put(req);
+    ucp_request_complete(req, req->cb.send, UCS_OK);
     return UCS_OK;
 }
 
@@ -356,6 +355,12 @@ static int ucp_worker_is_tl_p2p(ucp_worker_h worker, ucp_rsc_index_t rsc_index)
     return !(worker->iface_attrs[rsc_index].cap.flags & UCT_IFACE_FLAG_CONNECT_TO_IFACE);
 }
 
+void ucp_wireup_msg_send_completion(void *request, ucs_status_t status)
+{
+    ucp_request_t *req = (ucp_request_t *)request - 1;
+    ucs_free((void*)req->send.buffer);
+}
+
 static ucs_status_t ucp_wireup_msg_send(ucp_ep_h ep, uint8_t type)
 {
     ucp_worker_h worker = ep->worker;
@@ -368,13 +373,15 @@ static ucs_status_t ucp_wireup_msg_send(ucp_ep_h ep, uint8_t type)
     ucp_request_t* req;
     void *address;
 
+    ucs_assert(ep->cfg_index != (uint8_t)-1);
+
     req = ucs_mpool_get(&ep->worker->req_mp);
     if (req == NULL) {
         return UCS_ERR_NO_MEMORY;
     }
 
     req->flags                   = UCP_REQUEST_FLAG_RELEASED;
-    req->cb.send                 = (ucp_send_callback_t)ucs_empty_function;
+    req->cb.send                 = ucp_wireup_msg_send_completion;
     req->send.uct.func           = ucp_wireup_msg_progress;
     req->send.wireup.type        = type;
 
@@ -392,9 +399,10 @@ static ucs_status_t ucp_wireup_msg_send(ucp_ep_h ep, uint8_t type)
     }
     for (optype = 0; optype < UCP_EP_OP_LAST; ++optype) {
         rsc_index = ucp_ep_config(ep)->rscs[optype];
-        if ((req->send.wireup.type == UCP_WIREUP_MSG_REQUEST) ||
-            ((req->send.wireup.type == UCP_WIREUP_MSG_REPLY) &&
-             ucp_worker_is_tl_p2p(worker, rsc_index)))
+        if ((rsc_index != UCP_NULL_RESOURCE) &&
+            ((req->send.wireup.type == UCP_WIREUP_MSG_REQUEST) ||
+             ((req->send.wireup.type == UCP_WIREUP_MSG_REPLY) &&
+              ucp_worker_is_tl_p2p(worker, rsc_index))))
         {
             tl_bitmap |= UCS_BIT(rsc_index);
         }
@@ -700,6 +708,12 @@ ucs_status_t ucp_ep_init_trasports(ucp_ep_h ep, unsigned address_count,
         addr_index = addr_indices[optype];
 
         if (rsc_index == UCP_NULL_RESOURCE) {
+            if (ep->uct_eps[optype] != NULL) {
+                ucs_trace("ep %p: destroy stub ep %p for %s", ep,
+                          ep->uct_eps[optype], ucp_wireup_ep_ops[optype].title);
+                uct_ep_destroy(ep->uct_eps[optype]);
+                ep->uct_eps[optype] = NULL;
+            }
             continue;
         }
 
