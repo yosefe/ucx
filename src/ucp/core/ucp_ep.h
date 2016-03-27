@@ -116,6 +116,8 @@ ucs_status_t ucp_ep_add_pending_uct(ucp_ep_h ep, uct_ep_h uct_ep,
 void ucp_ep_add_pending(ucp_ep_h ep, uct_ep_h uct_ep, ucp_request_t *req,
                         int progress);
 
+ucs_status_t ucp_ep_pending_req_release(uct_pending_req_t *self);
+
 void ucp_ep_send_reply(ucp_request_t *req, ucp_ep_op_t optype, int progress);
 
 int ucp_ep_is_op_primary(ucp_ep_h ep, ucp_ep_op_t optype);

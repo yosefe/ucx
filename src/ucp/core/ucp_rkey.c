@@ -74,9 +74,6 @@ ucs_status_t ucp_ep_rkey_unpack(ucp_ep_h ep, void *rkey_buffer, ucp_rkey_h *rkey
     uint64_t pd_map;
     void *p;
 
-    ucs_assert(ep->rma_dst_pdi != UCP_NULL_RESOURCE);
-    ucs_assert(ep->amo_dst_pdi != UCP_NULL_RESOURCE);
-
     /* Count the number of remote PDs in the rkey buffer */
     p = rkey_buffer;
 

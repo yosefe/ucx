@@ -111,7 +111,7 @@ err:
     return status;
 }
 
-static ucs_status_t ucp_pending_req_release(uct_pending_req_t *self)
+ucs_status_t ucp_ep_pending_req_release(uct_pending_req_t *self)
 {
     ucp_request_t *req = ucs_container_of(self, ucp_request_t, send.uct);
 
@@ -226,7 +226,7 @@ static void ucp_ep_destory_uct_eps(ucp_ep_h ep)
         uct_ep = ep->uct_eps[optype];
 
         // TODO purge pending before blocking
-        uct_ep_pending_purge(uct_ep, ucp_pending_req_release);
+        uct_ep_pending_purge(uct_ep, ucp_ep_pending_req_release);
         ucs_debug("destroy ep %p op %d uct_ep %p", ep, optype, uct_ep);
         uct_ep_destroy(uct_ep);
     }

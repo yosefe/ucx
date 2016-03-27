@@ -168,8 +168,16 @@ bool ucp_test::check_test_param(const std::string& name,
     return result;
 }
 
-ucs_log_func_rc_t ucp_test::empty_log_handler(...)
+ucs_log_func_rc_t ucp_test::empty_log_handler(const char *file, unsigned line,
+                                              const char *function, ucs_log_level_t level,
+                                              const char *prefix, const char *message,
+                                              va_list ap)
 {
+    if (level == UCS_LOG_LEVEL_ERROR) {
+        level = UCS_LOG_LEVEL_DEBUG;
+    }
+
+    ucs_log_default_handler(file, line, function, level, prefix, message, ap);
     return UCS_LOG_FUNC_RC_STOP;
 }
 

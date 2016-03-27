@@ -7,6 +7,7 @@
 #include "stub_ep.h"
 #include "wireup.h"
 
+#include <ucp/core/ucp_request.h>
 #include <ucp/core/ucp_worker.h>
 #include <ucs/arch/atomic.h>
 #include <ucs/datastruct/queue.h>
@@ -36,20 +37,10 @@ void ucp_stub_ep_progress(ucp_stub_ep_t *stub_ep)
 {
     ucp_ep_h ep = stub_ep->ep;
     ucs_queue_head_t tmp_pending_queue;
-    ucp_worker_h worker = ep->worker;
     uct_pending_req_t *req;
     ucs_status_t status;
     uct_ep_h uct_ep;
     ucp_ep_op_t optype;
-
-    /*
-     * We switch the endpoint in this function (instead in wireup code) since
-     * this is guaranteed to run from the main thread.
-     * Don't start using the transport before the wireup protocol finished
-     * sending ack/reply.
-     */
-    sched_yield();
-    ucs_async_check_miss(&ep->worker->async);
 
     /*
      * Check that we are ready to switch:
@@ -57,16 +48,11 @@ void ucp_stub_ep_progress(ucp_stub_ep_t *stub_ep)
      * - We should have sent a wireup reply to remote side
      * - We should have sent all pending wireup operations (so we won't discard them)
      */
-    if (!(stub_ep->state & UCP_STUB_EP_CONNECTED) ||
-        (stub_ep->pending_count != 0))
-    {
+    if (!(stub_ep->state & UCP_STUB_EP_CONNECTED) || (stub_ep->pending_count != 0)) {
         return;
     }
 
-    ucs_trace("switching stub_ep %p (ep %p) to ready state", stub_ep, ep);
-
-    ucs_memory_cpu_fence();
-    UCS_ASYNC_BLOCK(&worker->async);
+    ucs_trace("ep %p: switching stub_ep %p to ready state", ep, stub_ep);
 
     /* Take out next_ep */
     uct_ep = stub_ep->next_ep;
@@ -77,7 +63,6 @@ void ucp_stub_ep_progress(ucp_stub_ep_t *stub_ep)
      */
     ucs_queue_head_init(&tmp_pending_queue);
     ucs_queue_for_each_extract(req, &stub_ep->pending_q, priv, 1) {
-        ucs_trace("move request %p to tmp pending queue", req);
         ucs_queue_push(&tmp_pending_queue, ucp_stub_ep_req_priv(req));
     }
 
@@ -92,13 +77,9 @@ void ucp_stub_ep_progress(ucp_stub_ep_t *stub_ep)
     ucp_worker_stub_ep_remove(stub_ep->ep->worker, stub_ep);
 
     /* Destroy stub endpoint (destroys aux_ep as well) */
-    ucs_trace("destroying stub_ep %p", stub_ep);
     optype = stub_ep->optype;
     uct_ep_destroy(&stub_ep->super);
     stub_ep = NULL;
-    ucs_trace("switched ep %p op %d to uct_ep %p", ep, optype, uct_ep);
-
-    UCS_ASYNC_UNBLOCK(&worker->async);
 
     /* Replay pending requests */
     ucs_queue_for_each_extract(req, &tmp_pending_queue, priv, 1) {
@@ -132,27 +113,79 @@ static uct_ep_h ucp_stub_ep_get_wireup_msg_ep(ucp_stub_ep_t *stub_ep)
     return wireup_msg_ep;
 }
 
+static ucs_status_t ucp_stub_ep_progress_pending(uct_pending_req_t *self)
+{
+    ucp_request_t *proxy_req = ucs_container_of(self, ucp_request_t, send.uct);
+    uct_pending_req_t *req = proxy_req->send.proxy.req;
+    ucp_stub_ep_t *stub_ep = proxy_req->send.proxy.stub_ep;
+    ucs_status_t status;
+
+    status = req->func(req);
+    if (status == UCS_OK) {
+        ucs_trace("completed pending proxy request %p (uct req %p)",
+                  proxy_req, req);
+        ucs_atomic_add32(&stub_ep->pending_count, -1);
+        ucs_mpool_put(proxy_req);
+    }
+    return status;
+}
+
+static ucs_status_t ucp_stub_ep_pending_req_release(uct_pending_req_t *self)
+{
+    ucp_request_t *proxy_req = ucs_container_of(self, ucp_request_t, send.uct);
+    ucp_stub_ep_t *stub_ep = proxy_req->send.proxy.stub_ep;
+
+    ucp_ep_pending_req_release(proxy_req->send.proxy.req);
+    ucs_atomic_add32(&stub_ep->pending_count, -1);
+    ucs_mpool_put(proxy_req);
+    return UCS_OK;
+}
+
 static ucs_status_t ucp_stub_pending_add(uct_ep_h uct_ep, uct_pending_req_t *req)
 {
     ucp_stub_ep_t *stub_ep = ucs_derived_of(uct_ep, ucp_stub_ep_t);
+    ucp_ep_h ep = stub_ep->ep;
+    ucp_worker_h worker = ep->worker;
+    ucp_request_t *proxy_req;
     uct_ep_h wireup_msg_ep;
     ucs_status_t status;
-    ucp_ep_h ep;
 
     if (req->func == ucp_wireup_msg_progress) {
-        wireup_msg_ep = ucp_stub_ep_get_wireup_msg_ep(stub_ep);
-        ucs_trace("putting pending request %p on ep %p", req, wireup_msg_ep);
-        status = uct_ep_pending_add(wireup_msg_ep, req);
+        proxy_req = ucs_mpool_get(&worker->req_mp);
+        if (proxy_req == NULL) {
+            return UCS_ERR_NO_MEMORY;
+        }
+
+        wireup_msg_ep                 = ucp_stub_ep_get_wireup_msg_ep(stub_ep);
+        proxy_req->send.uct.func      = ucp_stub_ep_progress_pending;
+        proxy_req->send.proxy.req     = req;
+        proxy_req->send.proxy.stub_ep = stub_ep;
+
+        ucs_trace("putting pending proxy request %p / %p (uct req %p) on ep %p",
+                  proxy_req, &proxy_req->send.uct, req, wireup_msg_ep);
+        status = uct_ep_pending_add(wireup_msg_ep, &proxy_req->send.uct);
         if (status == UCS_OK) {
-//            ucs_atomic_add32(&stub_ep->pending_count, 1);
+            ucs_atomic_add32(&stub_ep->pending_count, +1);
+        } else {
+            ucs_mpool_put(proxy_req);
         }
         return status;
     }
 
-    ep = stub_ep->ep;
     ucs_queue_push(&stub_ep->pending_q, ucp_stub_ep_req_priv(req));
     ++ep->worker->stub_pend_count;
     return UCS_OK;
+}
+
+static void ucp_stub_pending_purge(uct_ep_h uct_ep, uct_pending_callback_t cb)
+{
+    ucp_stub_ep_t *stub_ep = ucs_derived_of(uct_ep, ucp_stub_ep_t);
+    ucs_assert_always(ucs_queue_is_empty(&stub_ep->pending_q));
+
+    if (stub_ep->aux_ep != NULL) {
+        ucs_assert_always(cb == ucp_ep_pending_req_release);
+        uct_ep_pending_purge(stub_ep->aux_ep, ucp_stub_ep_pending_req_release);
+    }
 }
 
 static ssize_t ucp_stub_ep_am_bcopy(uct_ep_h uct_ep, uint8_t id,
@@ -167,12 +200,6 @@ static ssize_t ucp_stub_ep_am_bcopy(uct_ep_h uct_ep, uint8_t id,
     }
 
     return UCS_ERR_NO_RESOURCE;
-}
-
-static void ucp_stub_pending_purge(uct_ep_h uct_ep, uct_pending_callback_t cb)
-{
-    ucp_stub_ep_t *stub_ep = ucs_derived_of(uct_ep, ucp_stub_ep_t);
-    ucs_assert_always(ucs_queue_is_empty(&stub_ep->pending_q));
 }
 
 static uct_iface_t ucp_stub_iface = {
@@ -303,6 +330,8 @@ UCS_CLASS_INIT_FUNC(ucp_stub_ep_t, ucp_ep_h ep, ucp_ep_op_t optype,
 static UCS_CLASS_CLEANUP_FUNC(ucp_stub_ep_t)
 {
     ucs_assert(ucs_queue_is_empty(&self->pending_q));
+    ucs_assert(self->pending_count == 0);
+
     if (self->aux_ep != NULL) {
         uct_ep_destroy(self->aux_ep);
     }

@@ -143,8 +143,8 @@ ucs_status_ptr_t ucp_tag_send_nb(ucp_ep_h ep, const void *buffer, size_t count,
     ucp_request_t *req;
     size_t length;
 
-    ucs_trace_req("send_nb buffer %p count %zu tag %"PRIx64" to %s cb %p",
-                  buffer, count, tag, ucp_ep_peer_name(ep), cb);
+    ucs_trace_req("send_nb ep %p buffer %p count %zu tag %"PRIx64" to %s cb %p",
+                  ep, buffer, count, tag, ucp_ep_peer_name(ep), cb);
 
     if (ucs_likely((datatype & UCP_DATATYPE_CLASS_MASK) == UCP_DATATYPE_CONTIG)) {
         length = ucp_contig_dt_length(datatype, count);

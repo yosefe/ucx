@@ -103,6 +103,11 @@ struct ucp_request {
                     uint8_t       am_id;
                     ucs_status_t  status;
                 } proto;
+
+                struct {
+                    uct_pending_req_t *req;
+                    ucp_stub_ep_t*    stub_ep;
+                } proxy;
             };
 
             size_t                length;   /* Total length, in bytes */

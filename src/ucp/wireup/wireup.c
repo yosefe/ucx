@@ -96,6 +96,13 @@ static double ucp_wireup_am_score_func(ucp_worker_h worker,
         return 0.0;
     }
 
+    if (worker->context->config.features & UCP_FEATURE_WAKEUP) {
+        if (!(iface_attr->cap.flags & UCT_IFACE_FLAG_WAKEUP)) {
+            strncpy(reason, "wakeup", max);
+            return 0.0;
+        }
+    }
+
     return 1e-3 / (iface_attr->latency + (iface_attr->overhead * 2));
 }
 
@@ -158,13 +165,6 @@ static double ucp_wireup_amo_score_func(ucp_worker_h worker,
                                 UCT_IFACE_FLAG_ATOMIC_CSWAP64))
         {
             strncpy(reason, "all 64-bit atomics", max);
-            return 0.0;
-        }
-    }
-
-    if (features & UCP_FEATURE_WAKEUP) {
-        if (!(iface_attr->cap.flags & UCT_IFACE_FLAG_WAKEUP)) {
-            strncpy(reason, "wakeup", max);
             return 0.0;
         }
     }
@@ -353,7 +353,7 @@ static unsigned ucp_wireup_address_index(const unsigned *order,
 
 static int ucp_worker_is_tl_p2p(ucp_worker_h worker, ucp_rsc_index_t rsc_index)
 {
-    return !!(worker->iface_attrs[rsc_index].cap.flags & UCT_IFACE_FLAG_CONNECT_TO_EP);
+    return !(worker->iface_attrs[rsc_index].cap.flags & UCT_IFACE_FLAG_CONNECT_TO_IFACE);
 }
 
 static ucs_status_t ucp_wireup_msg_send(ucp_ep_h ep, uint8_t type)
@@ -707,7 +707,11 @@ ucs_status_t ucp_ep_init_trasports(ucp_ep_h ep, unsigned address_count,
          * one endpoint, and use it in the duplicates.
          */
         dup = ucp_ep_config(ep)->dups[optype];
-        if (ucp_ep_config(ep)->dups[optype] != UCP_EP_OP_LAST) {
+        if (dup != UCP_EP_OP_LAST) {
+            ucs_assertv(dup < UCP_EP_OP_LAST, "dup=%d", dup);
+            ucs_trace("ep %p: use uct_ep %p for %s as a duplicate of %s",
+                      ep, ep->uct_eps[dup], ucp_wireup_ep_ops[optype].title,
+                      ucp_wireup_ep_ops[dup].title);
             ep->uct_eps[optype] = ep->uct_eps[dup];
             continue;
         }
@@ -732,8 +736,13 @@ ucs_status_t ucp_ep_init_trasports(ucp_ep_h ep, unsigned address_count,
              * instead of replacing it.
              */
             if (ep->uct_eps[optype] == NULL) {
+                ucs_trace("ep %p: assign uct_ep %p for %s", ep, new_uct_ep,
+                          ucp_wireup_ep_ops[optype].title);
                 ep->uct_eps[optype] = new_uct_ep;
             } else {
+                ucs_trace("ep %p: assign set stub_ep %p next to %p for %s",
+                          ep, ep->uct_eps[optype], new_uct_ep,
+                          ucp_wireup_ep_ops[optype].title);
                 ucp_stub_ep_set_next_ep(ep->uct_eps[optype], new_uct_ep);
                 ucp_stub_ep_remote_connected(ep->uct_eps[optype]);
             }
@@ -748,9 +757,13 @@ ucs_status_t ucp_ep_init_trasports(ucp_ep_h ep, unsigned address_count,
             if (ep->uct_eps[optype] == NULL) {
                 status = ucp_stub_ep_create(ep, optype, address_count,
                                             address_list, &ep->uct_eps[optype]);
+                ucs_trace("ep %p: create set stub_ep %p for %s", ep,
+                          ep->uct_eps[optype], ucp_wireup_ep_ops[optype].title);
             } else {
                 status = ucp_stub_ep_connect(ep->uct_eps[optype], address_count,
                                              address_list);
+                ucs_trace("ep %p: connect stub_ep %p for %s", ep,
+                          ep->uct_eps[optype], ucp_wireup_ep_ops[optype].title);
             }
             if (status != UCS_OK) {
                 goto err;
@@ -785,7 +798,7 @@ ucs_status_t ucp_wireup_send_request(ucp_ep_h ep)
         return UCS_OK;
     }
 
-    ucs_debug("ep %p: send wireup request", ep);
+    ucs_debug("ep %p: send wireup request (flags=0x%x)", ep, ep->flags);
     status = ucp_wireup_msg_send(ep, UCP_WIREUP_MSG_REQUEST);
     ep->flags |= UCP_EP_FLAG_CONNECT_REQ_SENT;
     return status;

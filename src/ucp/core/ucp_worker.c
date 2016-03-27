@@ -263,11 +263,10 @@ unsigned ucp_worker_get_ep_config(ucp_worker_h worker, const ucp_rsc_index_t *rs
     ucp_context_h context = worker->context;
     uct_iface_attr_t *iface_attr_am;
     uct_iface_attr_t *iface_attr_rma;
-    uint64_t tl_bitmap, tl_mask;
     uct_pd_attr_t *pd_attr_am;
     ucp_ep_config_t *config;
     double zcopy_thresh;
-    ucp_ep_op_t optype;
+    ucp_ep_op_t optype, dup;
     unsigned i;
 
     for (i = 0; i < worker->ep_config_count; ++i) {
@@ -291,14 +290,13 @@ unsigned ucp_worker_get_ep_config(ucp_worker_h worker, const ucp_rsc_index_t *rs
     memcpy(config->rscs, rscs, sizeof(config->rscs));
 
     /* find duplicate resources */
-    tl_bitmap = 0;
     for (optype = 0; optype < UCP_EP_OP_LAST; ++optype) {
-        tl_mask = UCS_BIT(config->rscs[optype]);
-        if (tl_bitmap & tl_mask) {
-            config->dups[optype] |= tl_mask; /* duplicate occurrence */
-        } else {
-            config->dups[optype] = UCP_EP_OP_LAST; /* not present - add it */
-            tl_bitmap |= tl_mask;
+        config->dups[optype] = UCP_EP_OP_LAST;
+        for (dup = 0; dup < optype; ++dup) {
+            if (config->rscs[optype] == config->rscs[dup]) {
+                config->dups[optype] = dup;
+                break;
+            }
         }
     }
 
@@ -721,6 +719,15 @@ void ucp_worker_progress_stub_eps(void *arg)
 {
     ucp_worker_h worker = arg;
     ucp_stub_ep_t *stub_ep, *tmp;
+
+    /*
+     * We switch the endpoint in this function (instead in wireup code) since
+     * this is guaranteed to run from the main thread.
+     * Don't start using the transport before the wireup protocol finished
+     * sending ack/reply.
+     */
+    sched_yield();
+    ucs_async_check_miss(&worker->async);
 
     UCS_ASYNC_BLOCK(&worker->async);
     ucs_list_for_each_safe(stub_ep, tmp, &worker->stub_ep_list, list) {

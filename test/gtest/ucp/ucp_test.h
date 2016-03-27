@@ -82,7 +82,10 @@ private:
     static bool check_test_param(const std::string& name,
                                  const std::string& test_case_name,
                                  const ucp_test_param& test_param);
-    static ucs_log_func_rc_t empty_log_handler(...);
+    static ucs_log_func_rc_t empty_log_handler(const char *file, unsigned line,
+                                               const char *function, ucs_log_level_t level,
+                                               const char *prefix, const char *message,
+                                               va_list ap);
 
 
     ucs::ptr_vector<entity> m_entities;
