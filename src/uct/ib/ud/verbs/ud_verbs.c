@@ -381,17 +381,6 @@ static void uct_ud_verbs_iface_progress(void *arg)
     uct_ud_leave(&iface->super);
 }
 
-static ucs_status_t 
-uct_ud_verbs_iface_query(uct_iface_h tl_iface, uct_iface_attr_t *iface_attr)
-{
-    uct_ud_iface_t *iface = ucs_derived_of(tl_iface, uct_ud_iface_t);
-
-    ucs_trace_func("");
-    uct_ud_iface_query(iface, iface_attr);
-
-    return UCS_OK;
-}
-
 static ucs_status_t
 uct_ud_verbs_ep_create_connected(uct_iface_h iface_h, const uct_device_addr_t *dev_addr,
                                  const uct_iface_addr_t *iface_addr, uct_ep_h *new_ep_p)
@@ -484,7 +473,7 @@ static uct_ud_iface_ops_t uct_ud_verbs_iface_ops = {
     .iface_get_address        = uct_ud_iface_get_address,
     .iface_get_device_address = uct_ib_iface_get_device_address,
     .iface_is_reachable       = uct_ib_iface_is_reachable,
-    .iface_query              = uct_ud_verbs_iface_query,
+    .iface_query              = uct_ud_iface_query,
 
     .ep_create                = UCS_CLASS_NEW_FUNC_NAME(uct_ud_verbs_ep_t),
     .ep_destroy               = uct_ud_ep_disconnect,

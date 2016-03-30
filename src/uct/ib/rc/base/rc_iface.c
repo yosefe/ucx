@@ -80,7 +80,8 @@ void uct_rc_iface_query(uct_rc_iface_t *iface, uct_iface_attr_t *iface_attr)
                                       UCT_IFACE_FLAG_PENDING   |
                                       UCT_IFACE_FLAG_CONNECT_TO_EP |
                                       UCT_IFACE_FLAG_AM_CB_SYNC |
-                                      UCT_IFACE_FLAG_WAKEUP;
+                                      UCT_IFACE_FLAG_WAKEUP_RX_AM |
+                                      UCT_IFACE_FLAG_WAKEUP_TX_RES;
 }
 
 void uct_rc_iface_add_ep(uct_rc_iface_t *iface, uct_rc_ep_t *ep)

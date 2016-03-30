@@ -80,6 +80,8 @@ ucs_status_t uct_mm_ep_pending_add(uct_ep_h tl_ep, uct_pending_req_t *n);
 
 void uct_mm_ep_pending_purge(uct_ep_h ep, uct_pending_callback_t cb);
 
+ucs_status_t uct_mm_ep_signal(uct_ep_h tl_ep);
+
 ucs_arbiter_cb_result_t uct_mm_ep_process_pending(ucs_arbiter_t *arbiter,
                                                   ucs_arbiter_elem_t *elem,
                                                   void *arg);

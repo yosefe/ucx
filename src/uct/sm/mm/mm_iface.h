@@ -15,8 +15,10 @@
 #include <ucs/arch/cpu.h>
 #include <ucs/debug/memtrack.h>
 #include <ucs/datastruct/arbiter.h>
+#include <ucs/sys/compiler.h>
 #include <ucs/sys/sys.h>
 #include <sys/shm.h>
+#include <sys/un.h>
 
 
 #define UCT_MM_TL_NAME "mm"
@@ -62,6 +64,9 @@ struct uct_mm_iface {
     ucs_mpool_t             recv_desc_mp;
     uct_mm_recv_desc_t      *last_recv_desc;    /* next receive descriptor to use */
 
+    int                     signal_fd;        /* Unix socket for receiving remote signal */
+
+    uint32_t                on_progress;
     size_t                  rx_headroom;
     ucs_arbiter_t           arbiter;
     const char              *path;            /* path to the backing file (for 'posix') */
@@ -72,6 +77,13 @@ struct uct_mm_iface {
         unsigned seg_size;                    /* size of the receive descriptor (for payload)*/
     } config;
 };
+
+
+struct uct_mm_wakeup {
+    uct_wakeup_t    super;
+    uct_mm_iface_t  *iface;
+};
+UCS_CLASS_DECLARE(uct_mm_wakeup_t, uct_iface_h, unsigned);
 
 
 struct uct_mm_fifo_element {
@@ -93,7 +105,10 @@ struct uct_mm_fifo_element {
 
 struct uct_mm_fifo_ctl {
     volatile uint64_t  head;       /* where to write next */
-    char padding[UCS_SYS_CACHE_LINE_SIZE - sizeof(uint64_t)];
+    socklen_t          signal_addrlen;
+    struct sockaddr_un signal_sockaddr;
+    char               null;
+    UCS_CACHELINE_PADDING(uint64_t, socklen_t, struct sockaddr_un, char)
     volatile uint64_t  tail;       /* how much was read */
 } UCS_S_PACKED;
 

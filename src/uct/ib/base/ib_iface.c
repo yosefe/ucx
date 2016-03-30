@@ -14,7 +14,6 @@
 #include <ucs/debug/log.h>
 #include <string.h>
 #include <stdlib.h>
-#include <poll.h>
 
 
 static UCS_CONFIG_DEFINE_ARRAY(path_bits_spec,
@@ -574,9 +573,30 @@ ucs_status_t uct_ib_iface_query(uct_ib_iface_t *iface, size_t xport_hdr_len,
 
 static ucs_status_t uct_ib_iface_wakeup_arm(uct_wakeup_h tl_wakeup)
 {
-    uct_ib_wakeup_t *wakeup = ucs_derived_of(tl_wakeup, uct_ib_wakeup_t);
-    uct_ib_iface_t *iface = wakeup->iface;
+    uct_ib_iface_t *iface = ucs_derived_of(tl_wakeup, uct_ib_wakeup_t)->iface;
     ucs_status_t status;
+
+    if (iface->comp.tx_refcount > 0) {
+        status = iface->ops->arm_tx_cq(iface);
+        if (status != UCS_OK) {
+            return status;
+        }
+    }
+
+    if ((iface->comp.rx_refcount > 0) || (iface->comp.sol_refcount > 0)) {
+        /* Arm only for solicited events in case there aren't any regular wakeups. */
+        status = iface->ops->arm_rx_cq(iface, iface->comp.rx_refcount == 0);
+        if (status != UCS_OK) {
+            return status;
+        }
+    }
+
+    return UCS_OK;
+}
+
+static ucs_status_t uct_ib_iface_wakeup_drain(uct_wakeup_h tl_wakeup)
+{
+    uct_ib_iface_t *iface = ucs_derived_of(tl_wakeup, uct_ib_wakeup_t)->iface;
     struct ibv_cq *cq;
     unsigned ack_count;
     void *cq_context;
@@ -600,21 +620,6 @@ static ucs_status_t uct_ib_iface_wakeup_arm(uct_wakeup_h tl_wakeup)
         ibv_ack_cq_events(cq, ack_count);
     }
 
-    if (iface->comp.tx_refcount > 0) {
-        status = iface->ops->arm_tx_cq(iface);
-        if (status != UCS_OK) {
-            return status;
-        }
-    }
-
-    if ((iface->comp.rx_refcount > 0) || (iface->comp.sol_refcount > 0)) {
-        /* Arm only for solicited events in case there aren't any regular wakeups. */
-        status = iface->ops->arm_rx_cq(iface, iface->comp.rx_refcount == 0);
-        if (status != UCS_OK) {
-            return status;
-        }
-    }
-
     return UCS_OK;
 }
 
@@ -623,40 +628,6 @@ static ucs_status_t uct_ib_iface_wakeup_get_fd(uct_wakeup_h tl_wakeup, int *fd_p
     uct_ib_wakeup_t *wakeup = ucs_derived_of(tl_wakeup, uct_ib_wakeup_t);
     *fd_p = wakeup->iface->comp.channel->fd;
     return UCS_OK;
-}
-
-static ucs_status_t uct_ib_iface_wakeup_wait(uct_wakeup_h tl_wakeup)
-{
-    ucs_status_t status;
-    struct pollfd pfd;
-    int ret;
-
-    status = uct_ib_iface_wakeup_arm(tl_wakeup);
-    if (status != UCS_OK) {
-        return status;
-    }
-
-    (void)uct_ib_iface_wakeup_get_fd(tl_wakeup, &pfd.fd);
-    pfd.events = POLLIN;
-
-    do {
-        ret = poll(&pfd, 1, -1);
-    } while ((ret < 0) && (errno == EINTR));
-
-    if (ret < 0) {
-        ucs_error("poll(fd=%d) failed: %m", pfd.fd);
-        return UCS_ERR_IO_ERROR;
-    } else if (ret == 0) {
-        ucs_warn("polling on completion event returned empty set");
-    }
-
-    ucs_assert(pfd.revents == POLLIN);
-    return UCS_OK;
-}
-
-static ucs_status_t uct_ib_iface_wakeup_signal(uct_wakeup_h wakeup)
-{
-    return UCS_ERR_UNSUPPORTED;
 }
 
 static void uct_ib_iface_update_comp(uct_ib_iface_t *iface, unsigned events,
@@ -707,8 +678,9 @@ static UCS_CLASS_DEFINE_DELETE_FUNC(uct_ib_wakeup_t, uct_wakeup_t);
 static uct_wakeup_ops_t uct_ib_wakeup_ops = {
     .get_fd = uct_ib_iface_wakeup_get_fd,
     .arm    = uct_ib_iface_wakeup_arm,
-    .wait   = uct_ib_iface_wakeup_wait,
-    .signal = uct_ib_iface_wakeup_signal,
+    .drain  = uct_ib_iface_wakeup_drain,
+    .wait   = NULL,
+    .signal = NULL,
     .close  = UCS_CLASS_DELETE_FUNC_NAME(uct_ib_wakeup_t),
 };
 

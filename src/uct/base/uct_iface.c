@@ -5,9 +5,11 @@
 * See file LICENSE for terms.
 */
 
-#include <uct/api/uct.h>
 #include "uct_iface.h"
 #include "uct_pd.h"
+
+#include <uct/api/uct.h>
+#include <poll.h>
 
 
 #if ENABLE_STATS
@@ -158,9 +160,47 @@ ucs_status_t uct_wakeup_efd_arm(uct_wakeup_h wakeup)
     return wakeup->ops->arm(wakeup);
 }
 
+ucs_status_t uct_wakeup_efd_drain(uct_wakeup_h wakeup)
+{
+    return wakeup->ops->drain(wakeup);
+}
+
 ucs_status_t uct_wakeup_wait(uct_wakeup_h wakeup)
 {
-    return wakeup->ops->wait(wakeup);
+    ucs_status_t status;
+    struct pollfd pfd;
+    int ret;
+
+    if (wakeup->ops->wait != NULL) {
+        return wakeup->ops->wait(wakeup);
+    } else {
+
+        status = uct_wakeup_efd_get(wakeup, &pfd.fd);
+        if (status != UCS_OK) {
+            return status;
+        }
+
+        status = uct_wakeup_efd_arm(wakeup);
+        if (status != UCS_OK) {
+            return status;
+        }
+
+        pfd.events = POLLIN;
+
+        do {
+            ret = poll(&pfd, 1, -1);
+        } while ((ret < 0) && (errno == EINTR));
+
+        if (ret < 0) {
+            ucs_error("poll(fd=%d) failed: %m", pfd.fd);
+            return UCS_ERR_IO_ERROR;
+        } else if (ret == 0) {
+            ucs_warn("polling on completion event returned empty set");
+        }
+
+        ucs_assert(pfd.revents == POLLIN);
+        return UCS_OK;
+    }
 }
 
 ucs_status_t uct_wakeup_signal(uct_wakeup_h wakeup)
@@ -304,6 +344,11 @@ ucs_status_t uct_ep_connect_to_ep(uct_ep_h ep, const uct_device_addr_t *dev_addr
                                   const uct_ep_addr_t *ep_addr)
 {
     return ep->iface->ops.ep_connect_to_ep(ep, dev_addr, ep_addr);
+}
+
+ucs_status_t uct_ep_signal(uct_ep_h ep)
+{
+    return ep->iface->ops.ep_signal(ep);
 }
 
 UCS_CLASS_INIT_FUNC(uct_ep_t, uct_iface_t *iface)

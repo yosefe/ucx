@@ -200,7 +200,9 @@ enum {
                                                         is called. */
 
     /* Event notification */
-    UCT_IFACE_FLAG_WAKEUP = UCS_BIT(46), /**< Event notification supported */
+    UCT_IFACE_FLAG_WAKEUP_TX_RES    = UCS_BIT(48), /**< Send resources notification available */
+    UCT_IFACE_FLAG_WAKEUP_RX_AM     = UCS_BIT(49), /**< Active messages notification available */
+    UCT_IFACE_FLAG_WAKEUP_SIGNAL    = UCS_BIT(50), /**< Signaling notifications supported */
 };
 
 
@@ -226,6 +228,27 @@ enum {
     UCT_WAKEUP_TX_RESOURCES   = UCS_BIT(0),  /**< Send resources became available */
     UCT_WAKEUP_RX_AM          = UCS_BIT(1),  /**< Active message received */
     UCT_WAKEUP_RX_SIGNAL      = UCS_BIT(2),  /**< Wakeup signal from remote sender */
+};
+
+
+/* @ingroup UCT_AM
+ * @brief  List of capabilities of active message callback
+ *
+ * A callback must have either SYNC or ASYNC flags.
+ */
+enum {
+    UCT_AM_CB_FLAG_SYNC  = UCS_BIT(1), /**< callback is always invoked from the context (thread, process)
+                                            that called uct_iface_progress(). An interface must
+                                            have UCT_IFACE_FLAG_AM_CB_SYNC flag set to support sync
+                                            callback invocation */
+
+    UCT_AM_CB_FLAG_ASYNC = UCS_BIT(2), /**< callback may be invoked from any context. For example,
+                                            it may be called from transport async progress thread. To guarantee
+                                            async invocation, interface must have UCT_IFACE_FLAG_AM_CB_ASYNC
+                                            flag set.
+                                             If async callback is set on interface with only
+                                            UCT_IFACE_FLAG_AM_CB_SYNC flags, it will behave exactly like a
+                                            sync callback  */
 };
 
 
@@ -746,6 +769,17 @@ ucs_status_t uct_wakeup_efd_arm(uct_wakeup_h wakeup);
 
 /**
  * @ingroup UCT_RESOURCE
+ * @brief Remove all events queued on the event file descriptor.
+ *
+ * @param [in] wakeup      Handle to the notification event.
+ *
+ * @return Error code.
+ */
+ucs_status_t uct_wakeup_efd_drain(uct_wakeup_h wakeup);
+
+
+/**
+ * @ingroup UCT_RESOURCE
  * @brief Wait for the next notification.
  *
  * @param [in] wakeup      Handle to the notification event.
@@ -774,25 +808,6 @@ ucs_status_t uct_iface_mem_alloc(uct_iface_h iface, size_t length,
 
 void uct_iface_mem_free(const uct_allocated_memory_t *mem);
 
-/* @ingroup UCT_AM
- * @brief  List of capabilities of active message callback
- *
- * A callback must have either SYNC or ASYNC flags.
- */
-enum {
-    UCT_AM_CB_FLAG_SYNC  = UCS_BIT(1), /**< callback is always invoked from the context (thread, process)
-                                            that called uct_iface_progress(). An interface must
-                                            have UCT_IFACE_FLAG_AM_CB_SYNC flag set to support sync 
-                                            callback invocation */
-
-    UCT_AM_CB_FLAG_ASYNC = UCS_BIT(2), /**< callback may be invoked from any context. For example,
-                                            it may be called from transport async progress thread. To guarantee
-                                            async invocation, interface must have UCT_IFACE_FLAG_AM_CB_ASYNC 
-                                            flag set. 
-                                             If async callback is set on interface with only 
-                                            UCT_IFACE_FLAG_AM_CB_SYNC flags, it will behave exactly like a
-                                            sync callback  */ 
-};
 
 /**
  * @ingroup UCT_AM
@@ -890,6 +905,17 @@ ucs_status_t uct_ep_get_address(uct_ep_h ep, uct_ep_addr_t *addr);
  */
 ucs_status_t uct_ep_connect_to_ep(uct_ep_h ep, const uct_device_addr_t *dev_addr,
                                   const uct_ep_addr_t *ep_addr);
+
+
+/**
+ * @ingroup UCT_RESOURCE
+ * @brief Generate a wakeup event on the remote interface.
+ *
+ * requires @ref UCT_IFACE_FLAG_WAKEUP_SIGNAL capability.
+ *
+ * @param [in] ep           Endpoint to the remote interface to wake up.
+ */
+ucs_status_t uct_ep_signal(uct_ep_h ep);
 
 
 /**

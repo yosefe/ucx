@@ -64,7 +64,7 @@ UCS_TEST_P(test_uct_wakeup, am)
     struct pollfd wakeup_fd;
 
     initialize();
-    check_caps(UCT_IFACE_FLAG_WAKEUP);
+    check_caps(UCT_IFACE_FLAG_WAKEUP_RX_AM);
 
     recv_buffer = (recv_desc_t *) malloc(sizeof(*recv_buffer) + sizeof(uint64_t));
     recv_buffer->length = 0; /* Initialize length to 0 */
@@ -87,7 +87,7 @@ UCS_TEST_P(test_uct_wakeup, am)
 
     /* make sure the file descriptor IS signaled ONCE */
     ASSERT_EQ(1, poll(&wakeup_fd, 1, 1));
-    ASSERT_EQ(uct_wakeup_efd_arm(wakeup_handle), UCS_OK);
+    ASSERT_EQ(uct_wakeup_efd_drain(wakeup_handle), UCS_OK);
     wakeup_fd.revents = 0;
     EXPECT_EQ(0, poll(&wakeup_fd, 1, 0));
 
@@ -98,6 +98,40 @@ UCS_TEST_P(test_uct_wakeup, am)
     EXPECT_EQ(uct_wakeup_wait(wakeup_handle), UCS_OK);
     uct_wakeup_close(wakeup_handle);
     free(recv_buffer);
+}
+
+UCS_TEST_P(test_uct_wakeup, signal)
+{
+    uct_wakeup_h wakeup_handle;
+    struct pollfd wakeup_fd;
+
+    initialize();
+    check_caps(UCT_IFACE_FLAG_WAKEUP_SIGNAL);
+
+    /* create reciever makeup */
+    ASSERT_EQ(uct_wakeup_open(m_e2->iface(), UCT_WAKEUP_RX_SIGNAL, &wakeup_handle),
+              UCS_OK);
+    ASSERT_EQ(uct_wakeup_efd_get(wakeup_handle, &wakeup_fd.fd), UCS_OK);
+    wakeup_fd.events = POLLIN;
+    EXPECT_EQ(0, poll(&wakeup_fd, 1, 0));
+    ASSERT_EQ(uct_wakeup_efd_arm(wakeup_handle), UCS_OK);
+    EXPECT_EQ(0, poll(&wakeup_fd, 1, 0));
+
+    /* send a signal */
+    uct_ep_signal(m_e1->ep(0));
+
+    /* make sure the file descriptor IS signaled ONCE */
+    ASSERT_EQ(1, poll(&wakeup_fd, 1, 1));
+    ASSERT_EQ(uct_wakeup_efd_drain(wakeup_handle), UCS_OK);
+    wakeup_fd.revents = 0;
+    EXPECT_EQ(0, poll(&wakeup_fd, 1, 0));
+
+    /* send the data again */
+    uct_ep_signal(m_e1->ep(0));
+
+    /* make sure the file descriptor IS signaled */
+    EXPECT_EQ(uct_wakeup_wait(wakeup_handle), UCS_OK);
+    uct_wakeup_close(wakeup_handle);
 }
 
 UCT_INSTANTIATE_TEST_CASE(test_uct_wakeup);

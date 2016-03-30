@@ -65,8 +65,13 @@ static double ucp_wireup_am_score_func(ucp_worker_h worker,
     }
 
     if (worker->context->config.features & UCP_FEATURE_WAKEUP) {
-        if (!(iface_attr->cap.flags & UCT_IFACE_FLAG_WAKEUP)) {
-            strncpy(reason, "wakeup", max);
+        if (!(iface_attr->cap.flags & UCT_IFACE_FLAG_WAKEUP_RX_AM)) {
+            strncpy(reason, "wakeup for received messages", max);
+            return 0.0;
+        }
+
+        if (!(iface_attr->cap.flags & UCT_IFACE_FLAG_WAKEUP_TX_RES)) {
+            strncpy(reason, "wakeup for send resources", max);
             return 0.0;
         }
     }

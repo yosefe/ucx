@@ -371,6 +371,28 @@ void uct_mm_ep_pending_purge(uct_ep_h tl_ep, uct_pending_callback_t cb)
                             uct_mm_ep_abriter_purge_cb, cb);
 }
 
+ucs_status_t uct_mm_ep_signal(uct_ep_h tl_ep)
+{
+    uct_mm_iface_t *iface = ucs_derived_of(tl_ep->iface, uct_mm_iface_t);
+    uct_mm_ep_t *ep = ucs_derived_of(tl_ep, uct_mm_ep_t);
+    uint32_t dummy = 0;
+    int ret;
+
+    ret = sendto(iface->signal_fd, &dummy, sizeof(dummy), 0,
+                 (const struct sockaddr*)&ep->fifo_ctl->signal_sockaddr,
+                 ep->fifo_ctl->signal_addrlen);
+    if (ret < 0) {
+        if (errno == EAGAIN || errno == ENOBUFS) {
+            return UCS_ERR_NO_RESOURCE;
+        }
+
+        ucs_error("failed to send wakeup message: %m");
+        return UCS_ERR_IO_ERROR;
+    }
+
+    return UCS_OK;
+}
+
 ucs_status_t uct_mm_ep_atomic_add64(uct_ep_h tl_ep, uint64_t add,
                                     uint64_t remote_addr, uct_rkey_t rkey)
 {

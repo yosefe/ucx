@@ -445,18 +445,6 @@ static void uct_ud_mlx5_iface_async_progress(void *arg)
 
 }
 
-static ucs_status_t 
-uct_ud_mlx5_iface_query(uct_iface_h tl_iface, uct_iface_attr_t *iface_attr)
-{
-    uct_ud_iface_t *iface = ucs_derived_of(tl_iface, uct_ud_iface_t);
-
-    ucs_trace_func("");
-    uct_ud_iface_query(iface, iface_attr);
-    iface_attr->cap.flags &= ~UCT_IFACE_FLAG_WAKEUP;
-
-    return UCS_OK;
-}
-
 static ucs_status_t
 uct_ud_mlx5_ep_create_ah(uct_ud_mlx5_iface_t *iface, uct_ud_mlx5_ep_t *ep,
                          const uct_ib_address_t *ib_addr,
@@ -577,10 +565,11 @@ static uct_ud_iface_ops_t uct_ud_mlx5_iface_ops = {
     .iface_close              = UCS_CLASS_DELETE_FUNC_NAME(uct_ud_mlx5_iface_t),
     .iface_flush              = uct_ud_iface_flush,
     .iface_release_am_desc    = uct_ud_iface_release_am_desc,
+    .iface_wakeup_open        = UCS_CLASS_NEW_FUNC_NAME(uct_ib_wakeup_t),
     .iface_get_address        = uct_ud_iface_get_address,
     .iface_get_device_address = uct_ib_iface_get_device_address,
     .iface_is_reachable       = uct_ib_iface_is_reachable,
-    .iface_query              = uct_ud_mlx5_iface_query,
+    .iface_query              = uct_ud_iface_query,
 
     .ep_create                = UCS_CLASS_NEW_FUNC_NAME(uct_ud_mlx5_ep_t),
     .ep_destroy               = uct_ud_ep_disconnect,

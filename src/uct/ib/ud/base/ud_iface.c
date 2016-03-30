@@ -452,8 +452,10 @@ ucs_config_field_t uct_ud_iface_config_table[] = {
 };
 
 
-void uct_ud_iface_query(uct_ud_iface_t *iface, uct_iface_attr_t *iface_attr)
+ucs_status_t uct_ud_iface_query(uct_iface_h tl_iface, uct_iface_attr_t *iface_attr)
 {
+    uct_ud_iface_t *iface = ucs_derived_of(tl_iface, uct_ud_iface_t);
+
     uct_ib_iface_query(&iface->super, UCT_IB_DETH_LEN + sizeof(uct_ud_neth_t),
                        iface_attr);
 
@@ -465,7 +467,8 @@ void uct_ud_iface_query(uct_ud_iface_t *iface, uct_iface_attr_t *iface_attr)
                                         UCT_IFACE_FLAG_PENDING |
                                         UCT_IFACE_FLAG_AM_CB_SYNC |
                                         UCT_IFACE_FLAG_AM_CB_ASYNC |
-                                        UCT_IFACE_FLAG_WAKEUP;
+                                        UCT_IFACE_FLAG_WAKEUP_RX_AM |
+                                        UCT_IFACE_FLAG_WAKEUP_TX_RES;
 
     iface_attr->cap.am.max_short      = iface->config.max_inline - sizeof(uct_ud_neth_t);
     iface_attr->cap.am.max_bcopy      = iface->super.config.seg_size - sizeof(uct_ud_neth_t);
@@ -480,7 +483,9 @@ void uct_ud_iface_query(uct_ud_iface_t *iface, uct_iface_attr_t *iface_attr)
     iface_attr->ep_addr_len           = sizeof(uct_ud_ep_addr_t);
 
     /* Software overhead */
-    iface_attr->overhead = 80e-9;
+    iface_attr->overhead              = 80e-9;
+
+    return UCS_OK;
 }
 
 ucs_status_t

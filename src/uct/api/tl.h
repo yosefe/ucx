@@ -52,6 +52,8 @@ typedef struct uct_iface_ops {
                                      const uct_device_addr_t *dev_addr,
                                      const uct_ep_addr_t *ep_addr);
 
+    ucs_status_t (*ep_signal)(uct_ep_h ep);
+
     ucs_status_t (*iface_get_device_address)(uct_iface_h iface,
                                              uct_device_addr_t *addr);
 
@@ -151,6 +153,8 @@ typedef struct uct_wakeup_ops {
     ucs_status_t (*get_fd)(uct_wakeup_h wakeup, int *fd_p);
 
     ucs_status_t (*arm)(uct_wakeup_h wakeup);
+
+    ucs_status_t (*drain)(uct_wakeup_h wakeup);
 
     ucs_status_t (*wait)(uct_wakeup_h wakeup);
 
