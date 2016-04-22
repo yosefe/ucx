@@ -10,7 +10,7 @@ LD = $(MPICC)
 
 # Test application for memory hooks when running with MPI
 # (some MPIs have hooks of their own and we make sure ours still work)
-noinst_PROGRAMS       = test_memhooks shmem_pingpong
+noinst_PROGRAMS       = test_memhooks shmem_pingpong ring
 AM_CPPFLAGS           = \
     -I$(abs_top_srcdir)/src \
     -I$(abs_top_builddir)/src \
@@ -29,3 +29,7 @@ libtest_memhooks_la_LDFLAGS = -rpath /nowhere  # Force shared library
 # SHMEM ping-pong test
 shmem_pingpong_LDFLAGS = -loshmem
 shmem_pingpong_SOURCES = shmem_pingpong.c
+
+
+# Ring test
+ring_SOURCES = ring.c

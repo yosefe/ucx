@@ -42,6 +42,7 @@ static ucs_config_field_t ucp_config_table[] = {
    " - sm/shm : all shared memory transports.\n"
    " - mm     : shared memory transports - only memory mappers.\n"
    " - ugni   : ugni_rdma and ugni_udt.\n"
+   " - ib     : all infiniband transports.\n"
    " - rc     : rc and ud.\n"
    " - rc_x   : rc with accelerated verbs and ud.\n"
    " - ud_x   : ud with accelerated verbs.\n"
@@ -86,6 +87,7 @@ static ucs_config_field_t ucp_config_table[] = {
 static ucp_tl_alias_t ucp_tl_aliases[] = {
   { "sm",    { "mm", "knem", "sysv", "posix", "cma", "xpmem", NULL } },
   { "shm",   { "mm", "knem", "sysv", "posix", "cma", "xpmem", NULL } },
+  { "ib",    { "rc", "ud", "rc_mlx5", "ud_mlx5", NULL } },
   { "rc",    { "rc", "ud", NULL } },
   { "rc_x",  { "rc_mlx5", "ud_mlx5", NULL } },
   { "ud_x",  { "ud_mlx5", NULL } },
@@ -198,14 +200,6 @@ static int ucp_is_resource_in_device_list(uct_tl_resource_desc_t *resource,
             device_enabled  = 1;
             masks[index] |= UCS_BIT(config_idx);
         }
-    }
-
-    /* Disable the posix mmap and xpmem 'devices'. ONLY for now - use sysv for mm .
-     * This will be removed after multi-rail is supported */
-    if ((!strcmp(resource->dev_name,"posix") || !strcmp(resource->dev_name, "xpmem")) &&
-        (device_enabled)) {
-        device_enabled  = 0;
-        ucs_info("posix and xpmem are currently unavailable");
     }
 
     return device_enabled;
