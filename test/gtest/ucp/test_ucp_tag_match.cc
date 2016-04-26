@@ -114,7 +114,7 @@ UCS_TEST_P(test_ucp_tag_match, send2_nb_recv_exp_medium) {
     }
 }
 
-UCS_TEST_P(test_ucp_tag_match, send2_nb_recv_medium_wildcard) {
+UCS_TEST_P(test_ucp_tag_match, send2_nb_recv_medium_wildcard, "RNDV_THRESH=3048576") {
     static const size_t size = 3000000;
 
     entity *sender1 = create_entity();
@@ -369,4 +369,144 @@ UCS_TEST_P(test_ucp_tag_match, sync_send_unexp) {
     request_release(my_send_req);
 }
 
+UCS_TEST_P(test_ucp_tag_match, sync_send_unexp_rndv, "RNDV_THRESH=1048576") {
+    static const size_t size = 1148576;
+    request *my_send_req;
+    ucp_tag_recv_info_t info;
+    ucs_status_t status;
+
+    std::vector<char> sendbuf(size, 0);
+    std::vector<char> recvbuf(size, 0);
+
+    ucs::fill_random(sendbuf.begin(), sendbuf.end());
+
+    /* sender - send the rts*/
+    my_send_req = send_sync_nb(&sendbuf[0], sendbuf.size(), DATATYPE, 0x111337);
+    /* receiver - get the rts and put in unexpected */
+    short_progress_loop();
+
+    ASSERT_TRUE(my_send_req != NULL);
+    EXPECT_FALSE(my_send_req->completed);
+
+    /* receiver - issue a recv req, match the rts, perform rndv-get and send ats to sender */
+    status = recv_b(&recvbuf[0], recvbuf.size(), DATATYPE, 0x1337, 0xffff, &info);
+    ASSERT_UCS_OK(status);
+
+    EXPECT_EQ(sendbuf.size(), info.length);
+    EXPECT_EQ((ucp_tag_t)0x111337, info.sender_tag);
+    EXPECT_EQ(sendbuf, recvbuf);
+
+    /* sender - get the ATS and set send request to completed */
+    ucp_worker_progress(sender->worker());
+
+    EXPECT_TRUE(my_send_req->completed);
+    EXPECT_EQ(UCS_OK, my_send_req->status);
+    request_release(my_send_req);
+}
+
+UCS_TEST_P(test_ucp_tag_match, rndv_req_exp, "RNDV_THRESH=1048576") {
+    static const size_t size = 1148576;
+    request *my_send_req, *my_recv_req;
+
+    std::vector<char> sendbuf(size, 0);
+    std::vector<char> recvbuf(size, 0);
+
+    ucs::fill_random(sendbuf.begin(), sendbuf.end());
+
+    /* sender - send the RTS */
+    my_send_req = send_nb(&sendbuf[0], sendbuf.size(), DATATYPE, 0x111337);
+    ASSERT_TRUE(!UCS_PTR_IS_ERR(my_send_req));
+    EXPECT_FALSE(my_send_req->completed);   //if rndv isnt used, this can be completed already.
+
+    /* receiver - put the receive request into expected as there was no progress called */
+    my_recv_req = recv_nb(&recvbuf[0], recvbuf.size(), DATATYPE, 0x1337, 0xffff);
+    ASSERT_TRUE(!UCS_PTR_IS_ERR(my_recv_req));
+    EXPECT_FALSE(my_recv_req->completed);
+
+    /* receiver - get the RTS, perform rndv get and send an ack upon finishing */
+    short_progress_loop();
+    wait(my_recv_req);   /* for UCTs that cannot perform real rndv and do eager send-recv bcopy instead */
+
+    EXPECT_EQ(sendbuf.size(),      my_recv_req->info.length);
+    EXPECT_EQ((ucp_tag_t)0x111337, my_recv_req->info.sender_tag);
+    EXPECT_TRUE(my_recv_req->completed);
+    EXPECT_EQ(sendbuf, recvbuf);
+
+    if (my_send_req != NULL) {
+        EXPECT_TRUE(my_send_req->completed);
+        EXPECT_EQ(UCS_OK, my_send_req->status);
+        request_release(my_send_req);
+    }
+    request_release(my_recv_req);
+}
+
+UCS_TEST_P(test_ucp_tag_match, rndv_rts_unexp, "RNDV_THRESH=1048576") {
+    static const size_t size = 1148576;
+    request *my_send_req;
+    ucp_tag_recv_info_t info;
+    ucs_status_t status;
+
+    std::vector<char> sendbuf(size, 0);
+    std::vector<char> recvbuf(size, 0);
+
+    ucs::fill_random(sendbuf.begin(), sendbuf.end());
+
+    /* sender - send the RTS */
+    my_send_req = send_nb(&sendbuf[0], sendbuf.size(), DATATYPE, 0x111337);
+    ASSERT_TRUE(!UCS_PTR_IS_ERR(my_send_req));
+    EXPECT_FALSE(my_send_req->completed);   //if rndv isnt used, this can be completed already.
+
+    /* receiver - get the RTS and put it into unexpected */
+    short_progress_loop();
+
+    /* receiver - issue a receive request, match it with the RTS and perform rndv get */
+    status = recv_b(&recvbuf[0], recvbuf.size(), DATATYPE, 0x1337, 0xffff, &info);
+    ASSERT_UCS_OK(status);
+
+    /* sender - get the ATS and set send request to completed */
+    ucp_worker_progress(sender->worker());
+
+    EXPECT_EQ(sendbuf.size()     , info.length);
+    EXPECT_EQ((ucp_tag_t)0x111337, info.sender_tag);
+    EXPECT_EQ(sendbuf, recvbuf);
+
+    if (my_send_req != NULL) {
+        EXPECT_TRUE(my_send_req->completed);
+        EXPECT_EQ(UCS_OK, my_send_req->status);
+        request_release(my_send_req);
+    }
+}
+
+UCS_TEST_P(test_ucp_tag_match, rndv_truncated, "RNDV_THRESH=1048576") {
+    static const size_t size = 1148576;
+    request *my_send_req;
+    ucp_tag_recv_info_t info;
+    ucs_status_t status;
+
+    std::vector<char> sendbuf(size, 0);
+    std::vector<char> recvbuf(size, 0);
+
+    ucs::fill_random(sendbuf.begin(), sendbuf.end());
+
+    /* sender - send the RTS */
+    my_send_req = send_nb(&sendbuf[0], sendbuf.size(), DATATYPE, 0x111337);
+    ASSERT_TRUE(!UCS_PTR_IS_ERR(my_send_req));
+    EXPECT_FALSE(my_send_req->completed);   //if rndv isnt used, this can be completed already.
+
+    /* receiver - get the RTS and put it into unexpected */
+    short_progress_loop();
+
+    /* receiver - issue a receive request, match it with the RTS and perform rndv get */
+    status = recv_b(&recvbuf[0], (recvbuf.size())/2, DATATYPE, 0x1337, 0xffff, &info);
+    EXPECT_EQ(UCS_ERR_MESSAGE_TRUNCATED, status);
+
+    /* sender - get the ATS and set send request to completed */
+    ucp_worker_progress(sender->worker());
+
+    if (my_send_req != NULL) {
+        EXPECT_TRUE(my_send_req->completed);
+        EXPECT_EQ(UCS_OK, my_send_req->status);
+        request_release(my_send_req);
+    }
+}
 UCP_INSTANTIATE_TEST_CASE(test_ucp_tag_match)

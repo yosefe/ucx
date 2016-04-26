@@ -33,6 +33,7 @@ typedef struct ucp_ep_config_key {
     ucp_lane_index_t       am_lane;             /* Lane for AM (can be NULL) */
     uint8_t                rma_lanes_map;       /* Bitmap of RMA lanes */
     uint8_t                amo_lanes_map;       /* Bitmap of AMO lanes */
+    uint8_t                rndv_lane;   /////if lane is null then set rndv thresh to -1.
     ucp_lane_index_t       wireup_msg_lane;     /* Lane for wireup messages (can be NULL) */
     ucp_rsc_index_t        lanes[UCP_MAX_LANES];/* Resource index for every lane */
     ucp_lane_index_t       num_lanes;           /* Number of lanes */

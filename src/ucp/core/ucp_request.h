@@ -50,7 +50,7 @@ enum {
  */
 #define ucp_request_complete(_req, _cb, ...) \
     { \
-        ucs_trace_data("completing request %p (%p) flags 0x%x", (_req), \
+        ucs_trace_req("completing request %p (%p) flags 0x%x", (_req), \
                        (_req) + 1, (_req)->flags); \
         (_cb)((_req) + 1, ## __VA_ARGS__); \
         if (((_req)->flags |= UCP_REQUEST_FLAG_COMPLETED) & UCP_REQUEST_FLAG_RELEASED) { \
@@ -108,6 +108,14 @@ struct ucp_request {
                     uct_pending_req_t *req;
                     ucp_stub_ep_t*    stub_ep;
                 } proxy;
+
+                struct {
+                    uint64_t      remote_address;
+                    uintptr_t     remote_request;
+                    uct_rkey_t    rkey;
+                    ucp_request_t *rreq; /* receive request on the recv side that performs the get operation */
+                } rndv_get;
+
             };
 
             size_t                length;   /* Total length, in bytes */

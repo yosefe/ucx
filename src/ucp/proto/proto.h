@@ -21,7 +21,7 @@
  */
 typedef struct {
     uint64_t                  sender_uuid;
-    uint64_t                  reqptr;
+    uintptr_t                 reqptr;
 } UCS_S_PACKED ucp_request_hdr_t;
 
 

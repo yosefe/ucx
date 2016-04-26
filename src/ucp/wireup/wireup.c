@@ -874,6 +874,12 @@ static ucs_status_t ucp_wireup_select_transports(ucp_ep_h ep, unsigned address_c
          */
     }
 
+//add here transport selection for rndv. rndv score func which will demand zcopy
+// and score is as bw. transport will check bw and choose uct with highest bw.
+// add to config key the lane index
+// chose rndv lane. can also be null UCP_NULL_LANE if select_transport return not ok.
+
+
     /* User should not create endpoints unless requested communication features */
     if (num_lanes == 0) {
         ucs_error("No transports selected to %s", ucp_ep_peer_name(ep));

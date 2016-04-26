@@ -278,10 +278,15 @@ unsigned ucp_worker_get_ep_config(ucp_worker_h worker,
     /* Create new configuration */
     config_idx = worker->ep_config_count++;
     config     =  &worker->ep_config[config_idx];
+    config->rndv_thresh       = context->config.ext.rndv_thresh;
+    config->sync_rndv_thresh  = context->config.ext.rndv_thresh;
 
     memset(config, 0, sizeof(*config));
     config->key = *key;
     ucp_ep_config_init(worker, config);
+       //config->rndv_thresh       = worker->context->config.ext.rndv_thresh;
+          // config->sync_rndv_thresh  = worker->context->config.ext.rndv_thresh;
+
 
 out:
     return config_idx;

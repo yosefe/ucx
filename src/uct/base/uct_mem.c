@@ -211,7 +211,7 @@ ucs_status_t uct_iface_mem_alloc(uct_iface_h tl_iface, size_t length,
 
         /* If PD does not support registration, allow only the PD method */
         if (!(pd_attr.cap.flags & UCT_PD_FLAG_REG)) {
-            ucs_error("%s pd does not supprt registration, so cannot use any allocation "
+            ucs_error("%s pd does not support registration, so cannot use any allocation "
                       "method except 'pd'", iface->pd->component->name);
             status = UCS_ERR_NO_MEMORY;
             goto err_free;
