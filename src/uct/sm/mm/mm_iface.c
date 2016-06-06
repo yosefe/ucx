@@ -12,6 +12,7 @@
 #include <ucs/arch/bitops.h>
 #include <ucs/async/async.h>
 #include <sys/poll.h>
+#include <ucs/debug/debug.h>
 
 
 static ucs_config_field_t uct_mm_iface_config_table[] = {
@@ -301,9 +302,10 @@ ucs_status_t uct_mm_allocate_fifo_mem(uct_mm_iface_t *iface,
         return status;
     }
 
+
     uct_mm_set_fifo_ptrs(iface->shared_mem, &ctl, &iface->recv_fifo_elements);
 
-    /* Make sure head and tail are cahe-aligned, and not on same cacheline, to
+    /* Make sure head and tail are cache-aligned, and not on same cacheline, to
      * avoid false-sharing.
      */
     ucs_assert_always((((uintptr_t)&ctl->head) % UCS_SYS_CACHE_LINE_SIZE) == 0);
@@ -514,7 +516,7 @@ static UCS_CLASS_INIT_FUNC(uct_mm_iface_t, uct_pd_h pd, uct_worker_h worker,
                                 self, worker->async);
 
     uct_worker_progress_register(worker, uct_mm_iface_progress, self);
-
+    
     ucs_debug("Created an MM iface. FIFO mm id: %zu", self->fifo_mm_id);
     return UCS_OK;
 

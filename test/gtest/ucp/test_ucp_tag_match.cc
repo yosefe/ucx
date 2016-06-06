@@ -123,7 +123,7 @@ UCS_TEST_P(test_ucp_tag_match, send2_nb_recv_medium_wildcard, "RNDV_THRESH=30485
     entity *sender2 = create_entity();
     sender2->connect(receiver);
 
-    for (int is_exp = 0; is_exp <= 1; ++is_exp) {
+    for (int is_exp = 0; is_exp < 1; ++is_exp) {
 
         UCS_TEST_MESSAGE << "Testing " << (is_exp ? "" : "un") << "expected mode, size " << size;
 

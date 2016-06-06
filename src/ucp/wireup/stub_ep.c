@@ -13,6 +13,7 @@
 #include <ucs/datastruct/queue.h>
 #include <ucs/type/class.h>
 #include <ucp/core/ucp_ep.inl>
+#include <ucp/tag/rndv.h>
 
 
 UCS_CLASS_DECLARE(ucp_stub_ep_t, ucp_ep_h);
@@ -75,6 +76,7 @@ void ucp_stub_ep_progress(ucp_stub_ep_t *stub_ep)
     for (lane = 0; lane < ucp_ep_num_lanes(ep); ++lane) {
         if (ep->uct_eps[lane] == &stub_ep->super) {
             ep->uct_eps[lane] = uct_ep;
+            break;
         }
     }
 
@@ -85,7 +87,13 @@ void ucp_stub_ep_progress(ucp_stub_ep_t *stub_ep)
     /* Replay pending requests */
     ucs_queue_for_each_extract(req, &tmp_pending_queue, priv, 1) {
         do {
-            status = ucp_ep_add_pending_uct(ep, uct_ep, req);
+            // TODO
+            if (req->func == ucp_proto_progress_rndv_get) {
+                uct_ep = ucp_ep_get_rndv_data_uct_ep(ep);
+            }
+            status = ucp_ep_add_pending_uct(ep, uct_ep, req);   //stuck here! switched am stub to mm, (stub_ep is mm)
+                                                                //now trying to do zcopy from rndv_lane (req->func(req))
+                                                                //but it's still stub. status is never ok (no progress)
         } while (status != UCS_OK);
         --ep->worker->stub_pend_count;
     }

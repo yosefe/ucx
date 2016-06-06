@@ -97,6 +97,7 @@ ucs_status_t ucp_ep_create_stub(ucp_worker_h worker, uint64_t dest_uuid,
     key.rma_lanes_map   = 1;
     key.amo_lanes_map   = 1;
     key.wireup_msg_lane = 0;
+    key.rndv_lane       = 0;
     key.lanes[0]        = UCP_NULL_RESOURCE;
     key.num_lanes       = 1;
 
@@ -192,8 +193,6 @@ ucs_status_t ucp_ep_create(ucp_worker_h worker, const ucp_address_t *address,
     ep = ucp_worker_ep_find(worker, dest_uuid);
     if (ep != NULL) {
         /* TODO handle a case where the existing endpoint is incomplete */
-        ucs_debug("returning existing ep %p which is already connected to %"PRIx64,
-                  ep, ep->dest_uuid);
         *ep_p = ep;
         status = UCS_OK;
         goto out_free_address;
@@ -233,7 +232,7 @@ static void ucp_ep_destory_uct_eps(ucp_ep_h ep)
     for (lane = 0; lane < ucp_ep_num_lanes(ep); ++lane) {
         uct_ep = ep->uct_eps[lane];
         uct_ep_pending_purge(uct_ep, ucp_ep_pending_req_release);
-        ucs_debug("destroy ep %p op %d uct_ep %p", ep, lane, uct_ep);
+        ucs_debug("destroy ep %p lane %d uct_ep %p", ep, lane, uct_ep);
         uct_ep_destroy(uct_ep);
     }
 }
@@ -261,6 +260,7 @@ int ucp_ep_config_is_equal(const ucp_ep_config_key_t *key1,
         (key1->am_lane        != key2->am_lane) ||
         (key1->rma_lanes_map  != key2->rma_lanes_map) ||
         (key1->amo_lanes_map  != key2->amo_lanes_map) ||
+        (key1->rndv_lane      != key2->rndv_lane) ||
         (key1->wireup_msg_lane!= key2->wireup_msg_lane))
     {
         return 0;
@@ -306,7 +306,7 @@ void ucp_ep_config_init(ucp_worker_h worker, ucp_ep_config_t *config)
     config->bcopy_thresh      = context->config.ext.bcopy_thresh;
     config->rndv_thresh       = SIZE_MAX;
     config->sync_rndv_thresh  = SIZE_MAX;
-
+    //config->max_rndv_get_zcopy = 1073741824;
     /* Configuration for active messages */
     if (config->key.am_lane != UCP_NULL_LANE) {
         lane        = config->key.am_lane;
@@ -331,7 +331,6 @@ void ucp_ep_config_init(ucp_worker_h worker, ucp_ep_config_t *config)
             {
                 config->max_am_zcopy  = iface_attr->cap.am.max_zcopy;
                 config->max_put_zcopy = iface_attr->cap.put.max_zcopy;
-                config->max_get_zcopy = iface_attr->cap.get.max_zcopy;
 
                 if (context->config.ext.zcopy_thresh == UCS_CONFIG_MEMUNITS_AUTO) {
                     /* auto */
@@ -382,5 +381,25 @@ void ucp_ep_config_init(ucp_worker_h worker, ucp_ep_config_t *config)
         } else {
             config->max_put_bcopy = 256;
         }
+    }
+
+    /* Configuration for Rendezvous data */
+    if (config->key.rndv_lane != UCP_NULL_LANE) {
+        lane        = config->key.rndv_lane;
+        rsc_index   = config->key.lanes[lane];
+        if (rsc_index != UCP_NULL_RESOURCE) {
+            iface_attr = &worker->iface_attrs[rsc_index];
+
+            if (iface_attr->cap.flags & UCT_IFACE_FLAG_GET_ZCOPY) {
+                config->rndv_thresh        = context->config.ext.rndv_thresh;
+                config->sync_rndv_thresh   = context->config.ext.rndv_thresh;
+                config->max_rndv_get_zcopy = iface_attr->cap.get.max_zcopy;
+                //ucs_warn("setting to %zu",config->max_rndv_get_zcopy);
+            }
+        } else {
+            ucs_debug("There was no transport selected for rndv");
+        }
+    } else {
+        ucs_debug("There was no lane for rndv");
     }
 }

@@ -16,30 +16,6 @@
 #include <ucs/datastruct/mpool.inl>
 #include <string.h>
 
-static ucs_status_t ucp_tag_check_rndv_support(ucp_request_t *req)
-{
-    ucp_ep_h ep = req->send.ep;
-    ucp_worker_h worker = ep->worker;
-    uct_iface_attr_t *iface_attr;
-    const uct_pd_attr_t *pd_attr;
-//ucs_warn("checking rndv");
-    if (ucp_ep_config(ep)->rscs[UCP_EP_OP_RMA] != UCP_NULL_RESOURCE) {
-        iface_attr = &worker->iface_attrs[ucp_ep_config(ep)->rscs[UCP_EP_OP_RMA]];
-        pd_attr   = ucp_ep_pd_attr(ep, UCP_EP_OP_RMA);
-
-        if ((pd_attr->cap.flags & UCT_PD_FLAG_REG) &&
-            (iface_attr->cap.flags & UCT_IFACE_FLAG_GET_ZCOPY)) {
-            //ucs_warn("also here");
-            return UCS_OK;
-        } else {
-            return UCS_ERR_UNSUPPORTED;
-        }
-    } else {
-        //ucs_warn("null");
-        return UCS_ERR_UNSUPPORTED;
-    }
-}
-
 static ucs_status_t ucp_tag_req_start_contig(ucp_request_t *req, size_t count,
                                              ssize_t max_short, size_t zcopy_thresh,
                                              size_t rndv_thresh,
@@ -59,19 +35,9 @@ static ucs_status_t ucp_tag_req_start_contig(ucp_request_t *req, size_t count,
         req->send.uct.func = proto->contig_short;
     } else if (length >= rndv_thresh) {
         /* rendezvous */
-        status = ucp_tag_check_rndv_support(req);   /* check if rndv is possible */
+        status = ucp_tag_send_start_rndv(req);
         if (status != UCS_OK) {
-            /* if rndv isn't possible, for now fall-back to eager send-recv - bcopy */
-            if (req->send.length <= config->max_am_bcopy - only_hdr_size) {
-                req->send.uct.func = proto->contig_bcopy_single;
-            } else {
-                req->send.uct.func = proto->contig_bcopy_multi;
-            }
-        } else {
-            status = ucp_tag_send_start_rndv(req);
-            if (status != UCS_OK) {
-                return status;
-            }
+            return status;
         }
     } else if (length < zcopy_thresh) {
         /* bcopy */

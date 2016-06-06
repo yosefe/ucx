@@ -106,7 +106,7 @@ ucs_status_ptr_t ucp_tag_recv_nb(ucp_worker_h worker, void *buffer, size_t count
     ucs_status_t status;
     ucp_request_t *req;
     unsigned save_rreq = 1;
-
+    
     ucs_trace_req("recv_nb buffer %p count %zu tag %"PRIx64"/%"PRIx64, buffer,
                   count, tag, tag_mask);
 
@@ -114,6 +114,7 @@ ucs_status_ptr_t ucp_tag_recv_nb(ucp_worker_h worker, void *buffer, size_t count
     if (req == NULL) {
         return UCS_STATUS_PTR(UCS_ERR_NO_MEMORY);
     }
+    req->cb.tag_recv = cb;      //!!!!!!
 
     /* First, search in unexpected list */
     status = ucp_tag_search_unexp(worker, buffer, count, datatype, tag,
@@ -124,7 +125,7 @@ ucs_status_ptr_t ucp_tag_recv_nb(ucp_worker_h worker, void *buffer, size_t count
     } else {
         /* If not found on unexpected, wait until it arrives.
          * If was found but need this receive request for later completion, save it */
-        req->cb.tag_recv = cb;  /* the callback is needed in both cases */
+        //req->cb.tag_recv = cb;  /* the callback is needed in both cases */
         if (save_rreq) {
             req->recv.buffer = buffer;
             req->recv.count = count;
@@ -159,6 +160,7 @@ ucs_status_ptr_t ucp_tag_msg_recv_nb(ucp_worker_h worker, void *buffer,
     if (req == NULL) {
         return UCS_STATUS_PTR(UCS_ERR_NO_MEMORY);
     }
+    req->cb.tag_recv = cb;  //!!!!!!!!
 
     /* First, handle the first packet that was already matched */
     if (rdesc->flags & UCP_RECV_DESC_FLAG_EAGER) {
@@ -197,7 +199,7 @@ ucs_status_ptr_t ucp_tag_msg_recv_nb(ucp_worker_h worker, void *buffer,
         /* For eager - need to put the recv_req in expected since more packets
          * will follow. For rndv - don't need to keep the recv_req as the match
          * to the rts already happened. */
-        req->cb.tag_recv = cb;          /* the callback is needed in both cases */
+        //req->cb.tag_recv = cb;          /* the callback is needed in both cases */
         if (save_rreq) {
             req->recv.buffer = buffer;
             req->recv.count = count;

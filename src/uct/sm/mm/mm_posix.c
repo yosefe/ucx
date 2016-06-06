@@ -278,7 +278,7 @@ uct_posix_alloc(uct_pd_h pd, size_t *length_p, ucs_ternary_value_t hugetlb,
     if (status != UCS_OK) {
         goto err_shm_unlink;
     }
-
+    
     status = UCS_ERR_NO_MEMORY;
 
     /* mmap the shared memory segment that was created by shm_open */

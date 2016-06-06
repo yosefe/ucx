@@ -649,7 +649,7 @@ void ucp_worker_progress(ucp_worker_h worker);
  * The file descriptor will get signaled when an event occurs, as part of the
  * wake-up mechanism. Signaling means a call to poll() or select() with this
  * file descriptor will return at this point, with this descriptor marked as the
- * reason (or one of the resons) the function has returned. The user is
+ * reason (or one of the reasons) the function has returned. The user is
  * responsible to release the file descriptor by invoking close().
  *
  * The wake-up mechanism exists to allow for the user process to register for

@@ -258,12 +258,19 @@ out:
     return status;
 }
 
+/* All the ucp endpoints will share the configurations. No need for every ep to
+ * have it's own configuration (to save memory footprint). Same config can be used
+ * by different eps.
+ * A 'key' identifies an entry in the ep_config array. An entry holds the key and
+ * additional configuration parameters and thresholds.
+ */
 unsigned ucp_worker_get_ep_config(ucp_worker_h worker,
                                   const ucp_ep_config_key_t *key)
 {
     ucp_ep_config_t *config;
     unsigned config_idx;
 
+    /* Search for the given key in the ep_config array */
     for (config_idx = 0; config_idx < worker->ep_config_count; ++config_idx) {
         if (ucp_ep_config_is_equal(&worker->ep_config[config_idx].key, key)) {
             goto out;
@@ -277,16 +284,11 @@ unsigned ucp_worker_get_ep_config(ucp_worker_h worker,
 
     /* Create new configuration */
     config_idx = worker->ep_config_count++;
-    config     =  &worker->ep_config[config_idx];
-    config->rndv_thresh       = context->config.ext.rndv_thresh;
-    config->sync_rndv_thresh  = context->config.ext.rndv_thresh;
+    config     = &worker->ep_config[config_idx];
 
     memset(config, 0, sizeof(*config));
     config->key = *key;
     ucp_ep_config_init(worker, config);
-       //config->rndv_thresh       = worker->context->config.ext.rndv_thresh;
-          // config->sync_rndv_thresh  = worker->context->config.ext.rndv_thresh;
-
 
 out:
     return config_idx;
@@ -741,9 +743,9 @@ void ucp_worker_proto_print(ucp_worker_h worker, FILE *stream, const char *title
         }
 
         {
-            const char *names[] = {"am_zcopy", "put_zcopy", "get_zcopy"};
+            const char *names[] = {"am_zcopy", "put_zcopy", "rndv_get_zcopy"};
             size_t     values[] = {config->max_am_zcopy, config->max_put_zcopy,
-                                   config->max_get_zcopy};
+                                   config->max_rndv_get_zcopy};
             ucp_worker_print_config(stream, names, values, 3, "<=");
         }
 

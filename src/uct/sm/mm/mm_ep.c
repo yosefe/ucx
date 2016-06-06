@@ -8,7 +8,7 @@
 #include "mm_ep.h"
 
 #include <ucs/arch/atomic.h>
-
+#include <ucs/debug/debug.h>
 
 SGLIB_DEFINE_LIST_FUNCTIONS(uct_mm_remote_seg_t, uct_mm_remote_seg_compare, next)
 SGLIB_DEFINE_HASHED_CONTAINER_FUNCTIONS(uct_mm_remote_seg_t,
@@ -16,7 +16,7 @@ SGLIB_DEFINE_HASHED_CONTAINER_FUNCTIONS(uct_mm_remote_seg_t,
                                         uct_mm_remote_seg_hash)
 
 
-/* send a signal to remote interface using Unix-domain docket */
+/* send a signal to remote interface using Unix-domain socket */
 static ucs_status_t
 uct_mm_ep_signal_remote(uct_mm_ep_t *ep, uct_mm_iface_conn_signal_t sig)
 {

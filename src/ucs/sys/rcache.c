@@ -9,6 +9,7 @@
 #include <ucs/arch/atomic.h>
 #include <ucs/type/class.h>
 #include <ucs/debug/log.h>
+#include <ucs/debug/debug.h>
 #include <ucs/debug/memtrack.h>
 #include <ucs/sys/sys.h>
 #include <ucm/api/ucm.h>
@@ -19,13 +20,14 @@
         if (ucs_log_enabled(_level)) { \
             __ucs_rcache_region_log(__FILE__, __LINE__, __FUNCTION__, (_level), \
                                     _message, ## __VA_ARGS__); \
+            ucs_debug_print_backtrace(stdout,1); \
         } \
     } while (0)
 
 #define ucs_rcache_region_error(_message, ...) \
     ucs_rcache_region_log(UCS_LOG_LEVEL_ERROR, _message, ## __VA_ARGS__)
 #define ucs_rcache_region_warn(_message, ...)  \
-    ucs_rcache_region_log(UCS_LOG_LEVEL_WARN, _message,  ## __VA_ARGS__)
+    ucs_rcache_region_log(UCS_LOG_LEVEL_FATAL, _message,  ## __VA_ARGS__)
 #define ucs_rcache_region_debug(_message, ...) \
     ucs_rcache_region_log(UCS_LOG_LEVEL_DEBUG, _message, ##  __VA_ARGS__)
 #define ucs_rcache_region_trace(_message, ...) \

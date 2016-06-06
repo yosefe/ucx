@@ -33,7 +33,7 @@ typedef struct ucp_ep_config_key {
     ucp_lane_index_t       am_lane;             /* Lane for AM (can be NULL) */
     uint8_t                rma_lanes_map;       /* Bitmap of RMA lanes */
     uint8_t                amo_lanes_map;       /* Bitmap of AMO lanes */
-    uint8_t                rndv_lane;   /////if lane is null then set rndv thresh to -1.
+    ucp_lane_index_t       rndv_lane;           /* Lane for Rendezvous (can be NULL) */
     ucp_lane_index_t       wireup_msg_lane;     /* Lane for wireup messages (can be NULL) */
     ucp_rsc_index_t        lanes[UCP_MAX_LANES];/* Resource index for every lane */
     ucp_lane_index_t       num_lanes;           /* Number of lanes */
@@ -64,7 +64,7 @@ typedef struct ucp_ep_config {
     /* Limits for zero-copy operations */
     size_t                 max_am_zcopy;     /* Maximal total size of am_zcopy */
     size_t                 max_put_zcopy;    /* Maximal total size of put_zcopy */
-    size_t                 max_get_zcopy;    /* Maximal total size of get_zcopy */
+    size_t                 max_rndv_get_zcopy;    /* Maximal total size of rndv_get_zcopy */
 
     /* Threshold for switching from put_short to put_bcopy */
     size_t                 bcopy_thresh;

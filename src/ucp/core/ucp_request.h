@@ -113,7 +113,7 @@ struct ucp_request {
                     uint64_t      remote_address;
                     uintptr_t     remote_request;
                     uct_rkey_t    rkey;
-                    ucp_request_t *rreq; /* receive request on the recv side that performs the get operation */
+                    ucp_request_t *rreq; /* receive request on the recv side */
                 } rndv_get;
 
             };

@@ -86,11 +86,4 @@ static inline ucp_ep_h ucp_worker_ep_find(ucp_worker_h worker, uint64_t dest_uui
     return sglib_hashed_ucp_ep_t_find_member(worker->ep_hash, &search);
 }
 
-//move to ep.inl and change optype to lane
-static inline const uct_pd_attr_t* ucp_ep_pd_attr(ucp_ep_h ep, ucp_ep_op_t optype)
-{
-    ucp_context_h context = ep->worker->context;
-    return &context->pd_attrs[context->tl_rscs[ucp_ep_config(ep)->rscs[optype]].pd_index];
-}
-
 #endif

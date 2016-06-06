@@ -22,9 +22,10 @@
  */
 
 enum {
-    UCP_WIREUP_LANE_USAGE_AM  = UCS_BIT(0),
-    UCP_WIREUP_LANE_USAGE_RMA = UCS_BIT(1),
-    UCP_WIREUP_LANE_USAGE_AMO = UCS_BIT(2)
+    UCP_WIREUP_LANE_USAGE_AM   = UCS_BIT(0),
+    UCP_WIREUP_LANE_USAGE_RMA  = UCS_BIT(1),
+    UCP_WIREUP_LANE_USAGE_AMO  = UCS_BIT(2),
+    UCP_WIREUP_LANE_USAGE_RNDV = UCS_BIT(3)
 };
 
 
@@ -40,11 +41,8 @@ typedef struct {
 static int ucp_wireup_check_runtime(const uct_iface_attr_t *iface_attr,
                                     char *reason, size_t max)
 {
-    if (iface_attr->cap.flags & UCT_IFACE_FLAG_AM_DUP) {
-        strncpy(reason, "full reliability", max);
-        return 0;
-    }
-
+    /* if the iface supports connecting to ep (as opposed to interface)
+     * it must support am_bcopy */
     if (iface_attr->cap.flags & UCT_IFACE_FLAG_CONNECT_TO_EP) {
         if (!(iface_attr->cap.flags & UCT_IFACE_FLAG_AM_BCOPY)) {
             strncpy(reason, "am_bcopy for wireup", max);
@@ -52,6 +50,7 @@ static int ucp_wireup_check_runtime(const uct_iface_attr_t *iface_attr,
         }
     }
 
+    /* the iface must support pending operations */
     if (!(iface_attr->cap.flags & UCT_IFACE_FLAG_PENDING)) {
         strncpy(reason, "pending", max);
         return 0;
@@ -67,6 +66,12 @@ static double ucp_wireup_am_score_func(ucp_worker_h worker,
 
     if (!ucp_wireup_check_runtime(iface_attr, reason, max)) {
         return 0.0;
+    }
+
+    /* the iface can't allow packet duplication */
+    if (iface_attr->cap.flags & UCT_IFACE_FLAG_AM_DUP) {
+        strncpy(reason, "full reliability", max);
+        return 0;
     }
 
     if (!(iface_attr->cap.flags & UCT_IFACE_FLAG_AM_SHORT)) {
@@ -126,6 +131,12 @@ static double ucp_wireup_amo_score_func(ucp_worker_h worker,
         return 0.0;
     }
 
+    /* the iface can't allow packet duplication */
+    if (iface_attr->cap.flags & UCT_IFACE_FLAG_AM_DUP) {
+        strncpy(reason, "full reliability", max);
+        return 0;
+    }
+
     if (features & UCP_FEATURE_AMO32) {
         /* TODO remove this requirement once we have SW atomics */
         if (!ucs_test_all_flags(iface_attr->cap.flags,
@@ -153,6 +164,22 @@ static double ucp_wireup_amo_score_func(ucp_worker_h worker,
     }
 
     return 1e-3 / (iface_attr->latency + (iface_attr->overhead * 2));
+}
+
+static double ucp_wireup_rndv_score_func(ucp_worker_h worker,
+                                        const uct_iface_attr_t *iface_attr,
+                                        char *reason, size_t max)
+{
+    if (!ucp_wireup_check_runtime(iface_attr, reason, max)) {
+        return 0.0;
+    }
+
+    if (!(iface_attr->cap.flags & UCT_IFACE_FLAG_GET_ZCOPY)) {
+        strncpy(reason, "get_zcopy for rendezvous", max);
+        return 0.0;
+    }
+
+    return iface_attr->bandwidth;
 }
 
 static int ucp_wireup_check_auxiliary(const uct_iface_attr_t *iface_attr,
@@ -227,11 +254,14 @@ static ucs_status_t ucp_wireup_select_transport(ucp_ep_h ep,
     endp       = tls_info + sizeof(tls_info) - 1;
     *endp      = 0;
 
+    /* go over all the available tls and choose the best one for the requested 'title'.
+     * best one has the highest score (from the dedicated score_func) and
+     * has a reachable tl on the remote peer */
     for (rsc_index = 0; rsc_index < context->num_tls; ++rsc_index) {
         resource   = &context->tl_rscs[rsc_index].tl_rsc;
         iface      = worker->ifaces[rsc_index];
 
-        /* Get local device score */
+        /* Get local ifcae score */
         score = score_func(worker, &worker->iface_attrs[rsc_index], tl_reason,
                            sizeof(tl_reason));
         if (score <= 0.0) {
@@ -243,18 +273,19 @@ static ucs_status_t ucp_wireup_select_transport(ucp_ep_h ep,
             continue;
         }
 
-        /* Check if remote peer is reachable using one of its devices */
+        /* Check if remote peer is reachable (from this resource) using one of its devices */
         reachable = 0;
         for (ae = address_list; ae < address_list + address_count; ++ae) {
-            /* Must be reachable device address, on same transport */
+            /* Must be reachable device address (of peer), on same transport */
             reachable = !strcmp(ae->tl_name, resource->tl_name) &&
                         uct_iface_is_reachable(iface, ae->dev_addr) &&
-                        ucs_test_all_flags(ae->pd_flags, remote_pd_flags);
+                        ucs_test_all_flags(ae->pd_flags, remote_pd_flags);  //TODO check local PD flags
             if (reachable) {
                 break;
             }
         }
         if (!reachable) {
+            /* there is no remote device that is reachable */
             ucs_trace(UCT_TL_RESOURCE_DESC_FMT " : cannot reach to %s with pd_flags 0x%"PRIx64,
                       UCT_TL_RESOURCE_DESC_ARG(resource), ucp_ep_peer_name(ep),
                       remote_pd_flags);
@@ -309,7 +340,7 @@ ucs_status_t ucp_wireup_select_aux_transport(ucp_ep_h ep,
 {
     double score;
     return ucp_wireup_select_transport(ep, address_list, address_count,
-                                       ucp_wireup_aux_score_func, 0, 1, "auxiliary",
+                                       ucp_wireup_aux_score_func, 0, 0, "auxiliary",
                                        rsc_index_p, addr_index_p, &score);
 }
 
@@ -758,7 +789,7 @@ ucp_wireup_add_memaccess_lanes(ucp_ep_h ep, unsigned address_count,
     /* Select best transport which can reach registered memory */
     snprintf(title, sizeof(title), title_fmt, "registered");
     status = ucp_wireup_select_transport(ep, address_list_copy, address_count,
-                                         score_func, UCT_PD_FLAG_REG, 1, title,
+                                         score_func, UCT_PD_FLAG_REG, 0, title,
                                          &rsc_index, &addr_index, &score);
     if (status != UCS_OK) {
         goto out_free_address_list;
@@ -868,17 +899,20 @@ static ucs_status_t ucp_wireup_select_transports(ucp_ep_h ep, unsigned address_c
         ucp_wireup_add_lane_desc(lane_descs, &num_lanes, rsc_index, addr_index,
                                  address_list[addr_index].pd_index, score,
                                  UCP_WIREUP_LANE_USAGE_AM);
-
-        /* TODO select transport for rendezvous, which needs high-bandwidth
-         * zero-copy rma to registered memory.
-         */
     }
 
-//add here transport selection for rndv. rndv score func which will demand zcopy
-// and score is as bw. transport will check bw and choose uct with highest bw.
-// add to config key the lane index
-// chose rndv lane. can also be null UCP_NULL_LANE if select_transport return not ok.
-
+    /* Select one lane for the Rendezvous protocol (for the actual data. not for rts) */
+    if (context->config.features & UCP_FEATURE_TAG) {
+        status = ucp_wireup_select_transport(ep, address_list, address_count,
+                                             ucp_wireup_rndv_score_func, UCT_PD_FLAG_REG,
+                                             0, "rendezvous", &rsc_index,
+                                             &addr_index, &score);
+        if (status == UCS_OK) {
+            ucp_wireup_add_lane_desc(lane_descs, &num_lanes, rsc_index,
+                                     addr_index, address_list[addr_index].pd_index,
+                                     score, UCP_WIREUP_LANE_USAGE_RNDV);
+        }
+    }
 
     /* User should not create endpoints unless requested communication features */
     if (num_lanes == 0) {
@@ -896,13 +930,14 @@ static ucs_status_t ucp_wireup_select_transports(ucp_ep_h ep, unsigned address_c
      * - arrange lane description in the EP configuration
      * - create remote PD bitmap
      * - create bitmap of lanes used for RMA and AMO
-     * - if AM lane exists and fits for wireup messages, select it fot his purpose.
+     * - if AM lane exists and fits for wireup messages, select it for this purpose.
      */
     key.num_lanes       = num_lanes;
     key.am_lane         = UCP_NULL_LANE;
     key.rma_lanes_map   = 0;
     key.amo_lanes_map   = 0;
     key.wireup_msg_lane = UCP_NULL_LANE;
+    key.rndv_lane       = UCP_NULL_LANE;
     for (lane = 0; lane < num_lanes; ++lane) {
         rsc_index          = lane_descs[lane].rsc_index;
         dst_pd_index       = lane_descs[lane].dst_pd_index;
@@ -937,9 +972,15 @@ static ucs_status_t ucp_wireup_select_transports(ucp_ep_h ep, unsigned address_c
             ep->dest_amo_pds  |= UCS_BIT(dst_pd_index);
             key.amo_lanes_map |= UCS_BIT(lane);
         }
+
+        /* Rendezvous data - add to lanes map */
+        if (lane_descs[lane].usage & UCP_WIREUP_LANE_USAGE_RNDV) {
+            ucs_assert(key.rndv_lane == UCP_NULL_LANE);
+            key.rndv_lane = lane;
+        }
     }
 
-    /* If we did not select the AM lane for active messages, use the first p2p
+    /* If we did not select the AM lane for wireup, use the first p2p
      * transport, if exists. Otherwise, we don't have a lane for wireup messages,
      * and we don't need one anyway.
      */
@@ -956,12 +997,13 @@ static ucs_status_t ucp_wireup_select_transports(ucp_ep_h ep, unsigned address_c
     for (lane = 0; lane < num_lanes; ++lane) {
         rsc_index = lane_descs[lane].rsc_index;
         ucs_debug("ep %p: lane[%d] using rsc[%d] "UCT_TL_RESOURCE_DESC_FMT
-                  " to pd[%d], for%s%s%s%s", ep, lane, rsc_index,
+                  " to pd[%d], for%s%s%s%s%s", ep, lane, rsc_index,
                   UCT_TL_RESOURCE_DESC_ARG(&context->tl_rscs[rsc_index].tl_rsc),
                   lane_descs[lane].dst_pd_index,
                   (key.am_lane        == lane          ) ? " [active message]"       : "",
                   (key.rma_lanes_map  &   UCS_BIT(lane)) ? " [remote memory access]" : "",
                   (key.amo_lanes_map  &   UCS_BIT(lane)) ? " [atomic operations]"    : "",
+                  (key.rndv_lane       == lane         ) ? " [rendezvous]"           : "",
                   (key.wireup_msg_lane == lane         ) ? " [wireup messages]"      : "");
     }
 
@@ -1060,7 +1102,7 @@ ucs_status_t ucp_wireup_init_lanes(ucp_ep_h ep, unsigned address_count,
         goto err;
     }
 
-    /* establish connections on all underlying endpoint */
+    /* establish connections on all underlying endpoints */
     conn_flag = UCP_EP_FLAG_LOCAL_CONNECTED;
     for (lane = 0; lane < ucp_ep_num_lanes(ep); ++lane) {
         status = ucp_wireup_connect_lane(ep, lane, address_count, address_list,
@@ -1095,7 +1137,6 @@ ucs_status_t ucp_wireup_send_request(ucp_ep_h ep)
     if (ep->flags & UCP_EP_FLAG_CONNECT_REQ_SENT) {
         return UCS_OK;
     }
-
     ucs_debug("ep %p: send wireup request (flags=0x%x)", ep, ep->flags);
     status = ucp_wireup_msg_send(ep, UCP_WIREUP_MSG_REQUEST);
     ep->flags |= UCP_EP_FLAG_CONNECT_REQ_SENT;
