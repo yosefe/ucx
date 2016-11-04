@@ -6,6 +6,8 @@
 
 #include "ib_mlx5.h"
 
+#include <ucs/debug/profile.h>
+
 
 static inline unsigned uct_ib_mlx5_cqe_size(uct_ib_mlx5_cq_t *cq)
 {
@@ -33,6 +35,7 @@ uct_ib_mlx5_get_cqe(uct_ib_iface_t *iface, uct_ib_mlx5_cq_t *cq, int cqe_size_lo
         }
     }
 
+    UCS_PROFILE_SAMPLE("mlx5_get_cqe");
     cq->cq_ci = index + 1;
     return cqe; /* TODO optimize - let complier know cqe is not null */
 }
@@ -346,6 +349,8 @@ uct_ib_mlx5_post_send(uct_ib_mlx5_txwq_t *wq,
 
     /* We don't want the compiler to reorder instructions and hurt latency */
     ucs_compiler_fence();
+
+    UCS_PROFILE_SAMPLE("mlx5_bf_written");
 
     /* Advance queue pointer */
     ucs_assert(ctrl == wq->curr);

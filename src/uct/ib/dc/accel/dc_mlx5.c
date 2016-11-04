@@ -166,14 +166,16 @@ uct_dc_mlx5_iface_atomic_post(uct_dc_mlx5_iface_t *iface, uct_dc_mlx5_ep_t *ep,
     UCT_DC_MLX5_IFACE_TXQP_GET(iface, ep, txqp, txwq);
 
     desc->super.sn = txwq->sw_pi;
-    uct_rc_mlx5_txqp_dptr_post(&iface->super.super, IBV_EXP_QPT_DC_INI, txqp, txwq,
-                               opcode, desc + 1, length, &desc->lkey,
-                               0, NULL, 0,
-                               remote_addr + ep->super.umr_offset,
-                               uct_ib_md_umr_rkey(rkey),
-                               compare_mask, compare, swap_add,
-                               &ep->av, uct_ib_mlx5_wqe_av_size(&ep->av),
-                               MLX5_WQE_CTRL_CQ_UPDATE);
+    UCS_PROFILE_CODE("uct_rc_mlx5_txqp_dptr_post") {
+        uct_rc_mlx5_txqp_dptr_post(&iface->super.super, IBV_EXP_QPT_DC_INI, txqp, txwq,
+                                   opcode, desc + 1, length, &desc->lkey,
+                                   0, NULL, 0,
+                                   remote_addr + ep->super.umr_offset,
+                                   uct_ib_md_umr_rkey(rkey),
+                                   compare_mask, compare, swap_add,
+                                   &ep->av, uct_ib_mlx5_wqe_av_size(&ep->av),
+                                   MLX5_WQE_CTRL_CQ_UPDATE);
+    }
 
     UCT_TL_EP_STAT_ATOMIC(&ep->super.super);
     uct_rc_txqp_add_send_op(txqp, &desc->super);
