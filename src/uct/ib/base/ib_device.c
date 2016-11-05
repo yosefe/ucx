@@ -680,3 +680,15 @@ uct_ib_device_query_gid(uct_ib_device_t *dev, uint8_t port_num, unsigned gid_ind
     return UCS_OK;
 }
 
+size_t uct_ib_device_odp_max_size(uct_ib_device_t *dev)
+{
+    if (!IBV_EXP_HAVE_ODP(&dev->dev_attr)) {
+        return 0;
+    }
+
+#if HAVE_STRUCT_IBV_EXP_DEVICE_ATTR_ODP_MR_MAX_SIZE
+    return dev->dev_attr.odp_mr_max_size;
+#else
+    return 256 * 1024 * 1024; /* Limit ODP to 256 MB by default */
+#endif
+}

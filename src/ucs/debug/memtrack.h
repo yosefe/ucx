@@ -102,6 +102,14 @@ void ucs_memtrack_allocated(void **ptr_p, size_t *size_p, const char *name);
 void ucs_memtrack_releasing(void **ptr_p);
 
 
+/**
+ * Track release of custom allocation. Need to be called before actually
+ * releasing the memory. Unlike @ref ucs_memtrack_releasing(), the pointer passed
+ * to this function is the actual memory block including memtrack header.
+ */
+void ucs_memtrack_releasing_adjusted(void *ptr);
+
+
 /*
  * Memory allocation replacements. Their interface is the same as the originals,
  * except the additional parameter which specifies the allocation name.
