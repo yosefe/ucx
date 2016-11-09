@@ -129,7 +129,7 @@ static void uct_ib_async_event_handler(void *arg)
     };
 
     UCS_STATS_UPDATE_COUNTER(dev->stats, UCT_IB_DEVICE_STAT_ASYNC_EVENT, +1);
-    ucs_warn("IB Async event on %s: %s", uct_ib_device_name(dev), event_info);
+    ucs_fatal("IB Async event on %s: %s", uct_ib_device_name(dev), event_info);
     ibv_ack_async_event(&event);
 }
 
@@ -689,6 +689,6 @@ size_t uct_ib_device_odp_max_size(uct_ib_device_t *dev)
 #if HAVE_STRUCT_IBV_EXP_DEVICE_ATTR_ODP_MR_MAX_SIZE
     return dev->dev_attr.odp_mr_max_size;
 #else
-    return 256 * 1024 * 1024; /* Limit ODP to 256 MB by default */
+    return SIZE_MAX;//256 * 1024 * 1024; /* Limit ODP to 256 MB by default */
 #endif
 }

@@ -49,6 +49,10 @@ static ucs_config_field_t uct_ib_md_config_table[] = {
    "well on a lossy fabric when working with RoCE.",
    ucs_offsetof(uct_ib_md_config_t, eth_pause), UCS_CONFIG_TYPE_BOOL},
 
+  {"PREFETCH_REG", "y",
+   "Issue prefetch command on memory registered with NONBLOCKING flag.\n",
+   ucs_offsetof(uct_ib_md_config_t, prefetch_reg), UCS_CONFIG_TYPE_BOOL},
+
   {NULL}
 };
 
@@ -430,6 +434,27 @@ static uint64_t uct_ib_md_access_flags(uct_ib_md_t *md, unsigned flags,
     return exp_access;
 }
 
+static ucs_status_t uct_ib_mem_prefetch(uct_md_h uct_md, uct_ib_mem_t *memh,
+                                        void *address, size_t length)
+{
+#if HAVE_DECL_IBV_EXP_ACCESS_ON_DEMAND
+    struct ibv_exp_prefetch_attr attr;
+    int ret;
+
+    attr.addr      = memh->mr->addr;
+    attr.length    = memh->mr->length;
+    attr.comp_mask = 0;
+    attr.flags     = IBV_EXP_PREFETCH_WRITE_ACCESS;
+
+    ret = ibv_exp_prefetch_mr(memh->mr, &attr);
+    if (ret) {
+        ucs_error("ibv_exp_prefetch_mr() returned %d", ret);
+        return UCS_ERR_IO_ERROR;
+    }
+#endif
+    return UCS_OK;
+}
+
 static ucs_status_t uct_ib_mem_alloc(uct_md_h uct_md, size_t *length_p,
                                      void **address_p, unsigned flags,
                                      uct_mem_h *memh_p UCS_MEMTRACK_ARG)
@@ -468,6 +493,10 @@ static ucs_status_t uct_ib_mem_alloc(uct_md_h uct_md, size_t *length_p,
         goto err_free_memh;
     }
 #endif
+
+    if ((flags & UCT_MD_MEM_FLAG_NONBLOCK) && md->prefetch_reg) {
+        uct_ib_mem_prefetch(uct_md, memh,  memh->mr->addr, memh->mr->length);
+    }
 
     UCS_STATS_UPDATE_COUNTER(md->stats, UCT_IB_MD_STAT_MEM_ALLOC, +1);
     *address_p = memh->mr->addr;
@@ -528,6 +557,10 @@ static ucs_status_t uct_ib_mem_reg_internal(uct_md_h uct_md, void *address,
         return UCS_ERR_IO_ERROR;
     }
 #endif
+
+    if ((flags & UCT_MD_MEM_FLAG_NONBLOCK) && md->prefetch_reg) {
+        uct_ib_mem_prefetch(uct_md, memh, address, length);
+    }
 
     UCS_STATS_UPDATE_COUNTER(md->stats, UCT_IB_MD_STAT_MEM_REG, +1);
     return UCS_OK;
@@ -836,10 +869,10 @@ uct_ib_md_open(const char *md_name, const uct_md_config_t *uct_md_config, uct_md
         goto err_cleanup_device;
     }
 
-    md->eth_pause = md_config->eth_pause;
-
-    md->rcache   = NULL;
-    md->reg_cost = md_config->uc_reg_cost;
+    md->eth_pause    = md_config->eth_pause;
+    md->prefetch_reg = md_config->prefetch_reg;
+    md->rcache       = NULL;
+    md->reg_cost     = md_config->uc_reg_cost;
 
     if (md_config->rcache.enable != UCS_NO) {
         rcache_params.region_struct_size = sizeof(uct_ib_rcache_region_t);

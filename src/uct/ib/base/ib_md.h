@@ -41,6 +41,8 @@ typedef struct uct_ib_md {
     uct_ib_device_t          dev;       /**< IB device */
     uct_linear_growth_t      reg_cost;  /**< Memory registration cost */
     int                      eth_pause; /**< Pause Frame on an Ethernet network */
+    int                      prefetch_reg; /**< Auto-prefetch non-blocking memory
+                                                registrations */
 #if HAVE_EXP_UMR
     /* keep it in md because pd is needed to create umr_qp/cq */
     struct ibv_qp            *umr_qp;   /* special QP for creating UMR */
@@ -68,7 +70,8 @@ typedef struct uct_ib_md_config {
     unsigned                fork_init;     /**< Use ibv_fork_init() */
     int                     eth_pause;     /**< Whether or not Pause Frame is
                                                 enabled on the Ethernet network */
-
+    int                     prefetch_reg;  /**< Auto-prefetch non-blocking memory
+                                                registrations */
 } uct_ib_md_config_t;
 
 
