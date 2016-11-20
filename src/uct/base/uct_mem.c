@@ -194,6 +194,7 @@ ucs_status_t uct_iface_mem_alloc(uct_iface_h tl_iface, size_t length, unsigned f
     uct_md_attr_t md_attr;
     ucs_status_t status;
 
+    // TODO move alloc_methods to md_config and get rid of this function
     status = uct_mem_alloc(length, 0, iface->config.alloc_methods,
                            iface->config.num_alloc_methods, &iface->md, 1,
                            name, mem);
@@ -211,8 +212,10 @@ ucs_status_t uct_iface_mem_alloc(uct_iface_h tl_iface, size_t length, unsigned f
 
         /* If MD does not support registration, allow only the MD method */
         if (!(md_attr.cap.flags & UCT_MD_FLAG_REG)) {
-            ucs_error("%s md does not support registration, so cannot use any allocation "
-                      "method except 'md'", iface->md->component->name);
+            ucs_error("Cannot allocate memory for '%s' using '%s' - "
+                      "'%s' does not support registration",
+                      name, uct_alloc_method_names[mem->method],
+                      iface->md->component->name);
             status = UCS_ERR_NO_MEMORY;
             goto err_free;
         }

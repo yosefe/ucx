@@ -16,11 +16,12 @@
 typedef struct ucs_async_handler ucs_async_handler_t;
 struct ucs_async_handler {
     int                        id;      /* Event/Timer ID */
+    volatile uint32_t          refcount;/* Usage count */
     ucs_async_mode_t           mode;    /* Event delivery mode */
     ucs_async_event_cb_t       cb;      /* Callback function */
     void                       *arg;    /* Callback argument */
     ucs_async_context_t        *async;  /* Async context for the handler. Can be NULL */
-    volatile uint32_t          missed; /* Protect against adding to miss queue multiple times */
+    volatile uint32_t          missed;  /* Protect against adding to miss queue multiple times */
     ucs_async_handler_t        *next;
 };
 

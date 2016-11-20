@@ -195,7 +195,7 @@ static ucs_status_t ucp_worker_add_iface(ucp_worker_h worker,
     iface_params.rx_headroom = sizeof(ucp_recv_desc_t);
 
     /* Open UCT interface */
-    status = uct_iface_open(context->mds[resource->md_index], worker->uct,
+    status = uct_iface_open(context->tl_mds[resource->md_index].md, worker->uct,
                             &iface_params, iface_config, &iface);
     uct_config_release(iface_config);
 
@@ -318,7 +318,7 @@ static void ucp_worker_init_device_atomics(ucp_worker_h worker)
     for (rsc_index = 0; rsc_index < context->num_tls; ++rsc_index) {
         rsc        = &context->tl_rscs[rsc_index];
         md_index   = rsc->md_index;
-        md_attr    = &context->md_attrs[md_index];
+        md_attr    = &context->tl_mds[md_index].attr;
         iface_attr = &worker->iface_attrs[rsc_index];
 
         if (!(md_attr->cap.flags & UCT_MD_FLAG_REG) ||

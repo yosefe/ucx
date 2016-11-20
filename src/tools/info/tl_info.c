@@ -116,7 +116,7 @@ static void print_iface_info(uct_worker_h worker, uct_md_h md,
         PRINT_CAP(AM_SHORT,  iface_attr.cap.flags, iface_attr.cap.am.max_short);
         PRINT_CAP(AM_BCOPY,  iface_attr.cap.flags, iface_attr.cap.am.max_bcopy);
         PRINT_CAP(AM_ZCOPY,  iface_attr.cap.flags, iface_attr.cap.am.max_zcopy);
-        if (iface_attr.cap.flags & (UCT_IFACE_FLAG_AM_BCOPY|UCT_IFACE_FLAG_AM_ZCOPY)) {
+        if (iface_attr.cap.flags & UCT_IFACE_FLAG_AM_ZCOPY) {
             printf("#            am header: %s\n",
                    size_limit_to_str(iface_attr.cap.am.max_hdr));
         }
@@ -141,6 +141,8 @@ static void print_iface_info(uct_worker_h worker, uct_md_h md,
             strncat(buf, " none", sizeof(buf) - 1);
         }
         printf("#           connection:%s\n", buf);
+
+        printf("#             priority: %d\n", iface_attr.priority);
 
         printf("#       device address: %zu bytes\n", iface_attr.device_addr_len);
         if (iface_attr.cap.flags & UCT_IFACE_FLAG_CONNECT_TO_IFACE) {

@@ -202,6 +202,7 @@ static ucs_status_t ucs_async_add_handler(ucs_async_mode_t mode, int id,
     }
 
     handler->id     = id;
+    handler->refcount = 1;
     handler->mode   = mode;
     handler->cb     = cb;
     handler->arg    = arg;
@@ -227,6 +228,13 @@ err:
     return status;
 }
 
+static ucs_status_t ucs_async_remove_handler_cb(ucs_async_handler_t *handler,
+                                                void *arg)
+{
+    ucs_assert(handler->refcount == 1);
+    return UCS_OK;
+}
+
 static ucs_status_t ucs_async_remove_handler(int id,
                                              ucs_async_context_t **async_p,
                                              ucs_async_mode_t *mode_p)
@@ -236,8 +244,10 @@ static ucs_status_t ucs_async_remove_handler(int id,
 
     search.id = id;
     ucs_async_method_call_all(block);
-    status = ucs_hashed_ucs_async_handler_t_remove(&ucs_async_global_context.handlers,
-                                                   &search, &handler);
+    status = ucs_hashed_ucs_async_handler_t_remove_if(&ucs_async_global_context.handlers,
+                                                      &search,
+                                                      ucs_async_remove_handler_cb,
+                                                      NULL, &handler);
     ucs_async_method_call_all(unblock);
     if (status != UCS_OK) {
         return status;

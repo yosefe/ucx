@@ -145,7 +145,8 @@ static ucs_status_t ucs_async_thread_start()
     ret = epoll_ctl(ucs_async_thread_global_context.epfd, EPOLL_CTL_ADD,
                     wakeup_rfd, &event);
     if (ret < 0) {
-        ucs_error("epoll_ctl(ADD) failed: %m");
+        ucs_error("epoll_ctl(epfd=%d, ADD, fd=%d) failed: %m",
+                  ucs_async_thread_global_context.epfd, wakeup_rfd);
         status = UCS_ERR_IO_ERROR;
         goto err_close_epfd;
     }
@@ -252,7 +253,8 @@ static ucs_status_t ucs_async_thread_remove_event_fd(ucs_async_context_t *async,
     ret = epoll_ctl(ucs_async_thread_global_context.epfd, EPOLL_CTL_DEL,
                     event_fd, NULL);
     if (ret < 0) {
-        ucs_error("epoll_ctl(DEL) failed: %m");
+        ucs_error("epoll_ctl(epfd=%d, DEL, fd=%d) failed: %m",
+                  ucs_async_thread_global_context.epfd, event_fd);
         return UCS_ERR_INVALID_PARAM;
     }
 
