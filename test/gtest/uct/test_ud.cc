@@ -545,7 +545,7 @@ UCS_TEST_P(test_ud, connect_iface_single_drop_creq) {
 
     short_progress_loop(100);
 }
-#endif
+#endif /* UCT_UD_EP_DEBUG_HOOKS */
 
 UCS_TEST_P(test_ud, connect_iface_single) {
     /* single connect */
@@ -860,7 +860,7 @@ UCS_TEST_P(test_ud, ctls_loss) {
     EXPECT_TRUE(uct_ud_ep_is_connected(ep(m_e1)));
     EXPECT_TRUE(uct_ud_ep_is_connected(ep(m_e2)));
 }
-#endif
+#endif /* UCT_UD_EP_DEBUG_HOOKS */
 
 _UCT_INSTANTIATE_TEST_CASE(test_ud, ud)
 _UCT_INSTANTIATE_TEST_CASE(test_ud, ud_mlx5)
