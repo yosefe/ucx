@@ -209,11 +209,11 @@ static ucs_status_t ucs_async_handler_dispatch(ucs_async_handler_t *handler)
     if (async == NULL) {
         ucs_trace_async("calling async handler " UCS_ASYNC_HANDLER_FMT,
                         UCS_ASYNC_HANDLER_ARG(handler));
-        handler->cb(handler->arg);
+        handler->cb(handler->id, handler->arg);
     } else if (ucs_async_method_call(mode, context_try_block, async)) {
         ucs_trace_async("calling async handler " UCS_ASYNC_HANDLER_FMT,
                         UCS_ASYNC_HANDLER_ARG(handler));
-        handler->cb(handler->arg);
+        handler->cb(handler->id, handler->arg);
         ucs_async_method_call(mode, context_unblock, async);
     } else /* async != NULL */ {
         ucs_trace_async("missed " UCS_ASYNC_HANDLER_FMT ", last_wakeup %llu",
@@ -295,10 +295,21 @@ err:
 
 void ucs_async_context_cleanup(ucs_async_context_t *async)
 {
+    ucs_async_handler_t *handler;
+    char name[200];
+
     ucs_trace_func("async=%p", async);
 
     if (async->num_handlers > 0) {
-        ucs_warn("releasing async context with %d handlers", async->num_handlers);
+        pthread_rwlock_rdlock(&ucs_async_global_context.handlers_lock);
+        kh_foreach_value(&ucs_async_global_context.handlers, handler, {
+            if (async == handler->async) {
+                ucs_info(UCS_ASYNC_HANDLER_FMT" %s()", UCS_ASYNC_HANDLER_ARG(handler),
+                         ucs_debug_get_symbol_name(handler->cb, name, sizeof(name)));
+            }
+        });
+        pthread_rwlock_unlock(&ucs_async_global_context.handlers_lock);
+        ucs_fatal("releasing async context with %d handlers", async->num_handlers);
     }
     ucs_mpmc_queue_cleanup(&async->missed);
 }
@@ -357,6 +368,7 @@ err_dec_num_handlers:
 err:
     return status;
 }
+
 
 ucs_status_t ucs_async_set_event_handler(ucs_async_mode_t mode, int event_fd,
                                          int events, ucs_async_event_cb_t cb,
@@ -490,7 +502,7 @@ void __ucs_async_poll_missed(ucs_async_context_t *async)
             ucs_trace_async("calling missed async handler " UCS_ASYNC_HANDLER_FMT,
                             UCS_ASYNC_HANDLER_ARG(handler));
             handler->missed = 0;
-            handler->cb(handler->arg);
+            handler->cb(handler->id, handler->arg);
             ucs_async_handler_put(handler);
         }
         ucs_async_method_call_all(unblock);
