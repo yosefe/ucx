@@ -34,6 +34,12 @@ else
 	WS_URL=$JOB_URL/ws
 fi
 
+if [ $(hostname) == cavium ]
+then
+    export JENKINS_RUN_TESTS=1
+fi
+
+
 #
 # Set up parallel test execution - "worker" and "nworkers" should be set by jenkins
 #
