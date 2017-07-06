@@ -31,7 +31,7 @@ AS_IF([test "x$with_rocm" != "xno"],
                              transports="${transports},rocm"
                             AC_SUBST(ROCM_CPPFLAGS, "-I$with_rocm/include/hsa -I$with_rocm/include/libhsakmt -DHAVE_ROCM=1")
                             AC_SUBST(ROCM_CFLAGS, "-I$with_rocm/include/hsa -I$with_rocm/include/libhsakmt -DHAVE_ROCM=1")
-                            AC_SUBST(ROCM_LDFLAGS, "-lhsa-runtime64 -L$with_rocm/lib")
+                            AC_SUBST(ROCM_LDFLAGS, ["-lhsa-runtime64 -L$with_rocm/lib -Wl,-rpath -Wl,$with_rocm/lib"])
                             CFLAGS="$CFLAGS $ROCM_CFLAGS"
                             CPPFLAGS="$CPPFLAGS $ROCM_CPPFLAGS"
                             LDFLAGS="$LDFLAGS $ROCM_LDFLAGS"],
