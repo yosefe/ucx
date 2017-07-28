@@ -76,7 +76,6 @@ UCS_TEST_P(test_ucp_wakeup, efd)
     }
 
     ASSERT_EQ(1, poll(&polled, 1, 1000*ucs::test_time_multiplier()));
-    EXPECT_EQ(UCS_ERR_BUSY, ucp_worker_arm(recv_worker));
 
     uint64_t recv_data = 0;
     req = ucp_tag_recv_nb(receiver().worker(), &recv_data, sizeof(recv_data),
