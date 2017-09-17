@@ -157,6 +157,7 @@ run_open_mpi()
 	OMPI_ARGS="$OMPI_ARGS -mca pml_ucx_verbose $MPI_LOG_LEVEL"
 	OMPI_ARGS="$OMPI_ARGS -mca spml ucx"
 	OMPI_ARGS="$OMPI_ARGS -mca spml_ucx_verbose $MPI_LOG_LEVEL"
+	OMPI_ARGS="$OMPI_ARGS -mca btl self"
 	OMPI_ARGS="$OMPI_ARGS -H $HOSTLIST"
 	OMPI_ARGS="$OMPI_ARGS -n $NP"
 	OMPI_ARGS="$OMPI_ARGS --map-by node"
@@ -193,9 +194,12 @@ run_open_mpi()
 		LD_LIBRARY_PATH="$LD_LIBRARY_PATH:@VALGRIND_LIBPATH@"
 	fi
 
-	OMPI_ARGS="$OMPI_ARGS -x LD_LIBRARY_PATH"
+	if [ -n "$LD_LIBRARY_PATH" ]
+	then
+		OMPI_ARGS="$OMPI_ARGS -x LD_LIBRARY_PATH"
+		export LD_LIBRARY_PATH
+	fi
 
-	export LD_LIBRARY_PATH
 	verbose $MPIRUN $OMPI_ARGS $EXTRA_MPI_ARGS $EXE "${EXE_ARGS[@]}"
 	$MPIRUN $OMPI_ARGS $EXTRA_MPI_ARGS $EXE "${EXE_ARGS[@]}"
 }
