@@ -170,7 +170,7 @@ void uct_rc_verbs_iface_common_tag_cleanup(uct_rc_verbs_iface_common_t *iface);
 
 ucs_status_t
 uct_rc_verbs_iface_common_prepost_recvs(uct_rc_verbs_iface_common_t *iface,
-                                        uct_rc_iface_t *rc_iface);
+                                        uct_rc_iface_t *rc_iface, unsigned max);
 
 void uct_rc_verbs_iface_common_query(uct_rc_verbs_iface_common_t *verbs_iface,
                                      uct_rc_iface_t *rc_iface, uct_iface_attr_t *iface_attr);

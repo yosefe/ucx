@@ -1038,9 +1038,9 @@ uct_dc_verbs_iface_tag_init(uct_dc_verbs_iface_t *iface,
                             uct_dc_verbs_iface_config_t *config,
                             const uct_iface_params_t *params)
 {
+#if IBV_EXP_HW_TM_DC
     uct_iface_t *tl_iface = &iface->super.super.super.super.super;
 
-#if IBV_EXP_HW_TM_DC
     if (UCT_RC_VERBS_TM_ENABLED(&iface->verbs_common)) {
         struct ibv_exp_create_srq_attr srq_init_attr = {};
         struct ibv_exp_srq_dc_offload_params dc_op   = {};
@@ -1137,6 +1137,22 @@ uct_dc_verbs_iface_event_arm(uct_iface_h tl_iface, unsigned events)
                                          UCT_RC_VERBS_TM_ENABLED(&iface->verbs_common));
 }
 
+static void uct_dc_verbs_iface_progress_enable(uct_iface_h tl_iface, unsigned flags)
+{
+    uct_dc_verbs_iface_t *iface = ucs_derived_of(tl_iface, uct_dc_verbs_iface_t);
+
+    if (flags & UCT_PROGRESS_RECV) {
+        /* ignore return value from prepost_recv, since it's not really possible
+         * to handle here, and some receives were already pre-posted during iface
+         * creation anyway.
+         */
+        uct_rc_verbs_iface_common_prepost_recvs(&iface->verbs_common,
+                                                &iface->super.super, UINT_MAX);
+    }
+
+    return uct_base_iface_progress_enable(tl_iface, flags);
+}
+
 static void UCS_CLASS_DELETE_FUNC_NAME(uct_dc_verbs_iface_t)(uct_iface_t*);
 
 static uct_dc_iface_ops_t uct_dc_verbs_iface_ops = {
@@ -1177,7 +1193,7 @@ static uct_dc_iface_ops_t uct_dc_verbs_iface_ops = {
 #endif
     .iface_flush              = uct_dc_iface_flush,
     .iface_fence              = uct_base_iface_fence,
-    .iface_progress_enable    = uct_base_iface_progress_enable,
+    .iface_progress_enable    = uct_dc_verbs_iface_progress_enable,
     .iface_progress_disable   = uct_base_iface_progress_disable,
     .iface_progress           = uct_dc_verbs_iface_progress,
     .iface_event_fd_get       = uct_ib_iface_event_fd_get,
@@ -1230,6 +1246,7 @@ static UCS_CLASS_INIT_FUNC(uct_dc_verbs_iface_t, uct_md_h md, uct_worker_h worke
     int i, ret;
     unsigned rx_cq_len;
     unsigned rx_hdr_len;
+    unsigned rx_qlen_init;
     unsigned short_mp_size;
     unsigned srq_size;
 
@@ -1273,9 +1290,26 @@ static UCS_CLASS_INIT_FUNC(uct_dc_verbs_iface_t, uct_md_h md, uct_worker_h worke
         goto err_common_cleanup;
     }
 
+    rx_qlen_init = config->super.ud_common.rx_queue_len_init;
+    ucs_mpool_grow(&self->super.super.rx.mp,
+                   ucs_min(rx_qlen_init, self->super.super.rx.srq.reserved)
+#if IBV_EXP_HW_TM_DC
+                   + ucs_min(rx_qlen_init, self->verbs_common.tm.xrq.reserved)
+#endif
+                   );
+
+    status = uct_rc_verbs_iface_common_prepost_recvs(&self->verbs_common,
+                                                     &self->super.super,
+                                                     rx_qlen_init);
+    if (status != UCS_OK) {
+        goto err_tag_cleanup;
+    }
+
     ucs_debug("created dc iface %p", self);
     return UCS_OK;
 
+err_tag_cleanup:
+    uct_dc_verbs_iface_tag_cleanup(self);
 err_common_cleanup:
     uct_rc_verbs_iface_common_cleanup(&self->verbs_common);
 err:
@@ -1285,10 +1319,10 @@ err:
 static UCS_CLASS_CLEANUP_FUNC(uct_dc_verbs_iface_t)
 {
     ucs_trace_func("");
-    uct_rc_verbs_iface_common_cleanup(&self->verbs_common);
     uct_iface_progress_disable(&self->super.super.super.super.super,
                                UCT_PROGRESS_SEND | UCT_PROGRESS_RECV);
     uct_dc_verbs_iface_tag_cleanup(self);
+    uct_rc_verbs_iface_common_cleanup(&self->verbs_common);
 }
 
 UCS_CLASS_DEFINE(uct_dc_verbs_iface_t, uct_dc_iface_t);

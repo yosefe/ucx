@@ -156,10 +156,14 @@ unsigned uct_rc_verbs_iface_post_recv_always(uct_rc_iface_t *iface,
 }
 
 static ucs_status_t
-uct_rc_verbs_iface_srq_prepost_recvs(uct_rc_iface_t *iface, uct_rc_srq_t *srq)
+uct_rc_verbs_iface_srq_prepost_recvs(uct_rc_iface_t *iface, uct_rc_srq_t *srq,
+                                     unsigned max)
 {
-    srq->available += srq->reserved;
-    srq->reserved   = 0;
+    unsigned count;
+
+    count = ucs_min(max, srq->reserved);
+    srq->available += count;
+    srq->reserved  -= count;
     while (srq->available > 0) {
         if (uct_rc_verbs_iface_post_recv_common(iface, srq, 1) == 0) {
             ucs_error("failed to post receives");
@@ -171,18 +175,20 @@ uct_rc_verbs_iface_srq_prepost_recvs(uct_rc_iface_t *iface, uct_rc_srq_t *srq)
 
 ucs_status_t
 uct_rc_verbs_iface_common_prepost_recvs(uct_rc_verbs_iface_common_t *iface,
-                                        uct_rc_iface_t *rc_iface)
+                                        uct_rc_iface_t *rc_iface, unsigned max)
 {
     ucs_status_t status;
 
-    status = uct_rc_verbs_iface_srq_prepost_recvs(rc_iface, &rc_iface->rx.srq);
+    status = uct_rc_verbs_iface_srq_prepost_recvs(rc_iface, &rc_iface->rx.srq,
+                                                  max);
     if (status != UCS_OK) {
         return status;
     }
 
 #if IBV_EXP_HW_TM
     if (UCT_RC_VERBS_TM_ENABLED(iface)) {
-        status = uct_rc_verbs_iface_srq_prepost_recvs(rc_iface, &iface->tm.xrq);
+        status = uct_rc_verbs_iface_srq_prepost_recvs(rc_iface, &iface->tm.xrq,
+                                                      max);
         if (status != UCS_OK) {
             return status;
         }
@@ -217,6 +223,12 @@ uct_rc_verbs_iface_common_tag_init(uct_rc_verbs_iface_common_t *iface,
     int rx_hdr_len;
     uct_ib_md_t *md      = ucs_derived_of(rc_iface->super.super.md, uct_ib_md_t);
 
+    iface->tm.xrq.available    = 0;
+    iface->tm.xrq.reserved     = 0;
+    iface->tm.unexpected_cnt   = 0;
+    iface->tm.num_outstanding  = 0;
+    iface->tm.num_canceled     = 0;
+
     if (!iface->tm.enabled) {
         goto out;
     }
@@ -227,9 +239,6 @@ uct_rc_verbs_iface_common_tag_init(uct_rc_verbs_iface_common_t *iface,
     iface->tm.eager_unexp.arg  = params->eager_arg;
     iface->tm.rndv_unexp.cb    = params->rndv_cb;
     iface->tm.rndv_unexp.arg   = params->rndv_arg;
-    iface->tm.unexpected_cnt   = 0;
-    iface->tm.num_outstanding  = 0;
-    iface->tm.num_canceled     = 0;
 
     /* Create XRQ with TM capability */
     srq_init_attr->base.attr.max_sge   = 1;
@@ -261,7 +270,6 @@ uct_rc_verbs_iface_common_tag_init(uct_rc_verbs_iface_common_t *iface,
     }
 
     iface->tm.tag_sync_thresh = iface->tm.num_tags * config->tm.sync_ratio;
-    iface->tm.xrq.available   = 0;
     iface->tm.xrq.reserved    = srq_init_attr->base.attr.max_wr;
 
     /* AM (NO_TAG) and eager messages have different header sizes.

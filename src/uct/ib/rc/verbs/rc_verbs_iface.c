@@ -382,8 +382,8 @@ err:
 
 static UCS_CLASS_CLEANUP_FUNC(uct_rc_verbs_iface_t)
 {
-    uct_rc_verbs_iface_common_cleanup(&self->verbs_common);
     uct_rc_verbs_iface_common_tag_cleanup(&self->verbs_common);
+    uct_rc_verbs_iface_common_cleanup(&self->verbs_common);
 }
 
 UCS_CLASS_DEFINE(uct_rc_verbs_iface_t, uct_rc_iface_t);
