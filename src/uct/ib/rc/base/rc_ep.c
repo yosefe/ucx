@@ -182,28 +182,6 @@ ucs_status_t uct_rc_ep_get_address(uct_ep_h tl_ep, uct_ep_addr_t *addr)
     return UCS_OK;
 }
 
-ucs_status_t uct_rc_ep_connect_to_ep(uct_ep_h tl_ep, const uct_device_addr_t *dev_addr,
-                                     const uct_ep_addr_t *ep_addr)
-{
-    uct_rc_ep_t *ep = ucs_derived_of(tl_ep, uct_rc_ep_t);
-    uct_rc_iface_t *iface = ucs_derived_of(ep->super.super.iface, uct_rc_iface_t);
-    const uct_ib_address_t *ib_addr = (const uct_ib_address_t *)dev_addr;
-    const uct_rc_ep_address_t *rc_addr = (const uct_rc_ep_address_t*)ep_addr;
-    struct ibv_ah_attr ah_attr;
-    ucs_status_t status;
-
-    uct_ib_iface_fill_ah_attr(&iface->super, ib_addr, ep->path_bits, &ah_attr);
-
-    status = uct_rc_iface_qp_connect(iface, ep->txqp.qp,
-                                     uct_ib_unpack_uint24(rc_addr->qp_num),
-                                     &ah_attr);
-    if (status == UCS_OK) {
-        ep->atomic_mr_offset = uct_ib_md_atomic_offset(rc_addr->atomic_mr_id);
-    }
-
-    return status;
-}
-
 ucs_status_t uct_rc_modify_qp(uct_rc_txqp_t *txqp, enum ibv_qp_state state)
 {
     struct ibv_qp_attr qp_attr;

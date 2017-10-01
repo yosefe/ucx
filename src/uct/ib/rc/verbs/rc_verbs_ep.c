@@ -669,6 +669,8 @@ ucs_status_t uct_rc_verbs_ep_connect_to_ep(uct_ep_h tl_ep,
 
     ep->super.atomic_mr_offset = uct_ib_md_atomic_offset(rc_addr->atomic_mr_id);
 
+    uct_rc_verbs_iface_common_prepost_recvs(&iface->verbs_common, &iface->super);
+
     return UCS_OK;
 }
 

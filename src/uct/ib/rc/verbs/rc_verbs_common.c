@@ -155,15 +155,40 @@ unsigned uct_rc_verbs_iface_post_recv_always(uct_rc_iface_t *iface,
     return count;
 }
 
-ucs_status_t uct_rc_verbs_iface_prepost_recvs_common(uct_rc_iface_t *iface,
-                                                     uct_rc_srq_t *srq)
+static ucs_status_t
+uct_rc_verbs_iface_srq_prepost_recvs(uct_rc_iface_t *iface, uct_rc_srq_t *srq)
 {
+    srq->available += srq->reserved;
+    srq->reserved   = 0;
     while (srq->available > 0) {
         if (uct_rc_verbs_iface_post_recv_common(iface, srq, 1) == 0) {
             ucs_error("failed to post receives");
             return UCS_ERR_NO_MEMORY;
         }
     }
+    return UCS_OK;
+}
+
+ucs_status_t
+uct_rc_verbs_iface_common_prepost_recvs(uct_rc_verbs_iface_common_t *iface,
+                                        uct_rc_iface_t *rc_iface)
+{
+    ucs_status_t status;
+
+    status = uct_rc_verbs_iface_srq_prepost_recvs(rc_iface, &rc_iface->rx.srq);
+    if (status != UCS_OK) {
+        return status;
+    }
+
+#if IBV_EXP_HW_TM
+    if (UCT_RC_VERBS_TM_ENABLED(iface)) {
+        status = uct_rc_verbs_iface_srq_prepost_recvs(rc_iface, &iface->tm.xrq);
+        if (status != UCS_OK) {
+            return status;
+        }
+    }
+#endif
+
     return UCS_OK;
 }
 
@@ -188,7 +213,6 @@ uct_rc_verbs_iface_common_tag_init(uct_rc_verbs_iface_common_t *iface,
                                    size_t rndv_hdr_len)
 
 {
-    ucs_status_t status;
     int sync_ops_count;
     int rx_hdr_len;
     uct_ib_md_t *md      = ucs_derived_of(rc_iface->super.super.md, uct_ib_md_t);
@@ -237,7 +261,8 @@ uct_rc_verbs_iface_common_tag_init(uct_rc_verbs_iface_common_t *iface,
     }
 
     iface->tm.tag_sync_thresh = iface->tm.num_tags * config->tm.sync_ratio;
-    iface->tm.xrq.available   = srq_init_attr->base.attr.max_wr;
+    iface->tm.xrq.available   = 0;
+    iface->tm.xrq.reserved    = srq_init_attr->base.attr.max_wr;
 
     /* AM (NO_TAG) and eager messages have different header sizes.
      * Receive descriptor offsets are calculated based on AM hdr length.
@@ -253,12 +278,6 @@ uct_rc_verbs_iface_common_tag_init(uct_rc_verbs_iface_common_t *iface,
 
     iface->tm.rndv_desc.super.cb  = uct_rc_verbs_iface_release_desc;
     iface->tm.rndv_desc.offset    = iface->tm.eager_desc.offset + rndv_hdr_len;
-
-    status = uct_rc_verbs_iface_prepost_recvs_common(rc_iface, &iface->tm.xrq);
-    if (status != UCS_OK) {
-        ibv_destroy_srq(iface->tm.xrq.srq);
-        return status;
-    }
 
     /* Init ptr array to store completions of RNDV operations. Index in
      * ptr_array is used as operation ID and is passed in "app_context"
@@ -341,16 +360,8 @@ ucs_status_t uct_rc_verbs_iface_common_init(uct_rc_verbs_iface_common_t *iface,
     }
     iface->config.notag_hdr_size = uct_rc_verbs_notag_header_fill(iface,
                                                                   iface->am_inl_hdr);
-    status = uct_rc_verbs_iface_prepost_recvs_common(rc_iface,
-                                                     &rc_iface->rx.srq);
-    if (status != UCS_OK) {
-        goto err_am_inl_hdr_put;
-    }
-
     return UCS_OK;
 
-err_am_inl_hdr_put:
-    ucs_mpool_put(iface->am_inl_hdr);
 err_mpool_cleanup:
     ucs_mpool_cleanup(&iface->short_desc_mp, 1);
 err:

@@ -801,6 +801,9 @@ static UCS_CLASS_INIT_FUNC(uct_dc_mlx5_iface_t, uct_md_h md, uct_worker_h worker
                              UCT_IB_MLX5_AV_FULL_SIZE) /
                              sizeof(struct mlx5_wqe_data_seg));
 
+    uct_rc_mlx5_iface_common_prepost_recvs(&self->super.super,
+                                           &self->mlx5_common);
+
     /* TODO: only register progress when we have a connection */
     uct_base_iface_progress_enable(&self->super.super.super.super.super,
                                    UCT_PROGRESS_SEND | UCT_PROGRESS_RECV);
