@@ -1080,8 +1080,6 @@ uct_dc_verbs_iface_tag_init(uct_dc_verbs_iface_t *iface,
     }
 #endif
 
-    uct_base_iface_progress_enable(tl_iface,
-                                   UCT_PROGRESS_SEND | UCT_PROGRESS_RECV);
     return UCS_OK;
 }
 
@@ -1287,9 +1285,9 @@ err:
 static UCS_CLASS_CLEANUP_FUNC(uct_dc_verbs_iface_t)
 {
     ucs_trace_func("");
-    uct_base_iface_progress_disable(&self->super.super.super.super.super,
-                                    UCT_PROGRESS_SEND | UCT_PROGRESS_RECV);
     uct_rc_verbs_iface_common_cleanup(&self->verbs_common);
+    uct_iface_progress_disable(&self->super.super.super.super.super,
+                               UCT_PROGRESS_SEND | UCT_PROGRESS_RECV);
     uct_dc_verbs_iface_tag_cleanup(self);
 }
 
