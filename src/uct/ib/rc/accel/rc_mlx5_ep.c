@@ -447,8 +447,6 @@ ucs_status_t uct_rc_mlx5_ep_connect_to_ep(uct_ep_h tl_ep,
         ep->atomic_mr_offset = uct_ib_md_atomic_offset(rc_addr->atomic_mr_id);
     }
 
-    uct_rc_mlx5_iface_common_prepost_recvs(&iface->super, &iface->mlx5_common);
-
     return status;
 }
 
@@ -469,10 +467,6 @@ UCS_CLASS_INIT_FUNC(uct_rc_mlx5_ep_t, uct_iface_h tl_iface)
     self->qp_num       = self->super.txqp.qp->qp_num;
     self->tx.wq.bb_max = ucs_min(self->tx.wq.bb_max, iface->tx.bb_max);
     uct_rc_txqp_available_set(&self->super.txqp, self->tx.wq.bb_max);
-
-    uct_worker_progress_add_safe(iface->super.super.super.worker,
-                                 uct_rc_mlx5_iface_progress, iface,
-                                 &iface->super.super.super.prog);
     return UCS_OK;
 }
 
@@ -481,8 +475,6 @@ static UCS_CLASS_CLEANUP_FUNC(uct_rc_mlx5_ep_t)
     uct_rc_mlx5_iface_t *iface = ucs_derived_of(self->super.super.super.iface,
                                                 uct_rc_mlx5_iface_t);
 
-    uct_worker_progress_remove(iface->super.super.super.worker,
-                               &iface->super.super.super.prog);
     uct_ib_mlx5_txwq_cleanup(&self->tx.wq);
 
     /* Modify QP to error to make HW generate CQEs for all in-progress SRQ

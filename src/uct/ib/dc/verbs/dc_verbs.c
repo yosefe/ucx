@@ -767,9 +767,9 @@ uct_dc_verbs_poll_tx(uct_dc_verbs_iface_t *iface)
     return num_wcs;
 }
 
-static unsigned uct_dc_verbs_iface_progress(uct_iface_h tl_iface)
+static unsigned uct_dc_verbs_iface_progress(void *arg)
 {
-    uct_dc_verbs_iface_t *iface = ucs_derived_of(tl_iface, uct_dc_verbs_iface_t);
+    uct_dc_verbs_iface_t *iface = arg;
     unsigned count;
 
     count = uct_rc_verbs_iface_poll_rx_common(&iface->super.super);
@@ -976,9 +976,9 @@ static ucs_status_t uct_dc_verbs_iface_tag_recv_cancel(uct_iface_h tl_iface,
                                                     ctx, force);
 }
 
-static unsigned uct_dc_verbs_iface_progress_tm(uct_iface_h tl_iface)
+static unsigned uct_dc_verbs_iface_progress_tm(void *arg)
 {
-    uct_dc_verbs_iface_t *iface = ucs_derived_of(tl_iface, uct_dc_verbs_iface_t);
+    uct_dc_verbs_iface_t *iface = arg;
     unsigned count;
 
     count = uct_rc_verbs_iface_poll_rx_tm(&iface->verbs_common,
@@ -1039,7 +1039,6 @@ uct_dc_verbs_iface_tag_init(uct_dc_verbs_iface_t *iface,
                             const uct_iface_params_t *params)
 {
 #if IBV_EXP_HW_TM_DC
-    uct_iface_t *tl_iface = &iface->super.super.super.super.super;
 
     if (UCT_RC_VERBS_TM_ENABLED(&iface->verbs_common)) {
         struct ibv_exp_create_srq_attr srq_init_attr = {};
@@ -1076,9 +1075,12 @@ uct_dc_verbs_iface_tag_init(uct_dc_verbs_iface_t *iface,
 
         /* In DC RNDV FINs arrive to common XRQ */
         iface->verbs_common.tm.fin_srq = &iface->verbs_common.tm.xrq;
-        tl_iface->ops.iface_progress   = uct_dc_verbs_iface_progress_tm;
-    }
+        iface->verbs_common.progress   = uct_dc_verbs_iface_progress_tm;
+    } else
 #endif
+    {
+        iface->verbs_common.progress = uct_dc_verbs_iface_progress;
+    }
 
     return UCS_OK;
 }
@@ -1140,17 +1142,14 @@ uct_dc_verbs_iface_event_arm(uct_iface_h tl_iface, unsigned events)
 static void uct_dc_verbs_iface_progress_enable(uct_iface_h tl_iface, unsigned flags)
 {
     uct_dc_verbs_iface_t *iface = ucs_derived_of(tl_iface, uct_dc_verbs_iface_t);
+    uct_rc_verbs_iface_common_progress_enable(&iface->verbs_common,
+                                              &iface->super.super, flags);
+}
 
-    if (flags & UCT_PROGRESS_RECV) {
-        /* ignore return value from prepost_recv, since it's not really possible
-         * to handle here, and some receives were already pre-posted during iface
-         * creation anyway.
-         */
-        uct_rc_verbs_iface_common_prepost_recvs(&iface->verbs_common,
-                                                &iface->super.super, UINT_MAX);
-    }
-
-    return uct_base_iface_progress_enable(tl_iface, flags);
+static unsigned uct_dc_verbs_iface_do_progress(uct_iface_h tl_iface)
+{
+    uct_dc_verbs_iface_t *iface = ucs_derived_of(tl_iface, uct_dc_verbs_iface_t);
+    return iface->verbs_common.progress(iface);
 }
 
 static void UCS_CLASS_DELETE_FUNC_NAME(uct_dc_verbs_iface_t)(uct_iface_t*);
@@ -1195,7 +1194,7 @@ static uct_dc_iface_ops_t uct_dc_verbs_iface_ops = {
     .iface_fence              = uct_base_iface_fence,
     .iface_progress_enable    = uct_dc_verbs_iface_progress_enable,
     .iface_progress_disable   = uct_base_iface_progress_disable,
-    .iface_progress           = uct_dc_verbs_iface_progress,
+    .iface_progress           = uct_dc_verbs_iface_do_progress,
     .iface_event_fd_get       = uct_ib_iface_event_fd_get,
     .iface_event_arm          = uct_dc_verbs_iface_event_arm,
     .iface_close              = UCS_CLASS_DELETE_FUNC_NAME(uct_dc_verbs_iface_t),

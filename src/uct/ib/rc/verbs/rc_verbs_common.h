@@ -102,6 +102,7 @@ typedef struct uct_rc_verbs_iface_common {
     struct ibv_sge         inl_sge[2];
     void                   *am_inl_hdr;
     ucs_mpool_t            short_desc_mp;
+
 #if IBV_EXP_HW_TM
     struct {
         uct_rc_srq_t            xrq;       /* TM XRQ */
@@ -126,6 +127,10 @@ typedef struct uct_rc_verbs_iface_common {
         uct_rc_verbs_release_desc_t  rndv_desc;
     } tm;
 #endif
+
+    /* Progress function (either regular or TM aware) */
+    ucs_callback_t              progress;
+
     /* TODO: make a separate datatype */
     struct {
         size_t             notag_hdr_size;
@@ -171,6 +176,10 @@ void uct_rc_verbs_iface_common_tag_cleanup(uct_rc_verbs_iface_common_t *iface);
 ucs_status_t
 uct_rc_verbs_iface_common_prepost_recvs(uct_rc_verbs_iface_common_t *iface,
                                         uct_rc_iface_t *rc_iface, unsigned max);
+
+void uct_rc_verbs_iface_common_progress_enable(uct_rc_verbs_iface_common_t *iface,
+                                               uct_rc_iface_t *rc_iface,
+                                               unsigned flags);
 
 void uct_rc_verbs_iface_common_query(uct_rc_verbs_iface_common_t *verbs_iface,
                                      uct_rc_iface_t *rc_iface, uct_iface_attr_t *iface_attr);

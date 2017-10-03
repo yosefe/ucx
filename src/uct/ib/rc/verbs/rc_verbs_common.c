@@ -198,8 +198,23 @@ uct_rc_verbs_iface_common_prepost_recvs(uct_rc_verbs_iface_common_t *iface,
     return UCS_OK;
 }
 
-#if IBV_EXP_HW_TM
+void uct_rc_verbs_iface_common_progress_enable(uct_rc_verbs_iface_common_t *iface,
+                                               uct_rc_iface_t *rc_iface,
+                                               unsigned flags)
+{
+    if (flags & UCT_PROGRESS_RECV) {
+        /* ignore return value from prepost_recv, since it's not really possible
+         * to handle here, and some receives were already pre-posted during iface
+         * creation anyway.
+         */
+        uct_rc_verbs_iface_common_prepost_recvs(iface, rc_iface, UINT_MAX);
+    }
 
+    uct_base_iface_progress_enable_cb(&rc_iface->super.super, iface->progress,
+                                      flags);
+}
+
+#if IBV_EXP_HW_TM
 
 static void uct_rc_verbs_iface_release_desc(uct_recv_desc_t *self, void *desc)
 {
