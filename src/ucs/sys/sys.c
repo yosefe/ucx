@@ -839,6 +839,53 @@ double ucs_get_cpuinfo_clock_freq(const char *header, double scale)
     return value * scale;
 }
 
+int ucs_sys_is_pci_device_present(int vendor_id, int device_id)
+{
+    static const char pci_devices_path[] = "/sys/bus/pci/devices";
+    struct dirent *entry;
+    ucs_status_t status;
+    long value;
+    int found;
+    DIR *dir;
+
+    found = 0;
+
+    dir = opendir(pci_devices_path);
+    if (dir == NULL) {
+        goto out;
+    }
+
+    while (!found) {
+        entry = readdir(dir);
+        if (entry == NULL) {
+            goto out_closedir;
+        }
+
+        if (entry->d_name[0] == '.') {
+            continue;
+        }
+
+        status = ucs_read_file_number(&value, 1, "%s/%s/vendor", pci_devices_path,
+                                      entry->d_name);
+        if ((status != UCS_OK) || (value != vendor_id)) {
+            continue;
+        }
+
+        status = ucs_read_file_number(&value, 1, "%s/%s/device", pci_devices_path,
+                                      entry->d_name);
+        if ((status != UCS_OK) || (value != device_id)) {
+            continue;
+        }
+
+        found = 1;
+    }
+
+out_closedir:
+    closedir(dir);
+out:
+    return found;
+}
+
 void *ucs_sys_realloc(void *old_ptr, size_t old_length, size_t new_length)
 {
     void *ptr;

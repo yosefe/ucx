@@ -277,6 +277,15 @@ double ucs_get_cpuinfo_clock_freq(const char *mhz_header, double scale);
 
 
 /**
+ * Check if a specific PCI device is present on the system.
+ *
+ * @param vendor_id  PCI vendor id
+ * @param device_id  PCI device id
+ */
+int ucs_sys_is_pci_device_present(int vendor_id, int device_id);
+
+
+/**
  * Check if transparent huge-pages are enabled .
  *
  * @return 1 for true and 0 for false

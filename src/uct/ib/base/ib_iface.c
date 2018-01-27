@@ -394,6 +394,22 @@ static ucs_status_t uct_ib_iface_init_lmc(uct_ib_iface_t *iface,
     return UCS_OK;
 }
 
+static int uct_ib_max_cqe_size()
+{
+    static int max_cqe_size = -1;
+
+    if (max_cqe_size == -1) {
+        max_cqe_size =
+#ifdef __aarch64__
+                        ucs_sys_is_pci_device_present(0x19e5, 0x1610) ? 64 :
+#endif
+                        128;
+        ucs_debug("max IB CQE size is %d", max_cqe_size);
+    }
+
+    return max_cqe_size;
+}
+
 static ucs_status_t uct_ib_iface_create_cq(uct_ib_iface_t *iface, int cq_length,
                                            size_t *inl, int preferred_cpu,
                                            struct ibv_cq **cq_p)
@@ -425,7 +441,7 @@ static ucs_status_t uct_ib_iface_create_cq(uct_ib_iface_t *iface, int cq_length,
          */
         cqe_size = ucs_max(cqe_size_min, UCS_SYS_CACHE_LINE_SIZE);
         cqe_size = ucs_max(cqe_size, 64);  /* at least 64 */
-        cqe_size = ucs_min(cqe_size, 128); /* at most 128 */
+        cqe_size = ucs_min(cqe_size, uct_ib_max_cqe_size());
         snprintf(cqe_size_buf, sizeof(cqe_size_buf),"%zu", cqe_size);
         ucs_debug("%s: setting %s=%s", uct_ib_device_name(dev), cqe_size_env_var,
                   cqe_size_buf);
