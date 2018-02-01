@@ -857,16 +857,22 @@ int uct_ib_device_odp_has_global_mr(uct_ib_device_t *dev)
             return 0;
         }
 
+        ucs_print("%02d.%02d.%04d", fw_major, fw_minor, fw_release);
         if ((fw_major < 12) || (fw_minor < 21)) {
+            ucs_print("no");
             return 0;
         } else if (fw_minor == 21) {
+            ucs_print("%d", (fw_release >= 2031) && (fw_release <= 2099));
             return (fw_release >= 2031) && (fw_release <= 2099);
         } else if (fw_minor == 22) {
+            ucs_print("%d", (fw_release >= 84));
             return (fw_release >= 84);
         } else {
+            ucs_print("yes");
             return 1;
         }
     }
 
+    ucs_print("yes");
     return 1;
 }
