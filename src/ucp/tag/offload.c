@@ -555,6 +555,7 @@ ucs_status_t ucp_tag_offload_rndv_zcopy(uct_pending_req_t *self)
     rndv_op = uct_ep_tag_rndv_zcopy(ep->uct_eps[req->send.lane], req->send.tag.tag,
                                     &rndv_hdr, sizeof(rndv_hdr), iov, iovcnt, 0,
                                     &req->send.state.uct_comp);
+    ucp_trace_req(req, "uct_ep_tag_rndv_zcopy returned %p", rndv_op);
     if (UCS_PTR_IS_ERR(rndv_op)) {
         return UCS_PTR_STATUS(rndv_op);
     }

@@ -416,12 +416,18 @@ uct_rc_verbs_iface_tag_handle_exp(uct_rc_iface_t *iface, struct ibv_exp_wc *wc)
 
     if (wc->exp_wc_flags & IBV_EXP_WC_TM_MATCH) {
         /* Need to keep app_ctx in case DATA will come with immediate */
+        ucs_trace_data("RECV MATCH EXP slid %d sqpn %x tag %lx app_ctx %d",
+                       wc->slid, wc->src_qp, wc->tm_info.tag, wc->tm_info.priv);
+
         priv->app_ctx = wc->tm_info.priv;
         priv->tag     = wc->tm_info.tag;
         ctx->tag_consumed_cb(ctx);
     }
 
     if (wc->exp_wc_flags & IBV_EXP_WC_TM_DATA_VALID) {
+        ucs_trace_data("RECV TM_COMP EXP slid %d sqpn %x tag %lx app_ctx %d",
+                       wc->slid, wc->src_qp, priv->tag, priv->app_ctx);
+
         imm_data = uct_rc_iface_tag_imm_data_unpack(wc->imm_data, priv->app_ctx,
                                                     wc->exp_wc_flags &
                                                     IBV_EXP_WC_WITH_IMM);
@@ -475,6 +481,10 @@ uct_rc_verbs_iface_tag_handle_unexp(uct_rc_verbs_iface_common_t *iface,
 
     switch (tmh->opcode) {
     case IBV_EXP_TMH_EAGER:
+        ucs_trace_data("RECV EAGER UNEXP slid %d sqpn %x tag %lx app_ctx %d imm 0x%x paylen %ld",
+                       wc->slid, wc->src_qp, be64toh(tmh->tag), ntohl(tmh->app_ctx),
+                       wc->imm_data, wc->byte_len - sizeof(*tmh));
+
         imm_data = uct_rc_iface_tag_imm_data_unpack(wc->imm_data,
                                                     ntohl(tmh->app_ctx),
                                                     wc->exp_wc_flags &
@@ -505,6 +515,9 @@ uct_rc_verbs_iface_tag_handle_unexp(uct_rc_verbs_iface_common_t *iface,
         break;
 
     case IBV_EXP_TMH_RNDV:
+        ucs_trace_data("RECV RNDV UNEXP slid %d sqpn %x tag %lx app_ctx %d imm 0x%x paylen %ld",
+                       wc->slid, wc->src_qp, be64toh(tmh->tag), ntohl(tmh->app_ctx),
+                       wc->imm_data, wc->byte_len - sizeof(*tmh));
         status = uct_rc_iface_handle_rndv(rc_iface, tmh, wc->byte_len);
 
         uct_rc_verbs_iface_unexp_consumed(iface, rc_iface, ib_desc,
@@ -512,6 +525,8 @@ uct_rc_verbs_iface_tag_handle_unexp(uct_rc_verbs_iface_common_t *iface,
         break;
 
     case IBV_EXP_TMH_FIN:
+        ucs_trace_data("RECV RNDV FIN slid %d sqpn %x tag %lx app_ctx %d",
+                       wc->slid, wc->src_qp, be64toh(tmh->tag), ntohl(tmh->app_ctx));
         uct_rc_iface_handle_rndv_fin(rc_iface, tmh);
         ucs_mpool_put_inline(ib_desc);
         break;
