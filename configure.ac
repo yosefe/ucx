@@ -250,6 +250,8 @@ AC_CONFIG_LINKS([
                  debian/compat:debian/compat
                  debian/copyright:debian/copyright
                  debian/ucx.prerm:debian/ucx.prerm
+                 test/linux/odptest.c:test/linux/odptest.c
+                 test/linux/Makefile:test/linux/Makefile
                  ])
 AC_CONFIG_FILES([
                  ucx.spec
