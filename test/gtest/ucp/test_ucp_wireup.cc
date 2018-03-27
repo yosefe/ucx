@@ -350,45 +350,6 @@ UCS_TEST_P(test_ucp_wireup, multi_wireup) {
     }
 }
 
-UCS_TEST_P(test_ucp_wireup, reply_ep_send_before) {
-    skip_loopback();
-
-    sender().connect(&receiver(), get_ep_params());
-
-    if (GetParam().variant == TEST_TAG) {
-        /* Send a reply */
-        ucp_ep_connect_remote(sender().ep());
-        ucp_ep_h ep = ucp_worker_get_reply_ep(receiver().worker(),
-                                              sender().worker()->uuid);
-        send_recv(ep, sender().worker(), 1, 1);
-        flush_worker(sender());
-
-        disconnect(ep);
-    }
-}
-
-UCS_TEST_P(test_ucp_wireup, reply_ep_send_after) {
-    skip_loopback();
-
-    sender().connect(&receiver(), get_ep_params());
-
-    if (GetParam().variant == TEST_TAG) {
-        ucp_ep_connect_remote(sender().ep());
-
-        /* Make sure the wireup message arrives before sending a reply */
-        send_recv(sender().ep(), receiver().worker(), 1, 1);
-        flush_worker(sender());
-
-        /* Send a reply */
-        ucp_ep_h ep = ucp_worker_get_reply_ep(receiver().worker(), sender().worker()->uuid);
-        send_recv(ep, sender().worker(), 1, 1);
-
-        flush_worker(sender());
-
-        disconnect(ep);
-    }
-}
-
 UCS_TEST_P(test_ucp_wireup, stress_connect) {
     for (int i = 0; i < 30; ++i) {
         sender().connect(&receiver(), get_ep_params());

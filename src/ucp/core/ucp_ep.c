@@ -55,41 +55,14 @@ void ucp_ep_config_key_reset(ucp_ep_config_key_t *key)
     memset(key->amo_lanes,    UCP_NULL_LANE, sizeof(key->amo_lanes));
 }
 
-void ucp_ep_add_to_hash(ucp_ep_h ep)
-{
-    ucp_worker_h worker = ep->worker;
-    int hash_extra_status = 0;
-    khiter_t hash_it;
-
-    hash_it = kh_put(ucp_worker_ep_hash, &worker->ep_hash, ep->dest_uuid,
-                     &hash_extra_status);
-    if (ucs_unlikely(hash_it == kh_end(&worker->ep_hash))) {
-        ucs_fatal("Hash failed with ep %p to %s 0x%"PRIx64"->0x%"PRIx64
-                  "with status %d", ep, ucp_ep_peer_name(ep), worker->uuid,
-                  ep->dest_uuid, hash_extra_status);
-    }
-    kh_value(&worker->ep_hash, hash_it) = ep;
-}
-
-void ucp_ep_delete_from_hash(ucp_ep_h ep)
-{
-    khiter_t hash_it;
-
-    hash_it = kh_get(ucp_worker_ep_hash, &ep->worker->ep_hash, ep->dest_uuid);
-    if (hash_it != kh_end(&ep->worker->ep_hash)) {
-        kh_del(ucp_worker_ep_hash, &ep->worker->ep_hash, hash_it);
-    }
-}
-
-ucs_status_t ucp_ep_new(ucp_worker_h worker, uint64_t dest_uuid,
-                        const char *peer_name, const char *message,
-                        ucp_ep_h *ep_p)
+ucs_status_t ucp_ep_new(ucp_worker_h worker, const char *peer_name,
+                        const char *message, ucp_ep_h *ep_p)
 {
     ucs_status_t status;
     ucp_ep_config_key_t key;
     ucp_ep_h ep;
 
-    ep = ucs_calloc(1, sizeof(*ep), "ucp ep");
+    ep = ucs_calloc(1, sizeof(*ep), "ucp_ep");
     if (ep == NULL) {
         ucs_error("Failed to allocate ep");
         status = UCS_ERR_NO_MEMORY;
@@ -98,7 +71,7 @@ ucs_status_t ucp_ep_new(ucp_worker_h worker, uint64_t dest_uuid,
 
     ucp_ep_config_key_reset(&key);
     ep->worker           = worker;
-    ep->dest_uuid        = dest_uuid;
+    ep->dest_uuid        = UCP_EP_INVALID_DEST_UUID;
     ep->user_data        = NULL;
     ep->cfg_index        = ucp_worker_get_ep_config(worker, &key);
     ep->am_lane          = UCP_NULL_LANE;
@@ -132,8 +105,7 @@ ucs_status_t ucp_ep_new(ucp_worker_h worker, uint64_t dest_uuid,
         goto err_free_ext_ep;
     }
 
-    ucp_ep_add_to_hash(ep);
-
+    ucs_list_add_tail(&worker->ep_list, &ep->list);
     *ep_p = ep;
     ucs_debug("created ep %p to %s %s", ucp_ep_peer_name(ep), peer_name, message);
     return UCS_OK;
@@ -148,8 +120,8 @@ err:
 
 static void ucp_ep_delete(ucp_ep_h ep)
 {
-    ucp_ep_delete_from_hash(ep);
     UCS_STATS_NODE_FREE(ep->stats);
+    ucs_list_del(&ep->list);
     ucs_free(ep->ext.stream);
     ucs_free(ep);
 }
@@ -161,57 +133,11 @@ void ucp_ep_config_key_set_params(ucp_ep_config_key_t *key,
                                     UCP_ERR_HANDLING_MODE_NONE);
 }
 
-ucs_status_t ucp_ep_create_stub(ucp_worker_h worker, uint64_t dest_uuid,
-                                const ucp_ep_params_t *params,
-                                const char *peer_name, const char *message,
-                                ucp_ep_h *ep_p)
+int ucp_ep_is_sockaddr_stub(ucp_ep_h ep)
 {
-    ucs_status_t status;
-    ucp_ep_config_key_t key;
-    ucp_ep_h ep = NULL;
-
-    status = ucp_ep_new(worker, dest_uuid, peer_name, message, &ep);
-    if (status != UCS_OK) {
-        goto err;
-    }
-
-    ucp_ep_config_key_reset(&key);
-
-    if (params != NULL) {
-        ucp_ep_config_key_set_params(&key, params);
-    }
-
-    /* all operations will use the first lane, which is a stub endpoint */
-    key.num_lanes             = 1;
-    key.lanes[0].rsc_index    = UCP_NULL_RESOURCE;
-    key.lanes[0].dst_md_index = UCP_NULL_RESOURCE;
-    key.am_lane               = 0;
-    key.wireup_lane           = 0;
-    key.tag_lane              = 0;
-    key.am_bw_lanes[0]        = 0;
-    key.rma_lanes[0]          = 0;
-    key.rma_bw_lanes[0]       = 0;
-    key.amo_lanes[0]          = 0;
-
-    ep->cfg_index        = ucp_worker_get_ep_config(worker, &key);
-    ep->am_lane          = 0;
-
-    status = ucp_wireup_ep_create(ep, &ep->uct_eps[0]);
-    if (status != UCS_OK) {
-        goto err_delete;
-    }
-
-    *ep_p = ep;
-    return UCS_OK;
-
-err_delete:
-    ucp_ep_delete(ep);
-err:
-    return status;
-}
-
-int ucp_ep_is_stub(ucp_ep_h ep)
-{
+    /* Only a sockaddr endpoint may be created as "stub", before the server
+     * sends connection information via WIREUP_REQUEST
+     */
     return ucp_ep_get_rsc_index(ep, 0) == UCP_NULL_RESOURCE;
 }
 
@@ -336,23 +262,26 @@ ucs_status_t ucp_ep_create_to_worker_addr(ucp_worker_h worker,
         goto out;
     }
 
-    ep = ucp_worker_ep_find(worker, dest_uuid);
+    ep = ucp_worker_get_ep_from_hash(worker, dest_uuid, 1);
     if (ep != NULL) {
+        ucs_assert(ep->flags & UCP_EP_FLAG_DEST_EP);
         status = ucp_ep_adjust_params(ep, params);
-        if ((status == UCS_OK) && (ep->ext.stream != NULL)) {
+        if (status != UCS_OK) {
+            goto err_delete;
+        }
+        if (ep->ext.stream != NULL) {
             ep->ext.stream->flags |= UCP_EP_STREAM_FLAG_VALID;
         }
-
         goto out_free_address;
     }
 
     /* allocate endpoint */
-    status = ucp_ep_new(worker, dest_uuid, peer_name, message, &ep);
+    status = ucp_ep_new(worker, peer_name, message, &ep);
     if (status != UCS_OK) {
         goto out_free_address;
     }
 
-    ep->flags |= UCP_EP_FLAG_DEST_UUID_PEER;
+    ep->dest_uuid = dest_uuid;
 
     /* initialize transport endpoints */
     status = ucp_wireup_init_lanes(ep, params, ep_init_flags, address_count,
@@ -380,6 +309,7 @@ static ucs_status_t ucp_ep_create_to_sock_addr(ucp_worker_h worker,
                                                ucp_ep_h *ep_p)
 {
     char peer_name[UCS_SOCKADDR_STRING_LEN];
+    ucp_ep_config_key_t key;
     ucs_status_t status;
     ucp_ep_h ep;
 
@@ -393,10 +323,34 @@ static ucs_status_t ucp_ep_create_to_sock_addr(ucp_worker_h worker,
 
     /* allocate endpoint */
     ucs_sockaddr_str(params->sockaddr.addr, peer_name, sizeof(peer_name));
-    status = ucp_ep_create_stub(worker, ucs_generate_uuid(0), params, peer_name,
-                                "from api call", &ep);
+
+    status = ucp_ep_new(worker, peer_name, "from api call", &ep);
     if (status != UCS_OK) {
         goto err;
+    }
+
+    ucp_ep_config_key_reset(&key);
+    ucp_ep_config_key_set_params(&key, params);
+
+    /* all operations will use the first lane, which is a stub endpoint */
+    key.num_lanes             = 1;
+    key.lanes[0].rsc_index    = UCP_NULL_RESOURCE;
+    key.lanes[0].dst_md_index = UCP_NULL_RESOURCE;
+    key.am_lane               = 0;
+    key.wireup_lane           = 0;
+    key.tag_lane              = 0;
+    key.am_bw_lanes[0]        = 0;
+    key.rma_lanes[0]          = 0;
+    key.rma_bw_lanes[0]       = 0;
+    key.amo_lanes[0]          = 0;
+
+    ep->cfg_index             = ucp_worker_get_ep_config(worker, &key);
+    ep->am_lane               = 0;
+    ep->flags                |= UCP_EP_FLAG_CONNECTING | UCP_EP_FLAG_USED;
+
+    status = ucp_wireup_ep_create(ep, &ep->uct_eps[0]);
+    if (status != UCS_OK) {
+        goto err_delete;
     }
 
     status = ucp_wireup_ep_connect_to_sockaddr(ep->uct_eps[0], params);
@@ -408,9 +362,44 @@ static ucs_status_t ucp_ep_create_to_sock_addr(ucp_worker_h worker,
     return UCS_OK;
 
 err_cleanup_lanes:
-    ucp_ep_destroy_internal(ep);
+    ucp_ep_cleanup_lanes(ep);
+err_delete:
+    ucp_ep_delete(ep);
 err:
     return status;
+}
+
+static ucs_status_t
+ucp_ep_create_api_to_worker_addr(ucp_worker_h worker,
+                                 const ucp_ep_params_t *params, ucp_ep_h *ep_p)
+{
+    ucs_status_t status;
+    ucp_ep_h ep;
+
+    status = ucp_ep_create_to_worker_addr(worker, params, 0, "from api call",
+                                          &ep);
+    if (status != UCS_OK) {
+        return status;
+    }
+
+    ep->flags |= UCP_EP_FLAG_USED;
+
+    /* if not connected, add to hash of unconnected endpoints */
+    if (!(ep->flags & UCP_EP_FLAG_DEST_EP)) {
+        ucp_ep_add_to_hash(ep, 0);
+    }
+
+    /* if needed, send initial wireup message */
+    if (!(ep->flags & UCP_EP_FLAG_LOCAL_CONNECTED)) {
+        status = ucp_wireup_send_request(ep);
+        if (status != UCS_OK) {
+            ucp_ep_destroy_internal(ep);
+            return status;
+        }
+    }
+
+    *ep_p  = ep;
+    return UCS_OK;
 }
 
 ucs_status_t ucp_ep_create(ucp_worker_h worker, const ucp_ep_params_t *params,
@@ -418,7 +407,7 @@ ucs_status_t ucp_ep_create(ucp_worker_h worker, const ucp_ep_params_t *params,
 {
     ucs_status_t status;
     unsigned flags;
-    ucp_ep_h ep = NULL;
+    ucp_ep_h ep;
 
     UCP_THREAD_CS_ENTER_CONDITIONAL(&worker->mt_lock);
     UCS_ASYNC_BLOCK(&worker->async);
@@ -430,23 +419,13 @@ ucs_status_t ucp_ep_create(ucp_worker_h worker, const ucp_ep_params_t *params,
             goto out;
         }
     } else {
-        status = ucp_ep_create_to_worker_addr(worker, params, 0, "from api call",
-                                              &ep);
+        status = ucp_ep_create_api_to_worker_addr(worker, params, &ep);
         if (status != UCS_OK) {
             goto out;
         }
-
-        if (!(ep->flags & UCP_EP_FLAG_LOCAL_CONNECTED)) {
-            /* send initial wireup message */
-            status = ucp_wireup_send_request(ep, ep->dest_uuid);
-            if (status != UCS_OK) {
-                ucp_ep_destroy_internal(ep);
-                goto out;
-            }
-        }
     }
 
-    status = ucp_ep_adjust_params(ep, params);
+    ucp_ep_adjust_params(ep, params);
 
     *ep_p = ep;
 
@@ -550,11 +529,11 @@ static void ucp_ep_ext_stream_invalidate(ucp_ep_h ep)
     ep->ext.stream->flags &= ~UCP_EP_STREAM_FLAG_VALID;
 }
 
-static void ucp_ep_disconnected(ucp_ep_h ep, int force)
+void ucp_ep_disconnected(ucp_ep_h ep, int force)
 {
     ucp_ep_ext_stream_invalidate(ep);
 
-    if ((ep->flags & UCP_EP_FLAG_REMOTE_CONNECTED) && !force) {
+    if ((ep->flags & (UCP_EP_FLAG_CONNECTING|UCP_EP_FLAG_REMOTE_CONNECTED)) && !force) {
         /* Endpoints which have remote connection are destroyed only when the
          * worker is destroyed, to enable remote endpoints keep sending
          * TODO negotiate disconnect.

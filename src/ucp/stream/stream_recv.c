@@ -415,17 +415,11 @@ ucp_stream_am_handler(void *am_arg, void *am_data, size_t am_length,
 
     ucs_assert(am_length >= sizeof(ucp_stream_am_hdr_t));
 
-    ep = ucp_worker_ep_find(worker, data->hdr.sender_uuid);
-    if (ucs_unlikely(ep == NULL)) {
-        ucs_trace_data("ep not found for uuid %"PRIx64, data->hdr.sender_uuid);
-        /* drop the data */
-        return UCS_OK;
-    }
-
+    ep        = ucp_worker_get_ep_by_ptr(worker, data->hdr.ep_ptr);
     ep_stream = ep->ext.stream;
+
     if (ucs_unlikely(!(ep_stream->flags & UCP_EP_STREAM_FLAG_VALID))) {
-        ucs_trace_data("stream ep with uuid %"PRIx64" is invalid",
-                       data->hdr.sender_uuid);
+        ucs_trace_data("ep %p: stream is invalid", ep);
         /* drop the data */
         return UCS_OK;
     }
@@ -455,7 +449,7 @@ static void ucp_stream_am_dump(ucp_worker_h worker, uct_am_trace_type_t type,
     size_t                    hdr_len = sizeof(*hdr);
     char                      *p;
 
-    snprintf(buffer, max, "STREAM ep uuid %"PRIx64, hdr->sender_uuid);
+    snprintf(buffer, max, "STREAM ep_ptr 0x%lx", hdr->ep_ptr);
     p = buffer + strlen(buffer);
 
     ucp_dump_payload(worker->context, p, buffer + max - p, data + hdr_len,

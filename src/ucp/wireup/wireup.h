@@ -59,8 +59,10 @@ typedef struct {
  */
 typedef struct ucp_wireup_msg {
     uint8_t                 type;         /* Message type */
+    uint8_t                 flags;
     ucp_err_handling_mode_t err_mode;     /* Peer error handling mode */
-    uint64_t                ep_uuid;      /* Peer endpoint dest_uuid */
+    uintptr_t               src_ep_ptr;   /* Endpoint of source */
+    uintptr_t               dest_ep_ptr;   /* Endpoint of destination (0 - invalid) */
 
     /* REQUEST - which p2p lanes must be connected
      * REPLY - which p2p lanes have been connected
@@ -71,7 +73,9 @@ typedef struct ucp_wireup_msg {
 } UCS_S_PACKED ucp_wireup_msg_t;
 
 
-ucs_status_t ucp_wireup_send_request(ucp_ep_h ep, uint64_t ep_uuid);
+ucs_status_t ucp_wireup_send_request(ucp_ep_h ep);
+
+ucs_status_t ucp_wireup_connect_remote(ucp_ep_h ep);
 
 ucs_status_t ucp_wireup_select_aux_transport(ucp_ep_h ep,
                                              const ucp_ep_params_t *params,

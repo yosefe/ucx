@@ -12,6 +12,7 @@
 #include "ucp_worker.h"
 #include "ucp_context.h"
 
+#include <ucp/wireup/wireup.h>
 #include <ucs/arch/bitops.h>
 
 
@@ -109,6 +110,39 @@ static inline const uct_md_attr_t* ucp_ep_md_attr(ucp_ep_h ep, ucp_lane_index_t 
 {
     ucp_context_h context = ep->worker->context;
     return &context->tl_mds[ucp_ep_md_index(ep, lane)].attr;
+}
+
+static inline uintptr_t ucp_ep_dest_ep_ptr(ucp_ep_h ep)
+{
+#if ENABLE_ASSERT
+    if (!(ep->flags & UCP_EP_FLAG_DEST_EP)) {
+        return 0; /* Let remote side assert if it gets NULL pointer */
+    }
+#endif
+    return ep->dest_ep_ptr;
+}
+
+/*
+ * Make sure we have a valid dest_ep_ptr value, so protocols which require a
+ * reply from remote side could be used.
+ */
+static inline ucs_status_t ucp_ep_resolve_dest_ep_ptr(ucp_ep_h ep)
+{
+    if (ep->flags & (UCP_EP_FLAG_DEST_EP|UCP_EP_FLAG_CONNECTING)) {
+        return UCS_OK;
+    }
+
+    return ucp_wireup_connect_remote(ep);
+}
+
+static inline void ucp_ep_update_dest_ep_ptr(ucp_ep_h ep, uintptr_t ep_ptr)
+{
+    if (ep->flags & UCP_EP_FLAG_DEST_EP) {
+        ucs_assert(ep_ptr == ep->dest_ep_ptr);
+    }
+    ucs_assert(ep_ptr != 0);
+    ep->flags      |= UCP_EP_FLAG_DEST_EP;
+    ep->dest_ep_ptr = ep_ptr;
 }
 
 static inline const char* ucp_ep_peer_name(ucp_ep_h ep)

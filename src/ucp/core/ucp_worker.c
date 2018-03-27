@@ -347,14 +347,13 @@ ucp_worker_iface_error_handler(void *arg, uct_ep_h uct_ep, ucs_status_t status)
     ucp_worker_h            worker           = (ucp_worker_h)arg;
     ucp_ep_h                ucp_ep           = NULL;
     uct_tl_resource_desc_t* tl_rsc;
-    uint64_t                dest_uuid UCS_V_UNUSED;
     khiter_t                ucp_ep_errh_iter;
     ucp_err_handler_cb_t    err_cb;
     ucp_lane_index_t        lane, failed_lane;
     ucp_rsc_index_t         rsc_index;
 
     /* TODO: need to optimize uct_ep -> ucp_ep lookup */
-    kh_foreach(&worker->ep_hash, dest_uuid, ucp_ep, {
+    ucs_list_for_each(ucp_ep, &worker->ep_list, list) {
         for (lane = 0; lane < ucp_ep_num_lanes(ucp_ep); ++lane) {
             if ((uct_ep == ucp_ep->uct_eps[lane]) ||
                 ucp_wireup_ep_is_owner(ucp_ep->uct_eps[lane], uct_ep)) {
@@ -362,7 +361,7 @@ ucp_worker_iface_error_handler(void *arg, uct_ep_h uct_ep, ucs_status_t status)
                 goto found_ucp_ep;
             }
         }
-    });
+    }
 
     ucs_fatal("no uct_ep_h %p associated with ucp_ep_h on ucp_worker_h %p",
               uct_ep, worker);
@@ -1110,8 +1109,9 @@ ucs_status_t ucp_worker_create(ucp_context_h context,
     ucs_snprintf_zero(worker->name, name_length, "%s:%d", ucs_get_host_name(),
                       getpid());
 
-    kh_init_inplace(ucp_worker_ep_hash, &worker->ep_hash);
-    kh_init_inplace(ucp_ep_errh_hash,   &worker->ep_errh_hash);
+    kh_init_inplace(ucp_worker_conn_hash, &worker->conn_hash);
+    kh_init_inplace(ucp_ep_errh_hash,     &worker->ep_errh_hash);
+    ucs_list_head_init(&worker->ep_list);
 
     worker->ifaces = ucs_calloc(context->num_tls, sizeof(ucp_worker_iface_t),
                                 "ucp iface");
@@ -1221,10 +1221,12 @@ err_free:
 
 static void ucp_worker_destroy_eps(ucp_worker_h worker)
 {
-    ucp_ep_h ep;
+    ucp_ep_h ep, tmp;
 
     ucs_debug("worker %p: destroy all endpoints", worker);
-    kh_foreach_value(&worker->ep_hash, ep, ucp_ep_destroy_internal(ep));
+    ucs_list_for_each_safe(ep, tmp, &worker->ep_list, list) {
+        ucp_ep_disconnected(ep, 1);
+    }
 }
 
 void ucp_worker_destroy(ucp_worker_h worker)
@@ -1242,7 +1244,7 @@ void ucp_worker_destroy(ucp_worker_h worker)
     uct_worker_destroy(worker->uct);
     ucs_async_context_cleanup(&worker->async);
     ucs_free(worker->ifaces);
-    kh_destroy_inplace(ucp_worker_ep_hash, &worker->ep_hash);
+    kh_destroy_inplace(ucp_worker_conn_hash, &worker->conn_hash);
     kh_destroy_inplace(ucp_ep_errh_hash, &worker->ep_errh_hash);
     UCP_THREAD_LOCK_FINALIZE(&worker->mt_lock);
     UCS_STATS_NODE_FREE(worker->tm_offload_stats);
@@ -1466,46 +1468,98 @@ void ucp_worker_release_address(ucp_worker_h worker, ucp_address_t *address)
     ucs_free(address);
 }
 
-ucp_ep_h ucp_worker_get_reply_ep(ucp_worker_h worker, uint64_t dest_uuid)
+void ucp_ep_add_to_hash(ucp_ep_h ep, int is_internal)
 {
-    ucs_status_t status;
-    ucp_ep_h ep;
+    ucp_worker_h worker = ep->worker;
+    ucp_worker_conn_t *conn;
+    khiter_t iter;
+    int ret;
 
-    UCS_ASYNC_BLOCK(&worker->async);
+    ucs_assert(ep->dest_uuid != UCP_EP_INVALID_DEST_UUID);
+    ucs_assert(is_internal == !(ep->flags & UCP_EP_FLAG_USED));
 
-    ep = ucp_worker_ep_find(worker, dest_uuid);
-    if (ep == NULL) {
-        status = ucp_ep_create_stub(worker, dest_uuid, NULL, "??",
-                                    "for-sending-reply", &ep);
-        if (status != UCS_OK) {
-            goto err;
-        }
-        ep->flags |= UCP_EP_FLAG_DEST_UUID_PEER;
-    } else {
-        ucs_debug("found reply ep %p to uuid %"PRIx64, ep, dest_uuid);
+    iter = kh_put(ucp_worker_conn_hash, &worker->conn_hash, ep->dest_uuid, &ret);
+    if (ucs_unlikely(iter == kh_end(&worker->conn_hash))) {
+        ucs_fatal("hash failed with ep %p to %s 0x%"PRIx64"->0x%"PRIx64
+                  "with status %d", ep, ucp_ep_peer_name(ep), worker->uuid,
+                  ep->dest_uuid, ret);
     }
+    conn = &kh_value(&worker->conn_hash, iter);
 
-    UCS_ASYNC_UNBLOCK(&worker->async);
-    return ep;
+    if (ret != 0) {
+        /* initialize match list on first use */
+        ucs_queue_head_init(&conn->queue);
+        conn->is_internal = is_internal;
+    }
+    ucs_assert(is_internal == conn->is_internal);
 
-err:
-    UCS_ASYNC_UNBLOCK(&worker->async);
-    ucs_fatal("failed to create reply endpoint: %s", ucs_status_string(status));
+    ucs_queue_push(&conn->queue, conn->is_internal ?
+                    &ep->internal_queue : &ep->api_queue);
+    ep->flags |= UCP_EP_FLAG_ON_HASH;
 }
 
-ucp_request_t *ucp_worker_allocate_reply(ucp_worker_h worker, uint64_t dest_uuid)
+static void ucp_worker_conn_hash_del_if_empty(ucp_worker_h worker, khiter_t iter)
 {
-    ucp_request_t *req;
+    if (ucs_queue_is_empty(&kh_value(&worker->conn_hash, iter).queue)) {
+        /* remove key when last ep is removed */
+        kh_del(ucp_worker_conn_hash, &worker->conn_hash, iter);
+    }
+}
 
-    req = ucp_request_get(worker);
-    if (req == NULL) {
-        ucs_fatal("could not allocate request");
+void ucp_ep_delete_from_hash(ucp_ep_h ep)
+{
+    ucp_worker_h worker = ep->worker;
+    ucp_worker_conn_t *conn;
+    khiter_t iter;
+
+    if (!(ep->flags & UCP_EP_FLAG_ON_HASH)) {
+        return;
     }
 
-    req->flags   = 0;
-    req->send.ep = ucp_worker_get_reply_ep(worker, dest_uuid);
-    req->send.mdesc = NULL;
-    return req;
+    iter = kh_get(ucp_worker_conn_hash, &worker->conn_hash, ep->dest_uuid);
+    ucs_assert(iter != kh_end(&worker->conn_hash));
+
+    conn = &kh_value(&worker->conn_hash, iter);
+    ucs_assert(conn->is_internal == !(ep->flags & UCP_EP_FLAG_USED));
+
+    ep->flags &= ~UCP_EP_FLAG_ON_HASH;
+
+    // TODO this O(n), is that so bad?
+    ucs_queue_remove(&conn->queue, conn->is_internal ?
+                    &ep->internal_queue : &ep->api_queue);
+    ucp_worker_conn_hash_del_if_empty(worker, iter);
+}
+
+ucp_ep_h ucp_worker_get_ep_from_hash(ucp_worker_h worker, uint64_t dest_uuid,
+                                     int is_internal)
+{
+    ucp_worker_conn_t *conn;
+    khiter_t iter;
+    ucp_ep_h ep;
+
+    iter = kh_get(ucp_worker_conn_hash, &worker->conn_hash, dest_uuid);
+    if (ucs_unlikely(iter == kh_end(&worker->conn_hash))) {
+        return NULL;
+    }
+
+    conn = &kh_value(&worker->conn_hash, iter);
+    ucs_assert_always(!ucs_queue_is_empty(&conn->queue));
+
+    if (is_internal != conn->is_internal) {
+        return NULL; /* the match list kind is not what we are looking for */
+    }
+
+    if (is_internal) {
+        ep = ucs_queue_pull_elem_non_empty(&conn->queue, ucp_ep_t, internal_queue);
+    } else {
+        ep = ucs_queue_pull_elem_non_empty(&conn->queue, ucp_ep_t, api_queue);
+    }
+
+    ucs_assert(ep->flags & UCP_EP_FLAG_ON_HASH);
+    ep->flags &= ~UCP_EP_FLAG_ON_HASH;
+
+    ucp_worker_conn_hash_del_if_empty(worker, iter);
+    return ep;
 }
 
 void ucp_worker_print_info(ucp_worker_h worker, FILE *stream)

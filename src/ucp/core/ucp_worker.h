@@ -11,13 +11,26 @@
 #include "ucp_ep.h"
 #include "ucp_thread.h"
 
+#include <ucp/proto/proto.h>
 #include <ucp/tag/tag_match.h>
 #include <ucs/datastruct/mpool.h>
 #include <ucs/datastruct/khash.h>
 #include <ucs/datastruct/queue_types.h>
 #include <ucs/async/async.h>
 
-KHASH_MAP_INIT_INT64(ucp_worker_ep_hash, ucp_ep_t *);
+
+typedef struct ucp_worker_conn {
+    ucs_queue_head_t         queue;         /* queue of endpoints */
+    int                      is_internal; /* whether endpoints are connected to
+                                              remote peers (1), or waiting to be
+                                              connected (0)
+                                              TODO find better name */
+} ucp_worker_conn_t;
+
+
+KHASH_MAP_INIT_INT64(ucp_worker_conn_hash, ucp_worker_conn_t);
+
+// TODO pass error handler as worker param, not per ep, so there will be no need for a hash
 KHASH_MAP_INIT_INT64(ucp_ep_errh_hash,   ucp_err_handler_cb_t);
 
 
@@ -182,8 +195,9 @@ typedef struct ucp_worker {
 
     void                          *user_data;    /* User-defined data */
     ucs_list_link_t               stream_eps;    /* List of EPs with received stream data */
-    khash_t(ucp_worker_ep_hash)   ep_hash;       /* Hash table of all endpoints */
+    khash_t(ucp_worker_conn_hash) conn_hash;     /* Hash table of all unconnected endpoints */
     khash_t(ucp_ep_errh_hash)     ep_errh_hash;  /* Hash table of error handlers associated with endpoints */
+    ucs_list_link_t               ep_list;       /* List of all endpoints TODO remove */
     ucp_worker_iface_t            *ifaces;       /* Array of interfaces, one for each resource */
     ucs_mpool_t                   am_mp;         /* Memory pool for AM receives */
     ucs_mpool_t                   reg_mp;        /* Registered memory pool */
@@ -202,9 +216,9 @@ typedef struct ucp_worker {
 } ucp_worker_t;
 
 
-ucp_ep_h ucp_worker_get_reply_ep(ucp_worker_h worker, uint64_t dest_uuid);
+//ucp_ep_h ucp_worker_get_reply_ep(ucp_worker_h worker, uint64_t dest_uuid);
 
-ucp_request_t *ucp_worker_allocate_reply(ucp_worker_h worker, uint64_t dest_uuid);
+//ucp_request_t *ucp_worker_allocate_reply(ucp_worker_h worker, uint64_t dest_uuid);
 
 unsigned ucp_worker_get_ep_config(ucp_worker_h worker,
                                   const ucp_ep_config_key_t *key);
@@ -223,21 +237,24 @@ void ucp_worker_signal_internal(ucp_worker_h worker);
 
 void ucp_worker_iface_activate(ucp_worker_iface_t *wiface, unsigned uct_flags);
 
+ucp_ep_h ucp_worker_get_ep_from_hash(ucp_worker_h worker, uint64_t dest_uuid,
+                                     int is_internal);
+
 static inline const char* ucp_worker_get_name(ucp_worker_h worker)
 {
     return worker->name;
 }
 
-static inline ucp_ep_h ucp_worker_ep_find(ucp_worker_h worker, uint64_t dest_uuid)
+/* get ep by pointer received from remote side, do some debug checks */
+static inline ucp_ep_h ucp_worker_get_ep_by_ptr(ucp_worker_h worker,
+                                                uintptr_t ep_ptr)
 {
-    khiter_t hash_it;
+    ucp_ep_h ep = (ucp_ep_h)ep_ptr;
 
-    hash_it = kh_get(ucp_worker_ep_hash, &worker->ep_hash, dest_uuid);
-    if (ucs_unlikely(hash_it == kh_end(&worker->ep_hash))) {
-        return NULL;
-    }
-
-    return kh_value(&worker->ep_hash, hash_it);
+    ucs_assert(ep != NULL);
+    ucs_assertv(ep->worker == worker, "worker=%p ep=%p ep->worker=%p", worker,
+                ep, ep->worker);
+    return ep;
 }
 
 #endif
