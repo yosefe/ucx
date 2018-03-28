@@ -187,7 +187,13 @@ static void ucp_wireup_remote_connected(ucp_ep_h ep)
 {
     ucp_lane_index_t lane;
 
+    if (ep->flags & UCP_EP_FLAG_REMOTE_CONNECTED) {
+        return;
+    }
+
     ucs_trace("ep %p: remote connected", ep);
+    ep->flags |= UCP_EP_FLAG_REMOTE_CONNECTED;
+
     for (lane = 0; lane < ucp_ep_num_lanes(ep); ++lane) {
         if (ucp_ep_is_lane_p2p(ep, lane)) {
             ucs_assert(ucp_wireup_ep_test(ep->uct_eps[lane]));
@@ -267,8 +273,9 @@ static void ucp_wireup_process_request(ucp_worker_h worker,
         ucs_assert(msg->dest_ep_ptr == 0);
     }
 
+    /* mark the endpoint as connected to remote */
     if (!ucp_ep_config(ep)->p2p_lanes) {
-        ep->flags |= UCP_EP_FLAG_REMOTE_CONNECTED;
+        ucp_wireup_remote_connected(ep);
     }
 
     /* remote ep does not have our ep_ptr, so send a reply */
@@ -329,10 +336,7 @@ static void ucp_wireup_process_reply(ucp_worker_h worker,
         ack = 0;
     }
 
-    if (!(ep->flags & UCP_EP_FLAG_REMOTE_CONNECTED)) {
-        ucp_wireup_remote_connected(ep);
-        ep->flags |= UCP_EP_FLAG_REMOTE_CONNECTED;
-    }
+    ucp_wireup_remote_connected(ep);
 
     if (ack) {
         /* Send ACK without any address, we've already sent it as part of the request */
@@ -358,7 +362,6 @@ static void ucp_wireup_process_ack(ucp_worker_h worker,
     ucs_assert(ep->flags & UCP_EP_FLAG_CONNECT_REP_SENT);
     ucs_assert(ep->flags & UCP_EP_FLAG_LOCAL_CONNECTED);
 
-    ep->flags |= UCP_EP_FLAG_REMOTE_CONNECTED;
     ucp_wireup_remote_connected(ep);
 }
 

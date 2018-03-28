@@ -565,8 +565,6 @@ UCS_TEST_P(test_ucp_wireup_2sided, two_sided_wireup) {
         receiver().connect(&sender(), get_ep_params());
     }
 
-    skip_loopback(); // TODO fix self transport
-
     send_recv(sender().ep(), receiver().worker(), receiver().ep(), 1, 1);
     flush_worker(sender());
     send_recv(receiver().ep(), sender().worker(), sender().ep(), 1, 1);
@@ -586,8 +584,6 @@ UCS_TEST_P(test_ucp_wireup_2sided, connect_disconnect) {
 
 UCS_TEST_P(test_ucp_wireup_2sided, multi_ep_2sided) {
     const unsigned count = 10;
-
-    skip_loopback(); // TODO fix self transport
 
     for (unsigned i = 0; i < count; ++i) {
         sender().connect(&receiver(), get_ep_params(), i);
