@@ -253,6 +253,7 @@ typedef struct ucp_ep {
 #else
     uint8_t                       flags;         /* Endpoint flags */
 #endif
+    ucp_ep_conn_sn_t              conn_sn;       /* Sequence number for remote connection */
 
      union {
         uintptr_t                 dest_ep_ptr;   /* Remote EP pointer
@@ -300,6 +301,8 @@ void ucp_ep_config_key_reset(ucp_ep_config_key_t *key);
 void ucp_ep_add_to_hash(ucp_ep_h ep, int is_internal);
 
 void ucp_ep_delete_from_hash(ucp_ep_h ep);
+
+void ucp_worker_conn_hash_del_if_empty(ucp_worker_h worker, uint64_t dest_uuid);
 
 void ucp_ep_config_lane_info_str(ucp_context_h context,
                                  const ucp_ep_config_key_t *key,

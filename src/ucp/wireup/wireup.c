@@ -122,6 +122,7 @@ static ucs_status_t ucp_wireup_msg_send(ucp_ep_h ep, uint8_t type,
     req->send.ep                 = ep;
     req->send.wireup.type        = type;
     req->send.wireup.err_mode    = ucp_ep_config(ep)->key.err_mode;
+    req->send.wireup.conn_sn     = ep->conn_sn;
     req->send.wireup.src_ep_ptr  = (uintptr_t)ep;
     if (ep->flags & UCP_EP_FLAG_DEST_EP) {
         req->send.wireup.dest_ep_ptr = ucp_ep_dest_ep_ptr(ep);
@@ -223,15 +224,15 @@ static void ucp_wireup_process_request(ucp_worker_h worker,
     uint64_t tl_bitmap = 0;
     ucp_ep_h ep;
 
-    ucs_trace("got wireup request from 0x%"PRIx64" src_ep 0x%lx dst_ep 0x%lx",
-              addr_uuid, msg->src_ep_ptr, msg->dest_ep_ptr);
+    ucs_trace("got wireup request from 0x%"PRIx64" src_ep 0x%lx dst_ep 0x%lx conn_sn %d",
+              addr_uuid, msg->src_ep_ptr, msg->dest_ep_ptr, msg->conn_sn);
 
     if (msg->dest_ep_ptr != 0) {
         /* wireup request for a specific ep */
         ep = ucp_worker_get_ep_by_ptr(worker, msg->dest_ep_ptr);
         ucp_ep_update_dest_ep_ptr(ep, msg->src_ep_ptr);
     } else {
-        ep = ucp_worker_get_ep_from_hash(worker, addr_uuid, 0);
+        ep = ucp_worker_get_ep_from_hash(worker, addr_uuid, msg->conn_sn, 0);
         if (ep == NULL) {
             /* Create a new endpoint if does not exist */
             status = ucp_ep_new(worker, peer_name, "remote-request", &ep);
@@ -241,6 +242,7 @@ static void ucp_wireup_process_request(ucp_worker_h worker,
 
             /* add internal endpoint to hash */
             ep->dest_uuid = addr_uuid;
+            ep->conn_sn   = msg->conn_sn;
             ucp_ep_add_to_hash(ep, 1);
         }
 
@@ -783,11 +785,12 @@ static void ucp_wireup_msg_dump(ucp_worker_h worker, uct_am_trace_type_t type,
 
     p   = buffer;
     end = buffer + max;
-    snprintf(p, end - p, "WIREUP %s [%s uuid 0x%"PRIx64" src_ep 0x%lx dst_ep 0x%lx]",
+    snprintf(p, end - p,
+             "WIREUP %s [%s uuid 0x%"PRIx64" src_ep 0x%lx dst_ep 0x%lx conn_sn %d]",
              (msg->type == UCP_WIREUP_MSG_REQUEST ) ? "REQ" :
              (msg->type == UCP_WIREUP_MSG_REPLY   ) ? "REP" :
              (msg->type == UCP_WIREUP_MSG_ACK     ) ? "ACK" : "",
-             peer_name, uuid, msg->src_ep_ptr, msg->dest_ep_ptr);
+             peer_name, uuid, msg->src_ep_ptr, msg->dest_ep_ptr, msg->conn_sn);
 
     p += strlen(p);
     for (ae = address_list; ae < address_list + address_count; ++ae) {

@@ -1488,19 +1488,34 @@ void ucp_ep_add_to_hash(ucp_ep_h ep, int is_internal)
 
     if (ret != 0) {
         /* initialize match list on first use */
-        ucs_queue_head_init(&conn->queue);
-        conn->is_internal = is_internal;
+        ucs_queue_head_init(&conn->api_ep_q);
+        ucs_queue_head_init(&conn->internal_ep_q);
+        conn->api_conn_sn = 0;
     }
-    ucs_assert(is_internal == conn->is_internal);
 
-    ucs_queue_push(&conn->queue, conn->is_internal ?
-                    &ep->internal_queue : &ep->api_queue);
+    if (is_internal) {
+        ucs_queue_push(&conn->internal_ep_q, &ep->internal_queue);
+        ucs_print("ep %p: added to internal hash with sn=%d", ep, ep->conn_sn);
+    } else {
+        ep->conn_sn = conn->api_conn_sn++;
+        ucs_queue_push(&conn->api_ep_q, &ep->api_queue);
+        ucs_print("ep %p: added to api hash with sn=%d", ep, ep->conn_sn);
+    }
+
     ep->flags |= UCP_EP_FLAG_ON_HASH;
 }
 
-static void ucp_worker_conn_hash_del_if_empty(ucp_worker_h worker, khiter_t iter)
+void ucp_worker_conn_hash_del_if_empty(ucp_worker_h worker, uint64_t dest_uuid)
 {
-    if (ucs_queue_is_empty(&kh_value(&worker->conn_hash, iter).queue)) {
+    ucp_worker_conn_t *conn;
+    khiter_t iter;
+
+    iter = kh_get(ucp_worker_conn_hash, &worker->conn_hash, dest_uuid);
+    ucs_assert(iter != kh_end(&worker->conn_hash));
+    conn = &kh_value(&worker->conn_hash, iter);
+
+    if (ucs_queue_is_empty(&conn->api_ep_q) &&
+        ucs_queue_is_empty(&conn->internal_ep_q)) {
         /* remove key when last ep is removed */
         kh_del(ucp_worker_conn_hash, &worker->conn_hash, iter);
     }
@@ -1513,27 +1528,31 @@ void ucp_ep_delete_from_hash(ucp_ep_h ep)
     khiter_t iter;
 
     if (!(ep->flags & UCP_EP_FLAG_ON_HASH)) {
-        return;
+        goto out;
     }
 
     iter = kh_get(ucp_worker_conn_hash, &worker->conn_hash, ep->dest_uuid);
     ucs_assert(iter != kh_end(&worker->conn_hash));
 
     conn = &kh_value(&worker->conn_hash, iter);
-    ucs_assert(conn->is_internal == !(ep->flags & UCP_EP_FLAG_USED));
 
     ep->flags &= ~UCP_EP_FLAG_ON_HASH;
 
     // TODO this O(n), is that so bad?
-    ucs_queue_remove(&conn->queue, conn->is_internal ?
-                    &ep->internal_queue : &ep->api_queue);
-    ucp_worker_conn_hash_del_if_empty(worker, iter);
+    if (ep->flags & UCP_EP_FLAG_USED) {
+        ucs_queue_remove(&conn->api_ep_q, &ep->api_queue);
+    } else {
+        ucs_queue_remove(&conn->internal_ep_q, &ep->internal_queue);
+    }
+out:
+    ucp_worker_conn_hash_del_if_empty(worker, ep->dest_uuid);
 }
 
 ucp_ep_h ucp_worker_get_ep_from_hash(ucp_worker_h worker, uint64_t dest_uuid,
-                                     int is_internal)
+                                     ucp_ep_conn_sn_t conn_sn, int is_internal)
 {
     ucp_worker_conn_t *conn;
+    ucs_queue_iter_t q_iter;
     khiter_t iter;
     ucp_ep_h ep;
 
@@ -1543,22 +1562,27 @@ ucp_ep_h ucp_worker_get_ep_from_hash(ucp_worker_h worker, uint64_t dest_uuid,
     }
 
     conn = &kh_value(&worker->conn_hash, iter);
-    ucs_assert_always(!ucs_queue_is_empty(&conn->queue));
-
-    if (is_internal != conn->is_internal) {
-        return NULL; /* the match list kind is not what we are looking for */
-    }
-
     if (is_internal) {
-        ep = ucs_queue_pull_elem_non_empty(&conn->queue, ucp_ep_t, internal_queue);
+        ucs_queue_for_each_safe(ep, q_iter, &conn->internal_ep_q, internal_queue) {
+            if (ep->conn_sn == conn_sn) {
+                ucs_queue_del_iter(&conn->internal_ep_q, q_iter);
+                goto found;
+            }
+        }
     } else {
-        ep = ucs_queue_pull_elem_non_empty(&conn->queue, ucp_ep_t, api_queue);
+        ucs_queue_for_each_safe(ep, q_iter, &conn->api_ep_q, api_queue) {
+            if (ep->conn_sn == conn->api_conn_sn) {
+                // TODO check first only
+                ucs_queue_del_iter(&conn->api_ep_q, q_iter);
+                goto found;
+            }
+        }
     }
+    return NULL;
 
+found:
     ucs_assert(ep->flags & UCP_EP_FLAG_ON_HASH);
     ep->flags &= ~UCP_EP_FLAG_ON_HASH;
-
-    ucp_worker_conn_hash_del_if_empty(worker, iter);
     return ep;
 }
 

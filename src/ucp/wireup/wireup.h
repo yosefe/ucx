@@ -60,8 +60,9 @@ typedef struct {
 typedef struct ucp_wireup_msg {
     uint8_t                 type;         /* Message type */
     ucp_err_handling_mode_t err_mode;     /* Peer error handling mode */
+    ucp_ep_conn_sn_t        conn_sn;      /* Connection sequence number */
     uintptr_t               src_ep_ptr;   /* Endpoint of source */
-    uintptr_t               dest_ep_ptr;   /* Endpoint of destination (0 - invalid) */
+    uintptr_t               dest_ep_ptr;  /* Endpoint of destination (0 - invalid) */
 
     /* REQUEST - which p2p lanes must be connected
      * REPLY - which p2p lanes have been connected

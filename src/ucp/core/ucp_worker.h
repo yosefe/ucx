@@ -20,11 +20,10 @@
 
 
 typedef struct ucp_worker_conn {
-    ucs_queue_head_t         queue;         /* queue of endpoints */
-    int                      is_internal; /* whether endpoints are connected to
-                                              remote peers (1), or waiting to be
-                                              connected (0)
-                                              TODO find better name */
+    ucs_queue_head_t         internal_ep_q;   /* queue of endpoints */
+    ucs_queue_head_t         api_ep_q;
+    ucp_ep_conn_sn_t         api_conn_sn;     /* for qpi_ep_q */
+
 } ucp_worker_conn_t;
 
 
@@ -238,7 +237,7 @@ void ucp_worker_signal_internal(ucp_worker_h worker);
 void ucp_worker_iface_activate(ucp_worker_iface_t *wiface, unsigned uct_flags);
 
 ucp_ep_h ucp_worker_get_ep_from_hash(ucp_worker_h worker, uint64_t dest_uuid,
-                                     int is_internal);
+                                     ucp_ep_conn_sn_t conn_sn, int is_internal);
 
 static inline const char* ucp_worker_get_name(ucp_worker_h worker)
 {

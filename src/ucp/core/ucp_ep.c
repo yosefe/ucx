@@ -76,6 +76,7 @@ ucs_status_t ucp_ep_new(ucp_worker_h worker, const char *peer_name,
     ep->cfg_index        = ucp_worker_get_ep_config(worker, &key);
     ep->am_lane          = UCP_NULL_LANE;
     ep->flags            = 0;
+    ep->conn_sn          = -1;
 
     if (worker->context->config.features & UCP_FEATURE_STREAM) {
 
@@ -262,7 +263,7 @@ ucs_status_t ucp_ep_create_to_worker_addr(ucp_worker_h worker,
         goto out;
     }
 
-    ep = ucp_worker_get_ep_from_hash(worker, dest_uuid, 1);
+    ep = ucp_worker_get_ep_from_hash(worker, dest_uuid, -1, 1);
     if (ep != NULL) {
         ucs_assert(ep->flags & UCP_EP_FLAG_DEST_EP);
         status = ucp_ep_adjust_params(ep, params);
