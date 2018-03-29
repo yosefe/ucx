@@ -56,6 +56,10 @@ ucs_status_t ucp_wireup_msg_progress(uct_pending_req_t *self)
     if (req->send.wireup.type == UCP_WIREUP_MSG_REQUEST) {
         am_flags |= UCT_SEND_FLAG_SIGNALED; // TODO not always, check remote caps
     }
+
+    VALGRIND_CHECK_MEM_IS_DEFINED(&req->send.wireup, sizeof(req->send.wireup));
+    VALGRIND_CHECK_MEM_IS_DEFINED(req->send.buffer, req->send.length);
+
     packed_len = uct_ep_am_bcopy(ep->uct_eps[req->send.lane], UCP_AM_ID_WIREUP,
                                  ucp_wireup_msg_pack, req, am_flags);
     if (packed_len < 0) {

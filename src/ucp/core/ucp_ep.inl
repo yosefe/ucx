@@ -138,9 +138,13 @@ static inline ucs_status_t ucp_ep_resolve_dest_ep_ptr(ucp_ep_h ep)
 static inline void ucp_ep_update_dest_ep_ptr(ucp_ep_h ep, uintptr_t ep_ptr)
 {
     if (ep->flags & UCP_EP_FLAG_DEST_EP) {
-        ucs_assert(ep_ptr == ep->dest_ep_ptr);
+        ucs_assertv(ep_ptr == ep->dest_ep_ptr,
+                    "ep=%p ep_ptr=0x%lx ep->dest_ep_ptr=0x%lx",
+                    ep, ep_ptr, ep->dest_ep_ptr);
     }
+
     ucs_assert(ep_ptr != 0);
+    ucs_trace("ep %p: set dest_ep_ptr to 0x%lx", ep, ep_ptr);
     ep->flags      |= UCP_EP_FLAG_DEST_EP;
     ep->dest_ep_ptr = ep_ptr;
 }

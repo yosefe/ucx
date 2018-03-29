@@ -59,7 +59,6 @@ typedef struct {
  */
 typedef struct ucp_wireup_msg {
     uint8_t                 type;         /* Message type */
-    uint8_t                 flags;
     ucp_err_handling_mode_t err_mode;     /* Peer error handling mode */
     uintptr_t               src_ep_ptr;   /* Endpoint of source */
     uintptr_t               dest_ep_ptr;   /* Endpoint of destination (0 - invalid) */

@@ -298,15 +298,11 @@ int ucm_shmdt(const void *shmaddr)
 
     ucm_event_enter();
 
-    printf("ucm_shmdt(shmaddr=%p)\n", shmaddr);
-
     ucm_dispatch_vm_munmap((void*)shmaddr, ucm_get_shm_seg_size(shmaddr));
 
     event.shmdt.result  = -1;
     event.shmdt.shmaddr = shmaddr;
     ucm_event_dispatch(UCM_EVENT_SHMDT, &event);
-
-    printf("ucm_shmdt(shmaddr=%p) done\n", shmaddr);
 
     ucm_event_leave();
 
