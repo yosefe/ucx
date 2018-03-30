@@ -23,7 +23,6 @@ typedef struct ucp_worker_conn {
     ucs_queue_head_t         internal_ep_q;   /* queue of endpoints */
     ucs_queue_head_t         api_ep_q;
     ucp_ep_conn_sn_t         api_conn_sn;     /* for qpi_ep_q */
-
 } ucp_worker_conn_t;
 
 

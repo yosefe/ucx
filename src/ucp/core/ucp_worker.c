@@ -1495,14 +1495,17 @@ void ucp_ep_add_to_hash(ucp_ep_h ep, int is_internal)
 
     if (is_internal) {
         ucs_queue_push(&conn->internal_ep_q, &ep->internal_queue);
-        ucs_print("ep %p: added to internal hash with sn=%d", ep, ep->conn_sn);
+        ucs_print("hash[0x%lx] ep %p added to internal hash with sn=%d", ep->dest_uuid, ep, ep->conn_sn);
     } else {
         ep->conn_sn = conn->api_conn_sn++;
         ucs_queue_push(&conn->api_ep_q, &ep->api_queue);
-        ucs_print("ep %p: added to api hash with sn=%d", ep, ep->conn_sn);
+        ucs_print("hash[0x%lx] ep %p: added to api hash with sn=%d", ep->dest_uuid, ep, ep->conn_sn);
     }
 
     ep->flags |= UCP_EP_FLAG_ON_HASH;
+    ucs_print("hash[0x%lx] add: api_len %zu internal_len %zu",
+              ep->dest_uuid , ucs_queue_length(&conn->api_ep_q),
+              ucs_queue_length(&conn->internal_ep_q));
 }
 
 void ucp_worker_conn_hash_del_if_empty(ucp_worker_h worker, uint64_t dest_uuid)
@@ -1513,11 +1516,16 @@ void ucp_worker_conn_hash_del_if_empty(ucp_worker_h worker, uint64_t dest_uuid)
     iter = kh_get(ucp_worker_conn_hash, &worker->conn_hash, dest_uuid);
     ucs_assert(iter != kh_end(&worker->conn_hash));
     conn = &kh_value(&worker->conn_hash, iter);
+return; // cannot delete
+    ucs_print("hash[0x%lx] delete: api_len %zu internal_len %zu",
+              dest_uuid , ucs_queue_length(&conn->api_ep_q),
+              ucs_queue_length(&conn->internal_ep_q));
 
     if (ucs_queue_is_empty(&conn->api_ep_q) &&
         ucs_queue_is_empty(&conn->internal_ep_q)) {
         /* remove key when last ep is removed */
         kh_del(ucp_worker_conn_hash, &worker->conn_hash, iter);
+        ucs_print("hash[0x%lx] deleted!!!", dest_uuid);
     }
 }
 
@@ -1564,26 +1572,33 @@ ucp_ep_h ucp_worker_get_ep_from_hash(ucp_worker_h worker, uint64_t dest_uuid,
     conn = &kh_value(&worker->conn_hash, iter);
     if (is_internal) {
         ucs_queue_for_each_safe(ep, q_iter, &conn->internal_ep_q, internal_queue) {
-            if (ep->conn_sn == conn_sn) {
+            if (ep->conn_sn == conn->api_conn_sn) {
                 ucs_queue_del_iter(&conn->internal_ep_q, q_iter);
                 goto found;
             }
         }
+        ucs_print("hash[0x%lx]: could not find internal ep with sn %d", dest_uuid,
+                  conn->api_conn_sn);
     } else {
         ucs_queue_for_each_safe(ep, q_iter, &conn->api_ep_q, api_queue) {
-            if (ep->conn_sn == conn->api_conn_sn) {
+            if (ep->conn_sn == conn_sn) {
                 // TODO check first only
                 ucs_queue_del_iter(&conn->api_ep_q, q_iter);
                 goto found;
             }
         }
+        ucs_print("hash[0x%lx]: could not find api ep with sn %d", dest_uuid,
+                  conn_sn);
     }
     return NULL;
 
 found:
     ucs_assert(ep->flags & UCP_EP_FLAG_ON_HASH);
     ep->flags &= ~UCP_EP_FLAG_ON_HASH;
-    return ep;
+    ucs_print("hash[0x%lx] get_ep: api_len %zu internal_len %zu",
+              dest_uuid , ucs_queue_length(&conn->api_ep_q),
+              ucs_queue_length(&conn->internal_ep_q));
+   return ep;
 }
 
 void ucp_worker_print_info(ucp_worker_h worker, FILE *stream)

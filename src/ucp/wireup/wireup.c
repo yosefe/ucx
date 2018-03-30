@@ -323,8 +323,8 @@ static void ucp_wireup_process_reply(ucp_worker_h worker,
 
     ep = ucp_worker_get_ep_by_ptr(worker, msg->dest_ep_ptr);
 
-    ucs_trace("ep %p: got wireup reply src_ep 0x%lx dst_ep 0x%lx", ep,
-              msg->src_ep_ptr, msg->dest_ep_ptr);
+    ucs_print("ep %p: got wireup reply src_ep 0x%lx dst_ep 0x%lx sn %d", ep,
+              msg->src_ep_ptr, msg->dest_ep_ptr, msg->conn_sn);
 
     ucp_ep_delete_from_hash(ep);
     ucp_ep_update_dest_ep_ptr(ep, msg->src_ep_ptr);
