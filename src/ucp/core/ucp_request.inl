@@ -110,13 +110,12 @@ ucp_request_complete_tag_recv(ucp_request_t *req, ucs_status_t status)
 }
 
 static UCS_F_ALWAYS_INLINE void
-ucp_request_complete_stream_recv(ucp_request_t *req,
-                                 ucp_ep_ext_stream_t* ep_stream,
+ucp_request_complete_stream_recv(ucp_request_t *req, ucp_ep_ext_proto_t* ep_ext,
                                  ucs_status_t status)
 {
     /* dequeue request before complete */
     ucp_request_t *check_req UCS_V_UNUSED =
-            ucs_queue_pull_elem_non_empty(&ep_stream->match_q, ucp_request_t,
+            ucs_queue_pull_elem_non_empty(&ep_ext->stream.match_q, ucp_request_t,
                                           recv.queue);
     ucs_assert(check_req               == req);
     ucs_assert(req->recv.stream.offset >  0);
@@ -531,6 +530,15 @@ ucp_send_request_get_next_am_bw_lane(ucp_request_t *req)
         req->send.tag.am_bw_index = 1;
         return ucp_ep_config(req->send.ep)->key.am_bw_lanes[0];
     }
+}
+
+static inline uintptr_t ucp_request_get_dest_ep_ptr(ucp_request_t *req)
+{
+    /* This function may return 0, but in such cases the message should not be
+     * sent at all because the am_lane would point to a wireup (proxy) endpoint.
+     * So only the receiver side has an assertion that ep_ptr != 0.
+     */
+    return ucp_ep_dest_ep_ptr(req->send.ep);
 }
 
 #endif

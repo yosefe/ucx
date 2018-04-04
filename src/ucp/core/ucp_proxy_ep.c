@@ -183,6 +183,21 @@ static UCS_CLASS_CLEANUP_FUNC(ucp_proxy_ep_t)
     }
 }
 
+int ucp_proxy_ep_test(uct_ep_h ep)
+{
+    return ep->iface->ops.ep_destroy == ucp_proxy_ep_destroy;
+}
+
+uct_ep_h ucp_proxy_ep_extract(uct_ep_h ep)
+{
+    ucp_proxy_ep_t *proxy_ep = ucs_derived_of(ep, ucp_proxy_ep_t);
+    uct_ep_h uct_ep;
+
+    uct_ep = proxy_ep->uct_ep;
+    proxy_ep->uct_ep = NULL;
+    return uct_ep;
+}
+
 void ucp_proxy_ep_replace(ucp_proxy_ep_t *proxy_ep)
 {
     ucp_ep_h ucp_ep = proxy_ep->ucp_ep;

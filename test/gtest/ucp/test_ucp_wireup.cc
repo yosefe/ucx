@@ -346,7 +346,6 @@ UCS_TEST_P(test_ucp_wireup_1sided, address) {
     size_t size;
     void *buffer;
     unsigned order[UCP_MAX_RESOURCES];
-    const ucp_address_entry_t *ae;
     std::set<uint8_t> packed_dev_priorities, unpacked_dev_priorities;
     int tl;
 
@@ -362,23 +361,26 @@ UCS_TEST_P(test_ucp_wireup_1sided, address) {
         packed_dev_priorities.insert(sender().worker()->ifaces[tl].attr.priority);
     }
 
-    char name[UCP_WORKER_NAME_MAX];
-    uint64_t uuid;
-    unsigned address_count;
-    ucp_address_entry_t *address_list;
+    ucp_unpacked_address unpacked_address;
 
-    ucp_address_unpack(buffer, &uuid, name, sizeof(name), &address_count,
-                       &address_list);
-    EXPECT_EQ(sender().worker()->uuid, uuid);
-    EXPECT_EQ(std::string(ucp_worker_get_name(sender().worker())), std::string(name));
-    EXPECT_LE(address_count, static_cast<unsigned>(sender().ucph()->num_tls));
-    for (ae = address_list; ae < address_list + address_count; ++ae) {
+    status = ucp_address_unpack(buffer, &unpacked_address);
+    ASSERT_UCS_OK(status);
+
+    EXPECT_EQ(sender().worker()->uuid, unpacked_address.uuid);
+    EXPECT_EQ(std::string(ucp_worker_get_name(sender().worker())),
+              std::string(unpacked_address.name));
+    EXPECT_LE(unpacked_address.address_count,
+              static_cast<unsigned>(sender().ucph()->num_tls));
+
+    for (const ucp_address_entry_t *ae = unpacked_address.address_list;
+         ae < unpacked_address.address_list + unpacked_address.address_count;
+         ++ae) {
         unpacked_dev_priorities.insert(ae->iface_attr.priority);
     }
 
     /* TODO test addresses */
 
-    ucs_free(address_list);
+    ucs_free(unpacked_address.address_list);
     ucs_free(buffer);
     /* Make sure that the packed device priorities are equal to the unpacked
      * device priorities */
@@ -396,19 +398,17 @@ UCS_TEST_P(test_ucp_wireup_1sided, empty_address) {
     ASSERT_TRUE(buffer != NULL);
     ASSERT_GT(size, 0ul);
 
-    char name[UCP_WORKER_NAME_MAX];
-    uint64_t uuid;
-    unsigned address_count;
-    ucp_address_entry_t *address_list;
+    ucp_unpacked_address unpacked_address;
 
-    ucp_address_unpack(buffer, &uuid, name, sizeof(name), &address_count,
-                       &address_list);
-    EXPECT_EQ(sender().worker()->uuid, uuid);
-    EXPECT_EQ(std::string(ucp_worker_get_name(sender().worker())), std::string(name));
-    EXPECT_LE(address_count, sender().ucph()->num_tls);
-    EXPECT_EQ(0u, address_count);
+    status = ucp_address_unpack(buffer, &unpacked_address);
+    ASSERT_UCS_OK(status);
 
-    ucs_free(address_list);
+    EXPECT_EQ(sender().worker()->uuid, unpacked_address.uuid);
+    EXPECT_EQ(std::string(ucp_worker_get_name(sender().worker())),
+              std::string(unpacked_address.name));
+    EXPECT_EQ(0u, unpacked_address.address_count);
+
+    ucs_free(unpacked_address.address_list);
     ucs_free(buffer);
 }
 
@@ -429,46 +429,6 @@ UCS_TEST_P(test_ucp_wireup_1sided, multi_wireup) {
     /* connect from sender() to all the rest */
     for (size_t i = 0; i < count; ++i) {
         sender().connect(&entities().at(i), get_ep_params(), i);
-    }
-}
-
-UCS_TEST_P(test_ucp_wireup_1sided, reply_ep_send_before) {
-    skip_loopback();
-
-    sender().connect(&receiver(), get_ep_params());
-
-    if (GetParam().variant == TEST_TAG) {
-        /* Send a reply */
-        ucp_ep_connect_remote(sender().ep());
-        ucp_ep_h ep = ucp_worker_get_reply_ep(receiver().worker(),
-                                              sender().worker()->uuid);
-        send_recv(ep, sender().worker(), sender().ep(), 1, 1);
-        flush_worker(sender());
-
-        disconnect(ep);
-    }
-}
-
-UCS_TEST_P(test_ucp_wireup_1sided, reply_ep_send_after) {
-    skip_loopback();
-
-    sender().connect(&receiver(), get_ep_params());
-
-    if (GetParam().variant == TEST_TAG) {
-        ucp_ep_connect_remote(sender().ep());
-
-        /* Make sure the wireup message arrives before sending a reply */
-        send_recv(sender().ep(), receiver().worker(), receiver().ep(), 1, 1);
-        flush_worker(sender());
-
-        /* Send a reply */
-        ucp_ep_h ep = ucp_worker_get_reply_ep(receiver().worker(),
-                                              sender().worker()->uuid);
-        send_recv(ep, sender().worker(), sender().ep(), 1, 1);
-
-        flush_worker(sender());
-
-        disconnect(ep);
     }
 }
 
@@ -597,6 +557,18 @@ UCS_TEST_P(test_ucp_wireup_1sided, disconnect_nb_onesided) {
     waitall(sreqs);
 }
 
+UCS_TEST_P(test_ucp_wireup_1sided, multi_ep_1sided) {
+    const unsigned count = 10;
+
+    for (unsigned i = 0; i < count; ++i) {
+        sender().connect(&receiver(), get_ep_params(), i);
+    }
+
+    for (unsigned i = 0; i < count; ++i) {
+        send_recv(sender().ep(0, i), receiver().worker(), receiver().ep(), 8, 1);
+    }
+}
+
 UCP_INSTANTIATE_TEST_CASE(test_ucp_wireup_1sided)
 
 class test_ucp_wireup_2sided : public test_ucp_wireup {
@@ -631,6 +603,35 @@ UCS_TEST_P(test_ucp_wireup_2sided, connect_disconnect) {
     disconnect(sender());
     if (!is_loopback()) {
         disconnect(receiver());
+    }
+}
+
+UCS_TEST_P(test_ucp_wireup_2sided, multi_ep_2sided) {
+    const unsigned count = 10;
+
+    for (unsigned j = 0; j < 4; ++j) {
+
+        unsigned offset = j * count;
+
+        for (unsigned i = 0; i < count; ++i) {
+            unsigned ep_idx = offset + i;
+            sender().connect(&receiver(), get_ep_params(), ep_idx);
+            if (!is_loopback()) {
+                receiver().connect(&sender(), get_ep_params(), ep_idx);
+            }
+            UCS_TEST_MESSAGE << "iteration " << j << " pair " << i << ": " <<
+                            sender().ep(0, ep_idx) << " <--> " << receiver().ep(0, ep_idx);
+        }
+
+        for (unsigned i = 0; i < count; ++i) {
+            unsigned ep_idx = offset + i;
+            send_recv(sender().ep(0, ep_idx), receiver().worker(),
+                      receiver().ep(0, ep_idx), 8, 1);
+            send_recv(receiver().ep(0, ep_idx), sender().worker(),
+                      sender().ep(0, ep_idx), 8, 1);
+        }
+
+        short_progress_loop(0);
     }
 }
 

@@ -8,9 +8,6 @@
 #define UCP_PROTO_H_
 
 #include <ucp/core/ucp_ep.h>
-#include <ucp/wireup/wireup.h>
-#include <ucp/core/ucp_context.h>
-#include <ucp/core/ucp_worker.h>
 #include <ucs/sys/compiler.h>
 #include <ucs/sys/sys.h>
 
@@ -19,7 +16,7 @@
  * Header segment for a transaction
  */
 typedef struct {
-    uint64_t                  sender_uuid;
+    uintptr_t                 ep_ptr;
     uintptr_t                 reqptr;
 } UCS_S_PACKED ucp_request_hdr_t;
 
@@ -54,18 +51,5 @@ ucs_status_t ucp_proto_progress_am_bcopy_single(uct_pending_req_t *self);
 void ucp_proto_am_zcopy_completion(uct_completion_t *self, ucs_status_t status);
 
 void ucp_proto_am_zcopy_req_complete(ucp_request_t *req, ucs_status_t status);
-
-/*
- * Make sure the remote worker would be able to send replies to our endpoint.
- * Should be used before sending a message which requires a reply.
- */
-static inline void ucp_ep_connect_remote(ucp_ep_h ep)
-{
-    if (ucs_unlikely(!(ep->flags & UCP_EP_FLAG_CONNECT_REQ_QUEUED))) {
-        ucs_assert(ep->flags & UCP_EP_FLAG_DEST_UUID_PEER);
-        ucp_wireup_send_request(ep, ep->dest_uuid);
-    }
-}
-
 
 #endif
