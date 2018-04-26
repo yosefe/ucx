@@ -124,10 +124,17 @@ static void uct_ud_ep_slow_timer(ucs_wtimer_t *self)
     }
 
     if (diff > iface->config.peer_timeout) {
-        iface->super.ops->handle_failure(&iface->super, ep,
-                                         UCS_ERR_ENDPOINT_TIMEOUT);
-        return;
-    } else if (diff > 3*iface->async.slow_tick) {
+        if ((int)ucs_time_to_sec(iface->config.peer_timeout) == 300) {
+            iface->super.ops->handle_failure(&iface->super, ep,
+                                             UCS_ERR_ENDPOINT_TIMEOUT);
+            return;
+        } else {
+            ucs_warn("timed out for ep %p: %.2f seconds", ep, ucs_time_to_sec(diff));
+            ep->tx.send_time += ucs_time_from_sec(30.0); /* print in 30sec next time */
+        }
+    }
+
+    if (diff > 3*iface->async.slow_tick) {
         ucs_trace("scheduling resend now: %lu send_time: %lu diff: %lu tick: %lu",
                   now, ep->tx.send_time, now - ep->tx.send_time,
                   ep->tx.slow_tick);

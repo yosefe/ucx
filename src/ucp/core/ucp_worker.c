@@ -494,7 +494,7 @@ found_ucp_ep:
     if (ucp_ep_ext_gen(ucp_ep)->err_cb == NULL) {
         rsc_index = ucp_ep_get_rsc_index(ucp_ep, lane);
         tl_rsc    = &worker->context->tl_rscs[rsc_index].tl_rsc;
-        ucs_error("error '%s' will not be handled for ep %p - "
+        ucs_fatal("error '%s' will not be handled for ep %p - "
                   UCT_TL_RESOURCE_DESC_FMT, ucs_status_string(status), ucp_ep,
                   UCT_TL_RESOURCE_DESC_ARG(tl_rsc));
         ret_status = status;
