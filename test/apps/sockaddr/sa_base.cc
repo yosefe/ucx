@@ -6,6 +6,7 @@
 
 #include "sa_base.h"
 #include "sa_tcp.h"
+#include "sa_ucx.h"
 #include "sa_util.h"
 
 #include <cstring>
@@ -31,6 +32,8 @@ std::shared_ptr<worker> worker::make(const std::string& mode,
 {
     if (mode == "tcp") {
         return std::make_shared<tcp_worker>(listen_addr, addrlen);
+    } else if (mode == "ucx") {
+        return std::make_shared<ucx_worker>(listen_addr, addrlen);
     } else {
         throw error("invalid mode: " + mode);
     }

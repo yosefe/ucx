@@ -49,7 +49,8 @@ private:
                    total_conns(1000),
                    conn_ratio(1.5),
                    request_size(32),
-                   response_size(1024) {
+                   response_size(1024),
+                   wait_time(0) {
         }
 
         std::string         mode;
@@ -59,6 +60,7 @@ private:
         size_t              request_size;
         size_t              response_size;
         dest_vec_t          dests;
+        int                 wait_time;
    };
 
     struct connection_state {
@@ -112,7 +114,7 @@ application::application(int argc, char **argv) : m_num_conns_inflight(0),
                 m_num_conns_started(0) {
     int c;
 
-    while ( (c = getopt(argc, argv, "p:f:m:r:n:S:s:vh")) != -1 ) {
+    while ( (c = getopt(argc, argv, "p:f:m:r:n:S:s:w:vh")) != -1 ) {
         switch (c) {
         case 'p':
             m_params.port = atoi(optarg);
@@ -134,6 +136,9 @@ application::application(int argc, char **argv) : m_num_conns_inflight(0),
             break;
         case 's':
             m_params.response_size = atoi(optarg);
+            break;
+        case 'w':
+            m_params.wait_time = atoi(optarg);
             break;
         case 'v':
             log::more_verbose();
@@ -162,6 +167,11 @@ int application::run() {
              << m_params.total_conns << " total";
 
     create_worker();
+
+    if (m_params.wait_time > 0) {
+        LOG_DEBUG << "waiting " << m_params.wait_time << " seconds";
+        ::sleep(m_params.wait_time);
+    }
 
     while ((m_num_conns_started > m_params.total_conns) || !m_connections.empty()) {
         initiate_connections();
@@ -362,7 +372,7 @@ void application::usage(const std::string& error) {
     params defaults;
     std::cout << "Usage: ./sa [ options ]" << std::endl;
     std::cout << "Options:"                                                           << std::endl;
-    std::cout << "    -m <mode>    Application mode (tcp)"                            << std::endl;
+    std::cout << "    -m <mode>    Application mode (tcp|ucx)"                        << std::endl;
     std::cout << "    -p <port>    Local port number to listen on"                    << std::endl;
     std::cout << "    -f <file>    File with list of hosts and ports to connect to"   << std::endl;
     std::cout << "                 Each line in the file is formatter as follows:"    << std::endl;
@@ -372,6 +382,7 @@ void application::usage(const std::string& error) {
     std::cout << "    -n <count>   How many total exchanges to perform (" << defaults.total_conns << ")" << std::endl;
     std::cout << "    -S <size>    Request message size, in bytes (" << defaults.request_size << ")" << std::endl;
     std::cout << "    -s <size>    Response message size, in bytes (" << defaults.response_size << ")" << std::endl;
+    std::cout << "    -w <secs>    Time to wait, in seconds, before connecting (" << defaults.wait_time << ")" << std::endl;
     std::cout << "    -v           Increase verbosity level (may be specified several times)" << std::endl;
 }
 
