@@ -40,6 +40,11 @@ else
 	TIMEOUT_VALGRIND="timeout 200m"
 fi
 
+if [ $(uname -m) == "aarch64" ]
+then
+	export LD_PRELOAD=/labhome/yosefe/workspace/driver/librdmacm/build-aarch64/src/.libs/librdmacm.so
+fi
+
 
 #
 # Set affinity to 2 cores according to Jenkins executor number
