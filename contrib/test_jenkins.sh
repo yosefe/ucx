@@ -80,7 +80,7 @@ echo "==== Running on $(hostname), worker $worker / $nworkers ===="
 module_load() {
 	set +x
 	module=$1
-	if [ -n "$(module avail $module 2>&1)" ]
+	if [ -n "$(module avail $module |& grep -v ERROR)" ]
 	then
 		module load $module
 		set -x

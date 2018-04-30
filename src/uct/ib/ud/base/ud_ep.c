@@ -124,13 +124,19 @@ static void uct_ud_ep_slow_timer(ucs_wtimer_t *self)
     }
 
     if (diff > iface->config.peer_timeout) {
-        if ((int)ucs_time_to_sec(iface->config.peer_timeout) == 300) {
+        int prt = ucs_time_to_sec(iface->config.peer_timeout) + 0.5;
+        if (prt == 300) {
             iface->super.ops->handle_failure(&iface->super, ep,
                                              UCS_ERR_ENDPOINT_TIMEOUT);
             return;
         } else {
-            ucs_warn("timed out for ep %p: %.2f seconds", ep, ucs_time_to_sec(diff));
-            ep->tx.send_time += ucs_time_from_sec(30.0); /* print in 30sec next time */
+            static ucs_time_t last_print = 0;
+            if (ucs_get_time() >= last_print + ucs_time_from_sec(30.0)) {
+                ucs_warn("timed out for ep %p: %.2f seconds peer_timeout=%d", ep,
+                         ucs_time_to_sec(diff), prt);
+                /* print in 30sec next time */
+                last_print = ucs_get_time();
+            }
         }
     }
 
