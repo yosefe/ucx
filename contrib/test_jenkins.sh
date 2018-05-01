@@ -466,9 +466,12 @@ run_client_server() {
     if [ -n "$iface" ]
     then
         server_ip=`ip addr show ${iface} | awk '/inet /{print $2}' | awk -F '/' '{print $1}'`
-    else
-        return
     fi
+    
+    if [ -z "$server_ip" ]
+    then
+    	return
+	fi
 
     server_port=$((10000 + EXECUTOR_NUMBER))
 
