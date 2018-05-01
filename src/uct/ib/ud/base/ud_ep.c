@@ -125,7 +125,7 @@ static void uct_ud_ep_slow_timer(ucs_wtimer_t *self)
 
     if (diff > iface->config.peer_timeout) {
         int prt = ucs_time_to_sec(iface->config.peer_timeout) + 0.5;
-        if (prt == 300) {
+        if (prt < 300) {
             iface->super.ops->handle_failure(&iface->super, ep,
                                              UCS_ERR_ENDPOINT_TIMEOUT);
             return;
