@@ -70,6 +70,8 @@ static unsigned ucp_wireup_ep_progress(void *arg)
     }
 
     /* Switch to real transport and destroy proxy endpoint (aux_ep as well) */
+    ucs_print("ep %p: switching wireup_ep %p to ready aux_ep=%p next_ep=%p",
+              ucp_ep, wireup_ep, wireup_ep->aux_ep, wireup_ep->super.uct_ep);
     ucp_proxy_ep_replace(&wireup_ep->super);
     wireup_ep = NULL;
 

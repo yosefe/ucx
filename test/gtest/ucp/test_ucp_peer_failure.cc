@@ -59,6 +59,47 @@ size_t       test_ucp_peer_failure_base::m_err_cntr   = 0;
 ucs_status_t test_ucp_peer_failure_base::m_err_status = UCS_OK;
 
 
+//class test_ucp_peer_failure_connect :
+//                public ucp_test,
+//                protected test_ucp_peer_failure_base {
+//public:
+//    static ucp_params_t get_ctx_params() {
+//        ucp_params_t params = ucp_test::get_ctx_params();
+//        params.field_mask  |= UCP_PARAM_FIELD_FEATURES;
+//        params.features     = UCP_FEATURE_TAG;
+//        return params;
+//    }
+//
+//protected:
+//    using test_ucp_peer_failure_base::get_ep_params;
+//
+//    virtual void init() {
+//        test_ucp_peer_failure_base::init();
+//        ucp_test::init();
+//    }
+//};
+//
+//UCS_TEST_P(test_ucp_peer_failure_connect, test)
+//{
+//    sender().connect(&receiver(), get_ep_params());
+//
+//    flush_worker(receiver());
+//    m_entities.remove(&receiver());
+//
+//    std::vector<uint8_t> buf(1024, 0);
+//
+//    void *req = ucp_tag_send_nb(sender().ep(), NULL, 0, DATATYPE, 0x111337, NULL);
+//    wait(req);
+//
+//    /* Destroy failed sender */
+//    sender().destroy_worker();
+//    m_entities.remove(&sender());
+//
+//}
+//
+//UCP_INSTANTIATE_TEST_CASE(test_ucp_peer_failure_connect)
+//
+
 class test_ucp_peer_failure :
                     public test_ucp_tag,
                     protected test_ucp_peer_failure_base {

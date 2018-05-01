@@ -359,6 +359,9 @@ static unsigned ucp_worker_iface_err_handle_progress(void *arg)
 
     UCS_ASYNC_BLOCK(&worker->async);
 
+    ucs_print("err_handle_progress ucp_ep=%p uct_ep=%p failed_lane=%d ep->flags=0x%x",
+              ucp_ep, uct_ep, failed_lane, ucp_ep->flags);
+
     if (ucp_ep->flags & UCP_EP_FLAG_FAILED) {
         goto out;
     }
@@ -477,6 +480,16 @@ found_ucp_ep:
         ucs_error("failed to allocate ucp_worker_err_handle_arg");
         ret_status = UCS_ERR_NO_MEMORY;
         goto out;
+    }
+
+    ucs_print("ucp_worker_iface_error_handler "
+              "ucp_ep=%p ep->flags=0x%x uct_ep=%p uct_iface=%p ep_destroy=%p, ep->uct_eps[%d]=%p",
+              ucp_ep, ucp_ep->flags, uct_ep, uct_ep->iface, uct_ep->iface->ops.ep_destroy,
+              failed_lane, ucp_ep->uct_eps[failed_lane]);
+    if (ucp_wireup_ep_test(ucp_ep->uct_eps[failed_lane])) {
+        ucp_wireup_ep_t *wep = ucs_derived_of(ucp_ep->uct_eps[failed_lane], ucp_wireup_ep_t);
+        ucs_print("uct_ep %p is wireup_ep aux=%p next=%p sockaddr=%p",
+                  wep, wep->aux_ep, wep->super.uct_ep, wep->sockaddr_ep);
     }
 
     err_handle_arg->worker      = worker;
