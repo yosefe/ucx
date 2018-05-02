@@ -723,7 +723,7 @@ run_gtest() {
 
 	echo "==== Running unit tests ===="
 	$AFFINITY $TIMEOUT make -C test/gtest test \
-		UCX_LOG_LEVEL=data \
+		UCX_LOG_LEVEL=req \
 		GTEST_FILTER=*test_ud.ca_resend*:*test_ud.ca_md*:*peer_failure*
 	(cd test/gtest && rename .tap _gtest.tap *.tap && mv *.tap $GTEST_REPORT_DIR)
 
