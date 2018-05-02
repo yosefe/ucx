@@ -546,6 +546,10 @@ UCS_TEST_P(test_ud, ca_md, "IB_TX_QUEUE_LEN=" UCS_PP_MAKE_STRING(UCT_UD_CA_MAX_W
                         << " tx.max_psn=" << ep(m_e1)->tx.max_psn
                         << " ca.cwnd="    << ep(m_e1)->ca.cwnd;
         status = tx(m_e1);
+        if (status == UCS_ERR_NO_RESOURCE) {
+            EXPECT_GT(i, 1); /* at least one packet should be sent */
+            break;
+        }
         EXPECT_UCS_OK(status);
         progress();
     }
