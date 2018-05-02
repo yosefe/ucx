@@ -718,8 +718,12 @@ run_gtest() {
 
 	mkdir -p $GTEST_REPORT_DIR
 
+	pwd
+	env
+
 	echo "==== Running unit tests ===="
 	$AFFINITY $TIMEOUT make -C test/gtest test \
+		UCX_LOG_LEVEL=data \
 		GTEST_FILTER=*test_ud.ca_resend*:*test_ud.ca_md*:*peer_failure*
 	(cd test/gtest && rename .tap _gtest.tap *.tap && mv *.tap $GTEST_REPORT_DIR)
 
@@ -822,11 +826,11 @@ run_tests() {
 	# all are running mpi tests
 	#run_mpi_tests
 
-	../contrib/configure-devel --prefix=$ucx_inst
-	$MAKE
-	$MAKE install
+	#../contrib/configure-devel --prefix=$ucx_inst
+	#$MAKE
+	#$MAKE install
 
-	run_ucx_tl_check
+	#run_ucx_tl_check
 
 	#do_distributed_task 1 4 run_ucp_hello
 	#do_distributed_task 2 4 run_uct_hello
@@ -839,8 +843,8 @@ run_tests() {
 	# all are running gtest
 	run_gtest
 
-	do_distributed_task 3 4 run_coverity
-	do_distributed_task 0 4 run_gtest_release
+	#do_distributed_task 3 4 run_coverity
+	#do_distributed_task 0 4 run_gtest_release
 }
 
 prepare
