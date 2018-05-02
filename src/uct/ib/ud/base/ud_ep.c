@@ -127,8 +127,12 @@ static void uct_ud_ep_slow_timer(ucs_wtimer_t *self)
         int prt = ucs_time_to_sec(iface->config.peer_timeout) + 0.5;
         if (prt < 300) {
             ucs_print("ud_ep %p timed out", ep);
-            iface->super.ops->handle_failure(&iface->super, ep,
-                                             UCS_ERR_ENDPOINT_TIMEOUT);
+            if (ep->flags & UCT_UD_EP_FLAG_PRIVATE) {
+                uct_ep_destroy(&ep->super.super);
+            } else {
+                iface->super.ops->handle_failure(&iface->super, ep,
+                                                 UCS_ERR_ENDPOINT_TIMEOUT);
+            }
             return;
         } else {
             static ucs_time_t last_print = 0;
@@ -297,6 +301,7 @@ ucs_status_t uct_ud_ep_create_connected_common(uct_ud_iface_t *iface,
     ep = uct_ud_iface_cep_lookup(iface, ib_addr, if_addr, UCT_UD_EP_CONN_ID_MAX);
     if (ep) {
         uct_ud_ep_set_state(ep, UCT_UD_EP_FLAG_CREQ_NOTSENT);
+        ep->flags &= ~UCT_UD_EP_FLAG_PRIVATE;
         *new_ep_p = ep;
         *skb_p    = NULL;
         return UCS_ERR_ALREADY_EXISTS;

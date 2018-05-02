@@ -214,6 +214,7 @@ void test_ucp_tag::send_b(const void *buffer, size_t count, ucp_datatype_t datat
 
     if (req != NULL) {
         wait(req, get_worker_index(buf_index));
+        UCS_TEST_MESSAGE << " status " << req->status;
         request_release(req);
     }
 }

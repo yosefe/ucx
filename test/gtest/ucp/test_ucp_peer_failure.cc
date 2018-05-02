@@ -20,11 +20,21 @@ protected:
     };
 
     test_ucp_peer_failure_base() {
+        set_timeout_env(); // TODO remove this for upstream
+    }
+
+    void set_timeout_env() {
         /* Set small TL timeouts to reduce testing time */
         m_env.push_back(new ucs::scoped_setenv("UCX_RC_TIMEOUT",     "10us"));
         m_env.push_back(new ucs::scoped_setenv("UCX_RC_RETRY_COUNT", "2"));
+        //
+        // TODO for testing std::string ud_timeout = ucs::to_string<int>(10 * ucs::test_time_multiplier()) + "ms";
         std::string ud_timeout = ucs::to_string<int>(1 * ucs::test_time_multiplier()) + "s";
         m_env.push_back(new ucs::scoped_setenv("UCX_UD_TIMEOUT", ud_timeout.c_str()));
+    }
+
+    void restore_timeout_env() {
+        m_env.clear();
     }
 
     virtual ucp_ep_params_t get_ep_params() {
@@ -152,6 +162,7 @@ protected:
         UCS_TEST_MESSAGE << "smoke_test";
         request *req = recv_nb(&buf, sizeof(buf), DATATYPE, 0, 0);
         send_b(&buf, sizeof(buf), DATATYPE, 0, 0);
+        UCS_TEST_MESSAGE << "wait for recv req " << req;
         wait_and_validate(req);
         UCS_TEST_MESSAGE << "smoke_test done";
     }
@@ -184,13 +195,18 @@ void test_ucp_peer_failure::init() {
         smoke_test();
     }
 
-    /* Make second pair */
+    UCS_TEST_MESSAGE << "sender1 ep " << sender().ep() << " worker " << sender().worker();
+    UCS_TEST_MESSAGE << "receiver1 ep " << receiver().ep() << " worker " << receiver().worker();
+
+    /* Make second pair with short timeouts */
+    set_timeout_env();
     create_entity(true);
     create_entity(false);
     sender().connect(&receiver(), get_ep_params());
+    restore_timeout_env();
 
-    UCS_TEST_MESSAGE << "sender ep " << sender().ep() << " worker " << sender().worker();
-    UCS_TEST_MESSAGE << "receiver ep " << receiver().ep() << " worker " << receiver().worker();
+    UCS_TEST_MESSAGE << "sender2 ep " << sender().ep() << " worker " << sender().worker();
+    UCS_TEST_MESSAGE << "receiver2 ep " << receiver().ep() << " worker " << receiver().worker();
 
     if (GetParam().variant != FAIL_IMMEDIATELY) {
         smoke_test();
