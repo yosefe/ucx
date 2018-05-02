@@ -141,15 +141,19 @@ protected:
          *                 self, self->ep_id, self->conn_id,
          *                 (int)ucs_queue_length(&self->tx.window));
          */
+        UCS_TEST_MESSAGE << "fail_receiver";
         flush_worker(receiver());
         m_entities.remove(&receiver());
+        UCS_TEST_MESSAGE << "fail_receiver done";
     }
 
     void smoke_test() {
         long buf = 0;
+        UCS_TEST_MESSAGE << "smoke_test";
         request *req = recv_nb(&buf, sizeof(buf), DATATYPE, 0, 0);
         send_b(&buf, sizeof(buf), DATATYPE, 0, 0);
         wait_and_validate(req);
+        UCS_TEST_MESSAGE << "smoke_test done";
     }
 
     void wait_err() {
@@ -184,6 +188,10 @@ void test_ucp_peer_failure::init() {
     create_entity(true);
     create_entity(false);
     sender().connect(&receiver(), get_ep_params());
+
+    UCS_TEST_MESSAGE << "sender ep " << sender().ep() << " worker " << sender().worker();
+    UCS_TEST_MESSAGE << "receiver ep " << receiver().ep() << " worker " << receiver().worker();
+
     if (GetParam().variant != FAIL_IMMEDIATELY) {
         smoke_test();
     }

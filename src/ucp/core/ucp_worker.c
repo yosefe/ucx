@@ -362,9 +362,9 @@ static unsigned ucp_worker_iface_err_handle_progress(void *arg)
     ucs_print("err_handle_progress ucp_ep=%p uct_ep=%p failed_lane=%d ep->flags=0x%x",
               ucp_ep, uct_ep, failed_lane, ucp_ep->flags);
 
-    if (ucp_ep->flags & UCP_EP_FLAG_FAILED) {
-        goto out;
-    }
+//    if (ucp_ep->flags & UCP_EP_FLAG_FAILED) {
+//        goto out;
+//    }
 
     /* Destroy all lanes except failed one since ucp_ep becomes unusable as well */
     for (lane = 0; lane < ucp_ep_num_lanes(ucp_ep); ++lane) {
@@ -396,7 +396,9 @@ static unsigned ucp_worker_iface_err_handle_progress(void *arg)
      *       the lane with failed ep and destroy wireup ep
      */
     if (ucp_ep->uct_eps[0] != uct_ep) {
-        ucs_assert(ucp_wireup_ep_is_owner(ucp_ep->uct_eps[0], uct_ep));
+        ucs_assertv(ucp_wireup_ep_is_owner(ucp_ep->uct_eps[0], uct_ep),
+                    "ucp_ep=%p uct_ep=%p ucp_ep->uct_eps[0]=%p",
+                    ucp_ep, uct_ep, ucp_ep->uct_eps[0]);
         ucp_wireup_ep_disown(ucp_ep->uct_eps[0], uct_ep);
         ucs_trace("ep %p: destroy failed wireup ep %p", ucp_ep, ucp_ep->uct_eps[0]);
         uct_ep_destroy(ucp_ep->uct_eps[0]);
@@ -416,7 +418,6 @@ static unsigned ucp_worker_iface_err_handle_progress(void *arg)
     key.status             = status;
 
     ucp_ep->cfg_index = ucp_worker_get_ep_config(worker, &key);
-    ucp_ep->flags    |= UCP_EP_FLAG_FAILED;
     ucp_ep->am_lane   = 0;
 
     if (ucp_ep_ext_gen(ucp_ep)->err_cb != NULL) {
@@ -424,7 +425,7 @@ static unsigned ucp_worker_iface_err_handle_progress(void *arg)
                                        status);
     }
 
-out:
+//out:
     ucs_free(err_handle_arg);
     UCS_ASYNC_UNBLOCK(&worker->async);
     return 1;
@@ -452,6 +453,8 @@ ucp_worker_iface_error_handler(void *arg, uct_ep_h uct_ep, ucs_status_t status)
     ucp_ep_ext_gen_t *ep_ext;
     ucp_ep_h ucp_ep;
 
+    UCS_ASYNC_BLOCK(&worker->async);
+
     /* TODO: need to optimize uct_ep -> ucp_ep lookup */
     ucs_list_for_each(ep_ext, &worker->all_eps, ep_list) {
         ucp_ep = ucp_ep_from_ext_gen(ep_ext);
@@ -475,6 +478,10 @@ found_ucp_ep:
         goto out;
     }
 
+    if (ucp_ep->flags & UCP_EP_FLAG_FAILED) {
+        goto handled;
+    }
+
     err_handle_arg = ucs_malloc(sizeof(*err_handle_arg), "ucp_worker_err_handle_arg");
     if (err_handle_arg == NULL) {
         ucs_error("failed to allocate ucp_worker_err_handle_arg");
@@ -491,6 +498,8 @@ found_ucp_ep:
         ucs_print("uct_ep %p is wireup_ep aux=%p next=%p sockaddr=%p",
                   wep, wep->aux_ep, wep->super.uct_ep, wep->sockaddr_ep);
     }
+
+    ucp_ep->flags              |= UCP_EP_FLAG_FAILED;
 
     err_handle_arg->worker      = worker;
     err_handle_arg->ucp_ep      = ucp_ep;
@@ -514,9 +523,12 @@ found_ucp_ep:
         goto out;
     }
 
+handled:
     ret_status = UCS_OK;
 
 out:
+    UCS_ASYNC_UNBLOCK(&worker->async);
+
     /* If the worker supports the UCP_FEATURE_WAKEUP feature, signal the user so
      * that he can wake-up on this event */
     ucp_worker_signal_internal(worker);

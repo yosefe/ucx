@@ -59,6 +59,12 @@ static unsigned ucp_wireup_ep_progress(void *arg)
         goto out;
     }
 
+    if (ucp_ep->flags & UCP_EP_FLAG_FAILED) {
+        ucs_trace("ep %p: not switching wireup_ep %p to ready state bcause ep is in error state",
+                  ucp_ep, wireup_ep);
+        goto out;
+    }
+
     ucs_trace("ep %p: switching wireup_ep %p to ready state", ucp_ep, wireup_ep);
 
     /* Move wireup pending queue to temporary queue and remove references to
