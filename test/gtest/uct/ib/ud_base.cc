@@ -81,6 +81,8 @@ void ud_base_test::set_tx_win(entity *e, uct_ud_psn_t size)
     /* force window */
     ep(e)->tx.max_psn = ep(e)->tx.acked_psn + size;
     ep(e)->ca.cwnd = size;
+    UCS_TEST_MESSAGE << "set_tx_win ud_ep=" << ep(e) << " tx.max_psn=" <<   ep(e)->tx.max_psn
+                    << " ca.cwnd=" << ep(e)->ca.cwnd;
 }
 
 void ud_base_test::disable_async(entity *e) 

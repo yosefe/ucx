@@ -542,6 +542,9 @@ UCS_TEST_P(test_ud, ca_md, "IB_TX_QUEUE_LEN=" UCS_PP_MAKE_STRING(UCT_UD_CA_MAX_W
     set_tx_win(m_e1, UCT_UD_CA_MAX_WINDOW);
     ep(m_e2, 0)->rx.rx_hook = drop_rx;
     for (i = 1; i < UCT_UD_CA_MAX_WINDOW; i++) {
+        UCS_TEST_MESSAGE << "tx " << i << " ud_ep=" << ep(m_e1)
+                        << " tx.max_psn=" << ep(m_e1)->tx.max_psn
+                        << " ca.cwnd="    << ep(m_e1)->ca.cwnd;
         status = tx(m_e1);
         EXPECT_UCS_OK(status);
         progress();
@@ -585,9 +588,15 @@ UCS_TEST_P(test_ud, ca_resend) {
         status = tx(m_e1);
         EXPECT_UCS_OK(status);
     }
+    UCS_TEST_MESSAGE << "after tx ud_ep=" << ep(m_e1)
+                    << " tx.max_psn=" << ep(m_e1)->tx.max_psn
+                    << " ca.cwnd="    << ep(m_e1)->ca.cwnd;
     short_progress_loop();
     rx_drop_count = 0;
     ack_req_tx_cnt = 0;
+    UCS_TEST_MESSAGE << "before loop ud_ep=" << ep(m_e1)
+                    << " tx.max_psn=" << ep(m_e1)->tx.max_psn
+                    << " ca.cwnd="    << ep(m_e1)->ca.cwnd;
     do {
         progress();
     } while(ep(m_e1)->ca.cwnd != max_window/2);

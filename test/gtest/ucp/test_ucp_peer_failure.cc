@@ -20,7 +20,7 @@ protected:
     };
 
     test_ucp_peer_failure_base() {
-        set_timeout_env(); // TODO remove this for upstream
+//        set_timeout_env(); // TODO enable this to reproduce some errors on 2n peer
     }
 
     void set_timeout_env() {
@@ -28,7 +28,8 @@ protected:
         m_env.push_back(new ucs::scoped_setenv("UCX_RC_TIMEOUT",     "10us"));
         m_env.push_back(new ucs::scoped_setenv("UCX_RC_RETRY_COUNT", "2"));
         //
-        // TODO for testing std::string ud_timeout = ucs::to_string<int>(10 * ucs::test_time_multiplier()) + "ms";
+        // TODO enable this for testing failures on 2nd peer
+        //std::string ud_timeout = ucs::to_string<int>(10 * ucs::test_time_multiplier()) + "ms";
         std::string ud_timeout = ucs::to_string<int>(1 * ucs::test_time_multiplier()) + "s";
         m_env.push_back(new ucs::scoped_setenv("UCX_UD_TIMEOUT", ud_timeout.c_str()));
     }
