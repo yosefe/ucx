@@ -190,7 +190,7 @@ void test_uct_peer_failure::init()
         set_config("RC_TIMEOUT=100us"); /* 100 us should be enough */
         set_config("RC_RETRY_COUNT=2");
     } else if (GetParam()->tl_name == "ud" || GetParam()->tl_name == "ud_mlx5") {
-        set_config("UD_TIMEOUT=1s");
+        set_config("UD_TIMEOUT=5s");
     }
 
     uct_iface_params_t p = entity_params();
