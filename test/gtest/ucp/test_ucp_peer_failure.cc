@@ -275,8 +275,7 @@ void test_ucp_peer_failure::test_status_after(bool request_must_fail)
     smoke_test();
 }
 
-void test_ucp_peer_failure::test_force_close()
-{
+UCS_TEST_P(test_ucp_peer_failure, test) {
     const size_t            msg_size = 16000;
     const size_t            iter     = 1000;
     uint8_t                 *buf     = (uint8_t *)calloc(msg_size, iter);
@@ -533,6 +532,8 @@ void test_ucp_peer_failure_2pairs::init()
     test_base::init(); /* skip entities creation */
     test_ucp_peer_failure_base::init();
 
+    set_timeout_env();
+
     set_ucp_config(m_ucp_config);
     ucp_params_t cparams = get_ctx_params();
     UCS_TEST_CREATE_HANDLE(ucp_context_h, m_ucph, ucp_cleanup,
@@ -576,6 +577,7 @@ void test_ucp_peer_failure_2pairs::init()
     smoke_test(0);
     smoke_test(1);
 
+    restore_timeout_env();
     wrap_errors();
 }
 
@@ -694,18 +696,3 @@ UCS_TEST_P(test_ucp_peer_failure_2pairs, status_after_error) {
 }
 
 UCP_INSTANTIATE_TEST_CASE(test_ucp_peer_failure_2pairs)
-
-class test_ucp_ep_force_disconnect : public test_ucp_peer_failure
-{
-public:
-    virtual void init() {
-        m_env.clear(); /* restore default timeouts. */
-        test_ucp_peer_failure::init();
-    }
-};
-
-UCS_TEST_P(test_ucp_ep_force_disconnect, test) {
-    test_force_close();
-}
-
-UCP_INSTANTIATE_TEST_CASE(test_ucp_ep_force_disconnect)
