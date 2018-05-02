@@ -30,7 +30,7 @@ protected:
         //
         // TODO enable this for testing failures on 2nd peer
         //std::string ud_timeout = ucs::to_string<int>(10 * ucs::test_time_multiplier()) + "ms";
-        std::string ud_timeout = ucs::to_string<int>(1 * ucs::test_time_multiplier()) + "s";
+        std::string ud_timeout = ucs::to_string<int>(5 * ucs::test_time_multiplier()) + "s";
         m_env.push_back(new ucs::scoped_setenv("UCX_UD_TIMEOUT", ud_timeout.c_str()));
     }
 
