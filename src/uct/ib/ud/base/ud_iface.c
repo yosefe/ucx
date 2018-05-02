@@ -62,6 +62,7 @@ uct_ud_iface_cep_cleanup_eps(uct_ud_iface_t *iface, uct_ud_iface_peer_t *peer)
         }
         ucs_list_del(&ep->cep_list);
         ucs_trace("cep:ep_destroy(%p) conn_id %d", ep, ep->conn_id);
+        uct_ud_tx_wnd_purge_outstanding(iface,ep, UCS_ERR_CANCELED);
         uct_ep_destroy(&ep->super.super);
     }
 }

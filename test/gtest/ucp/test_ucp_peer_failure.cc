@@ -153,7 +153,7 @@ protected:
          *                 (int)ucs_queue_length(&self->tx.window));
          */
         UCS_TEST_MESSAGE << "fail_receiver";
-        flush_worker(receiver());
+//        flush_worker(receiver());
         m_entities.remove(&receiver());
         UCS_TEST_MESSAGE << "fail_receiver done";
     }
