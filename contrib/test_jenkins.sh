@@ -723,8 +723,8 @@ run_gtest() {
 
 	echo "==== Running unit tests ===="
 	$AFFINITY $TIMEOUT make -C test/gtest test \
-		UCX_LOG_LEVEL=req \
-		GTEST_FILTER=*test_ud.ca_resend*:*test_ud.ca_md*:*peer_failure*
+		UCX_LOG_LEVEL=data \
+		GTEST_FILTER=*test_ud.ca_resend*:*test_ud.ca_md*
 	(cd test/gtest && rename .tap _gtest.tap *.tap && mv *.tap $GTEST_REPORT_DIR)
 
 	echo "==== Running malloc hooks mallopt() test ===="
