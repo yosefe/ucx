@@ -62,6 +62,7 @@ uct_ud_iface_cep_cleanup_eps(uct_ud_iface_t *iface, uct_ud_iface_peer_t *peer)
         }
         ucs_list_del(&ep->cep_list);
         ucs_trace("cep:ep_destroy(%p) conn_id %d", ep, ep->conn_id);
+        uct_ud_tx_wnd_purge_outstanding(iface, ep, UCS_ERR_CANCELED);
         uct_ep_destroy(&ep->super.super);
     }
 }
@@ -678,6 +679,10 @@ ucs_status_t uct_ud_iface_flush(uct_iface_h tl_iface, unsigned flags,
 
     count = 0;
     ucs_ptr_array_for_each(ep, i, &iface->eps) {
+        if (ep->flags & (UCT_UD_EP_FLAG_PRIVATE|UCT_UD_EP_FLAG_DISCONNECTED)) {
+            continue;
+        }
+
         /* ud ep flush returns either ok or in progress */
         status = uct_ud_ep_flush_nolock(iface, ep, NULL);
         if ((status == UCS_INPROGRESS) || (status == UCS_ERR_NO_RESOURCE)) {
@@ -753,11 +758,34 @@ static void uct_ud_iface_free_resend_skbs(uct_ud_iface_t *iface)
     }
 }
 
+static void uct_ud_ep_dispatch_err_comp(uct_ud_ep_t *ep, uct_ud_send_skb_t *skb)
+{
+    uct_ud_iface_t *iface = ucs_derived_of(ep->super.super.iface, uct_ud_iface_t);
+    ucs_status_t status;
+
+    ucs_assert(ep->tx.err_skb_count > 0);
+    --ep->tx.err_skb_count;
+
+    if ((ep->tx.err_skb_count > 0) || (ep->flags & UCT_UD_EP_FLAG_DISCONNECTED)) {
+        return;
+    }
+
+    if (ep->flags & UCT_UD_EP_FLAG_PRIVATE) {
+        uct_ep_destroy(&ep->super.super);
+        return;
+    }
+
+    status = iface->super.ops->set_ep_failed(&iface->super, &ep->super.super,
+                                             skb->status);
+    if (status != UCS_OK) {
+        ucs_fatal("transport error: %s", ucs_status_string(status));
+    }
+}
+
 void uct_ud_iface_dispatch_async_comps_do(uct_ud_iface_t *iface)
 {
     uct_ud_comp_desc_t *cdesc;
     uct_ud_send_skb_t  *skb;
-    ucs_status_t        status;
     uct_ud_ep_t *ep;
 
     do {
@@ -772,17 +800,7 @@ void uct_ud_iface_dispatch_async_comps_do(uct_ud_iface_t *iface)
         }
 
         if (ucs_unlikely(skb->flags & UCT_UD_SEND_SKB_FLAG_ERR)) {
-            ucs_assert(ep->tx.err_skb_count > 0);
-            --ep->tx.err_skb_count;
-            if ((ep->tx.err_skb_count == 0) &&
-                !(ep->flags & UCT_UD_EP_FLAG_DISCONNECTED)) {
-                status = iface->super.ops->set_ep_failed(&iface->super,
-                                                         &ep->super.super,
-                                                         skb->status);
-                if (status != UCS_OK) {
-                    ucs_fatal("transport error: %s", ucs_status_string(status));
-                }
-            }
+            uct_ud_ep_dispatch_err_comp(ep, skb);
         }
 
         ep->flags &= ~UCT_UD_EP_FLAG_ASYNC_COMPS;

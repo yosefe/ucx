@@ -157,10 +157,25 @@ static void uct_ud_ep_slow_timer(ucs_wtimer_t *self)
     now = ucs_twheel_get_time(&iface->async.slow_timer);
     diff = now - ep->tx.send_time;
     if (diff > iface->config.peer_timeout) {
-        iface->super.ops->handle_failure(&iface->super, ep,
-                                         UCS_ERR_ENDPOINT_TIMEOUT);
+        ucs_debug("ep %p: timeout of %.2f sec", ep, ucs_time_to_sec(diff));
+        if (ep->flags & UCT_UD_EP_FLAG_PRIVATE) {
+            /* Endpoints which were not explicitly created should not report errors.
+             * TODO test that it fixes the error "no ucp_ep associated...", it happens
+             * when there is a timeout on CREP message. maybe do it by dropping
+             * CREP with custom rx hook
+             * fixes #2336
+             * TODO does the flush inside ep_disconnect really work?
+             * should we still call err handler
+             */
+            uct_ep_destroy(&ep->super.super);
+        } else {
+            iface->super.ops->handle_failure(&iface->super, ep,
+                                             UCS_ERR_ENDPOINT_TIMEOUT);
+        }
         return;
-    } else if (diff > 3*iface->async.slow_tick) {
+    }
+
+    if (diff > 3 * iface->async.slow_tick) {
         ucs_trace("scheduling resend now: %lu send_time: %lu diff: %lu tick: %lu",
                   now, ep->tx.send_time, now - ep->tx.send_time,
                   ep->tx.slow_tick);
@@ -318,6 +333,7 @@ ucs_status_t uct_ud_ep_create_connected_common(uct_ud_iface_t *iface,
     ep = uct_ud_iface_cep_lookup(iface, ib_addr, if_addr, UCT_UD_EP_CONN_ID_MAX);
     if (ep) {
         uct_ud_ep_set_state(ep, UCT_UD_EP_FLAG_CREQ_NOTSENT);
+        ep->flags &= ~UCT_UD_EP_FLAG_PRIVATE;
         *new_ep_p = ep;
         *skb_p    = NULL;
         return UCS_ERR_ALREADY_EXISTS;
@@ -400,6 +416,8 @@ uct_ud_iface_add_async_comp(uct_ud_iface_t *iface, uct_ud_ep_t *ep,
         }
 
         if (status == UCS_ERR_ENDPOINT_TIMEOUT) {
+            ucs_trace("ud iface %p ep %p: add skb %p with status timeout", iface,
+                      ep, skb);
             skb->flags |= UCT_UD_SEND_SKB_FLAG_ERR;
             ++ep->tx.err_skb_count;
         } else if (status == UCS_ERR_CANCELED) {
@@ -1216,7 +1234,8 @@ void  uct_ud_ep_disconnect(uct_ep_h tl_ep)
     uct_ud_ep_t    *ep    = ucs_derived_of(tl_ep, uct_ud_ep_t);
     uct_ud_iface_t *iface = ucs_derived_of(tl_ep->iface, uct_ud_iface_t);
 
-    ucs_trace_func("");
+    ucs_debug("ep %p: disconnect", ep);
+
     /* cancel user pending */
     uct_ud_ep_pending_purge(tl_ep, NULL, NULL);
 
