@@ -319,6 +319,7 @@ ucp_test_base::entity::entity(const ucp_test_param& test_param,
 {
     ucp_test_param entity_param = test_param;
     ucp_worker_params_t local_worker_params = worker_params;
+    int num_workers;
 
     if (test_param.thread_type == MULTI_THREAD_CONTEXT) {
         num_workers = MT_TEST_NUM_THREADS;
@@ -357,8 +358,8 @@ ucp_test_base::entity::~entity() {
 void ucp_test_base::entity::connect(const entity* other,
                                     const ucp_ep_params_t& ep_params,
                                     int ep_idx, int do_set_ep) {
-    assert(num_workers == other->get_num_workers());
-    for (unsigned i = 0; i < unsigned(num_workers); i++) {
+    assert(get_num_workers() == other->get_num_workers());
+    for (unsigned i = 0; i < unsigned(get_num_workers()); i++) {
         ucs_status_t status;
         ucp_address_t *address;
         size_t address_length;
@@ -506,8 +507,7 @@ unsigned ucp_test_base::entity::progress(int worker_index)
 }
 
 int ucp_test_base::entity::get_num_workers() const {
-    assert(m_workers.size() == size_t(num_workers));
-    return num_workers;
+    return m_workers.size();
 }
 
 int ucp_test_base::entity::get_num_eps(int worker_index) const {
