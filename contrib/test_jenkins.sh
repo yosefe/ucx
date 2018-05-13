@@ -720,7 +720,7 @@ run_gtest() {
 	mkdir -p $GTEST_REPORT_DIR
 
 	echo "==== Running unit tests ===="
-	$AFFINITY $TIMEOUT make -C test/gtest test
+	$AFFINITY $TIMEOUT make -C test/gtest test GTEST_FILTER=*ucp_peer_failure*
 	(cd test/gtest && rename .tap _gtest.tap *.tap && mv *.tap $GTEST_REPORT_DIR)
 
 	echo "==== Running malloc hooks mallopt() test ===="
@@ -813,43 +813,43 @@ run_tests() {
 	export UCX_ERROR_MAIL_TO=$ghprbActualCommitAuthorEmail
 	export UCX_ERROR_MAIL_FOOTER=$JOB_URL/$BUILD_NUMBER/console
 
-	do_distributed_task 0 4 build_icc
-	do_distributed_task 1 4 build_debug
-	do_distributed_task 2 4 build_cuda
-	do_distributed_task 3 4 build_clang
-	do_distributed_task 0 4 build_armclang
+	#do_distributed_task 0 4 build_icc
+	#do_distributed_task 1 4 build_debug
+	#do_distributed_task 2 4 build_cuda
+	#do_distributed_task 3 4 build_clang
+	#do_distributed_task 0 4 build_armclang
 
 	# all are running mpi tests
-	run_mpi_tests
+	#run_mpi_tests
 
-	../contrib/configure-devel --prefix=$ucx_inst
-	$MAKE
-	$MAKE install
+	#../contrib/configure-devel --prefix=$ucx_inst
+	#$MAKE
+	#$MAKE install
 
-	run_ucx_tl_check
+	#run_ucx_tl_check
 
-	do_distributed_task 1 4 run_ucp_hello
-	do_distributed_task 2 4 run_uct_hello
-	do_distributed_task 1 4 run_ucp_client_server
-	do_distributed_task 3 4 test_profiling
-	do_distributed_task 3 4 test_dlopen
-	do_distributed_task 3 4 test_memtrack
-	do_distributed_task 0 4 test_unused_env_var
+	#do_distributed_task 1 4 run_ucp_hello
+	#do_distributed_task 2 4 run_uct_hello
+	#do_distributed_task 1 4 run_ucp_client_server
+	#do_distributed_task 3 4 test_profiling
+	#do_distributed_task 3 4 test_dlopen
+	#do_distributed_task 3 4 test_memtrack
+	#do_distributed_task 0 4 test_unused_env_var
 
 	# all are running gtest
 	run_gtest
 
-	do_distributed_task 3 4 run_coverity
-	do_distributed_task 0 4 run_gtest_release
+	#do_distributed_task 3 4 run_coverity
+	#do_distributed_task 0 4 run_gtest_release
 }
 
 prepare
-try_load_cuda_env
-do_distributed_task 0 4 build_docs
-do_distributed_task 0 4 build_disable_numa
-do_distributed_task 1 4 build_no_verbs
-do_distributed_task 2 4 build_release_pkg
-do_distributed_task 3 4 check_inst_headers
+#try_load_cuda_env
+#do_distributed_task 0 4 build_docs
+#do_distributed_task 0 4 build_disable_numa
+#do_distributed_task 1 4 build_no_verbs
+#do_distributed_task 2 4 build_release_pkg
+#do_distributed_task 3 4 check_inst_headers
 
 if [ -n "$JENKINS_RUN_TESTS" ]
 then
