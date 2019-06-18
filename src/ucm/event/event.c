@@ -472,9 +472,8 @@ static ucs_status_t ucm_event_install(int events)
         ucm_prevent_dl_unload();
     }
 
-    /* Replace aggregate events with the native events which make them */
-    native_events = events & ~(UCM_EVENT_VM_MAPPED | UCM_EVENT_VM_UNMAPPED |
-                               UCM_EVENT_MEM_TYPE_ALLOC | UCM_EVENT_MEM_TYPE_FREE);
+    /* Update aggregate events with the native events which make them */
+    native_events = events & ~(UCM_EVENT_MEM_TYPE_ALLOC | UCM_EVENT_MEM_TYPE_FREE);
     if (events & UCM_EVENT_VM_MAPPED) {
         native_events |= UCM_NATIVE_EVENT_VM_MAPPED;
     }
