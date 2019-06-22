@@ -648,6 +648,14 @@ void ucp_frag_mpool_free(ucs_mpool_t *mp, void *chunk)
     ucp_mpool_free(worker, mp, chunk);
 }
 
+// TODO move to UCS
+ucs_status_t ucs_get_mem_page_size(void *address, size_t length, size_t *page_size_p)
+{
+    // TODO parse /proc/self/smaps
+    *page_size_p = ucs_get_page_size();
+    return UCS_OK;
+}
+
 void ucp_mem_print_info(const char *mem_size, ucp_context_h context, FILE *stream)
 {
     ucp_mem_map_params_t mem_params;
@@ -656,6 +664,7 @@ void ucp_mem_print_info(const char *mem_size, ucp_context_h context, FILE *strea
     ucs_status_t status;
     uct_mem_h uct_memh;
     unsigned md_index;
+    size_t page_size;
     ucp_mem_h memh;
 
     status = ucs_str_to_memunits(mem_size, &mem_size_value);
@@ -692,8 +701,14 @@ void ucp_mem_print_info(const char *mem_size, ucp_context_h context, FILE *strea
                 fprintf(stream, "%s ",context->tl_mds[md_index].rsc.md_name);
 
                 uct_memh = ucp_memh2uct(memh, md_index);
-                if ((uct_memh != NULL) && (uct_md_is_hugetlb(context->tl_mds[md_index].md, uct_memh))) {
-                        fprintf(stream, "hugetlb on");
+                if (uct_memh != NULL) {
+                    status = ucs_get_mem_page_size(memh->address, memh->length,
+                                                   &page_size);
+                    if (status == UCS_OK) {
+                        ucs_memunits_to_str(page_size, memunits_str,
+                                            sizeof(memunits_str));
+                        fprintf(stream, "pagesize: %s", memunits_str);
+                    }
                 }
                 break;
             }
