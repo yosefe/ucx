@@ -138,6 +138,7 @@ ucs_status_t ucp_tag_send_start_rndv(ucp_request_t *sreq)
             return status;
         }
     } else {
+        // TODO rename mode get_zcopy ro "get"
         if (UCP_DT_IS_CONTIG(sreq->send.datatype) &&
             ucp_rndv_is_get_zcopy(sreq, ep->worker->context->config.ext.rndv_mode)) {
             /* register a contiguous buffer for rma_get */
@@ -507,6 +508,8 @@ UCS_PROFILE_FUNC_VOID(ucp_rndv_matched, (worker, rreq, rndv_rts_hdr),
 {
     ucp_rndv_mode_t rndv_mode;
     ucp_request_t *rndv_req;
+    ucs_status_t status;
+    ucp_rkey_h rkey;
     ucp_ep_h ep;
 
     UCS_ASYNC_BLOCK(&worker->async);
@@ -551,6 +554,37 @@ UCS_PROFILE_FUNC_VOID(ucp_rndv_matched, (worker, rreq, rndv_rts_hdr),
     ep = rndv_req->send.ep;
 
     rndv_mode = worker->context->config.ext.rndv_mode;
+
+    // WIP rkey ptr rndv support
+    if (UCP_DT_IS_CONTIG(rreq->recv.datatype) && rndv_rts_hdr->address) {
+        // todo handle noncontig too
+        void *ptr;
+        int num_rkeys;
+        int i;
+
+        status = ucp_ep_rkey_unpack(rndv_req->send.ep, rndv_rts_hdr + 1, &rkey);
+        if (status != UCS_OK) {
+            ucs_fatal("failed to unpack rendezvous remote key received from %s: %s",
+                      ucp_ep_peer_name(rndv_req->send.ep), ucs_status_string(status));
+        }
+
+        num_rkeys = ucs_popcount(rkey->md_map);
+        for (i = 0; i < num_rkeys; ++i) {
+            status = uct_rkey_ptr(rkey->tl_rkey[i].cmpt, &rkey->tl_rkey[i].rkey,
+                                  rndv_rts_hdr->address, &ptr);
+            if ((status == UCS_OK)) {
+                memcpy(rreq->recv.buffer, ptr, rndv_rts_hdr->size);
+                ucp_rndv_req_send_ats(rndv_req, rreq, rndv_rts_hdr->sreq.reqptr);
+//                ucp_rndv_zcopy_recv_req_complete(rreq, UCS_OK);
+                ucp_request_complete_tag_recv(rreq, UCS_OK);
+                ucp_rkey_destroy(rkey);
+                goto out;
+            }
+        }
+
+        ucp_rkey_destroy(rkey); // todo avoid unpacking twice
+    }
+
     if (UCP_DT_IS_CONTIG(rreq->recv.datatype)) {
         if (rndv_rts_hdr->address && (rndv_mode != UCP_RNDV_MODE_PUT_ZCOPY)) {
             /* try to fetch the data with a get_zcopy operation */

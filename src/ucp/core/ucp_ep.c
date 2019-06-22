@@ -1024,7 +1024,7 @@ static void ucp_ep_config_set_rndv_thresh(ucp_worker_t *worker,
     }
 
     iface_attr = ucp_worker_iface_get_attr(worker, rsc_index);
-    ucs_assert_always(iface_attr->cap.flags & rndv_cap_flag);
+//    ucs_assert_always(iface_attr->cap.flags & rndv_cap_flag); disabled to support rkey ptr
 
     if (context->config.ext.rndv_thresh == UCS_MEMUNITS_AUTO) {
         /* auto - Make UCX calculate the RMA (get_zcopy) rndv threshold on its own.*/
@@ -1273,8 +1273,11 @@ ucs_status_t ucp_ep_config_init(ucp_worker_h worker, ucp_ep_config_t *config,
             config->tag.sync_proto              = &ucp_tag_offload_sync_proto;
             config->tag.proto                   = &ucp_tag_offload_proto;
             config->tag.lane                    = lane;
-            max_rndv_thresh                     = iface_attr->cap.tag.eager.max_zcopy;
             max_am_rndv_thresh                  = iface_attr->cap.tag.eager.max_bcopy;
+
+            // TODO check eagerzcopy flag
+            max_rndv_thresh                     = ucs_max(iface_attr->cap.tag.eager.max_zcopy,
+                                                          max_am_rndv_thresh);
 
             ucp_ep_config_set_memtype_thresh(&config->tag.offload.max_eager_short,
                                              config->tag.eager.max_short,

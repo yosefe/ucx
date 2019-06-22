@@ -964,13 +964,12 @@ static int ucp_wireup_is_ep_single_lane(ucp_ep_h ep, ucp_rsc_index_t rsc_index)
            (ep->worker->context->tl_rscs[rsc_index].tl_rsc.dev_type == UCT_DEVICE_TYPE_SELF);
 }
 
-static ucs_status_t ucp_wireup_add_bw_lanes(ucp_ep_h ep,
-                                            unsigned address_count,
-                                            const ucp_address_entry_t *address_list,
-                                            const ucp_wireup_select_bw_info_t *bw_info,
-                                            int allow_proxy, uint64_t tl_bitmap,
-                                            ucp_wireup_lane_desc_t *lane_descs,
-                                            ucp_lane_index_t *num_lanes_p)
+static int ucp_wireup_add_bw_lanes(ucp_ep_h ep, unsigned address_count,
+                                   const ucp_address_entry_t *address_list,
+                                   const ucp_wireup_select_bw_info_t *bw_info,
+                                   int allow_proxy, uint64_t tl_bitmap,
+                                   ucp_wireup_lane_desc_t *lane_descs,
+                                   ucp_lane_index_t *num_lanes_p)
 {
     ucp_context_h context = ep->worker->context;
     ucs_status_t status;
@@ -1023,7 +1022,7 @@ static ucs_status_t ucp_wireup_add_bw_lanes(ucp_ep_h ep,
         }
     }
 
-    return UCS_OK;
+    return num_lanes;
 }
 
 static ucs_status_t ucp_wireup_add_am_bw_lanes(ucp_ep_h ep, const ucp_ep_params_t *params,
@@ -1086,8 +1085,9 @@ static ucs_status_t ucp_wireup_add_am_bw_lanes(ucp_ep_h ep, const ucp_ep_params_
         }
     }
 
-    return ucp_wireup_add_bw_lanes(ep, address_count, address_list, &bw_info, 1,
-                                   -1, lane_descs, num_lanes_p);
+    ucp_wireup_add_bw_lanes(ep, address_count, address_list, &bw_info, 1, -1,
+                            lane_descs, num_lanes_p);
+    return UCS_OK;
 }
 
 static ucs_status_t ucp_wireup_add_rma_bw_lanes(ucp_ep_h ep,
@@ -1098,34 +1098,53 @@ static ucs_status_t ucp_wireup_add_rma_bw_lanes(ucp_ep_h ep,
                                                 ucp_lane_index_t *num_lanes_p)
 {
     ucp_wireup_select_bw_info_t bw_info;
+    ucp_wireup_criteria_t rma_zcopy_criteria;
+    ucp_wireup_criteria_t UCS_V_UNUSED rkey_ptr_criteria;
     uct_memory_type_t mem_type;
+    uint64_t md_flags;
+    int count;
 
     if (ep_init_flags & UCP_EP_INIT_FLAG_MEM_TYPE) {
-        bw_info.criteria.remote_md_flags = 0;
-        bw_info.criteria.local_md_flags  = 0;
+        md_flags = 0;
     } else if (ucp_ep_get_context_features(ep) & UCP_FEATURE_TAG) {
         /* if needed for RNDV, need only access for remote registered memory */
-        bw_info.criteria.remote_md_flags = UCT_MD_FLAG_REG;
-        bw_info.criteria.local_md_flags  = UCT_MD_FLAG_REG;
+        md_flags = UCT_MD_FLAG_REG;
     } else {
         return UCS_OK;
     }
 
-    bw_info.criteria.title              = "high-bw remote memory access";
-    bw_info.criteria.remote_iface_flags = UCT_IFACE_FLAG_GET_ZCOPY |
-                                          UCT_IFACE_FLAG_PUT_ZCOPY;
-    bw_info.criteria.local_iface_flags  = bw_info.criteria.remote_iface_flags |
-                                          UCT_IFACE_FLAG_PENDING;
-    bw_info.criteria.calc_score         = ucp_wireup_rma_bw_score_func;
-    bw_info.criteria.tl_rsc_flags       = 0;
-    ucp_wireup_clean_amo_criteria(&bw_info.criteria);
-    ucp_wireup_fill_ep_params_criteria(&bw_info.criteria, params);
+    /* Fill direct access mode criteria */
+    // TODO pass rkey_ptr cap in address
+    rkey_ptr_criteria.title              = "high-bw direct remote memory access";
+    rkey_ptr_criteria.remote_md_flags    = md_flags;
+    rkey_ptr_criteria.local_md_flags     = md_flags | UCT_MD_FLAG_RKEY_PTR;
+
+    rkey_ptr_criteria.remote_iface_flags = 0;
+    rkey_ptr_criteria.local_iface_flags  = 0;
+    rkey_ptr_criteria.calc_score         = ucp_wireup_rma_bw_score_func;
+    rkey_ptr_criteria.tl_rsc_flags       = 0;
+    ucp_wireup_clean_amo_criteria(&rkey_ptr_criteria);
+
+    /* Fill zcopy-mode criteria */
+    rma_zcopy_criteria.title              = "high-bw zcopy remote memory access";
+    rma_zcopy_criteria.remote_md_flags    = md_flags;
+    rma_zcopy_criteria.local_md_flags     = md_flags;
+
+    rma_zcopy_criteria.remote_iface_flags = UCT_IFACE_FLAG_GET_ZCOPY |
+                                            UCT_IFACE_FLAG_PUT_ZCOPY;
+    rma_zcopy_criteria.local_iface_flags  = rma_zcopy_criteria.remote_iface_flags |
+                                            UCT_IFACE_FLAG_PENDING;
+    rma_zcopy_criteria.calc_score         = ucp_wireup_rma_bw_score_func;
+    rma_zcopy_criteria.tl_rsc_flags       = 0;
+    ucp_wireup_clean_amo_criteria(&rma_zcopy_criteria);
+    ucp_wireup_fill_ep_params_criteria(&rma_zcopy_criteria, params);
 
     if (ucs_test_all_flags(ucp_ep_get_context_features(ep),
                            UCP_FEATURE_TAG | UCP_FEATURE_WAKEUP)) {
-        bw_info.criteria.local_iface_flags |= UCP_WORKER_UCT_UNSIG_EVENT_CAP_FLAGS;
+        rma_zcopy_criteria.local_iface_flags |= UCP_WORKER_UCT_UNSIG_EVENT_CAP_FLAGS;
     }
 
+    /* initialize bw_info */
     bw_info.local_dev_bitmap  = -1;
     bw_info.remote_dev_bitmap = -1;
     bw_info.md_map            = 0;
@@ -1137,9 +1156,21 @@ static ucs_status_t ucp_wireup_add_rma_bw_lanes(ucp_ep_h ep,
             continue;
         }
 
-        ucp_wireup_add_bw_lanes(ep, address_count, address_list, &bw_info, 0,
-                                ep->worker->context->mem_type_access_tls[mem_type],
-                                lane_descs, num_lanes_p);
+        /* Try rkey_ptr */
+        ucs_trace("start");
+        bw_info.criteria = rkey_ptr_criteria;
+        count = ucp_wireup_add_bw_lanes(ep, address_count, address_list, &bw_info,
+                                        0, ep->worker->context->mem_type_access_tls[mem_type],
+                                        lane_descs, num_lanes_p);
+        ucs_trace("XXend");
+
+        /* If not found, try zcopy */
+        if (count == 0) {
+            bw_info.criteria = rma_zcopy_criteria;
+            ucp_wireup_add_bw_lanes(ep, address_count, address_list, &bw_info,
+                                    0, ep->worker->context->mem_type_access_tls[mem_type],
+                                    lane_descs, num_lanes_p);
+        }
     }
 
     return UCS_OK;
