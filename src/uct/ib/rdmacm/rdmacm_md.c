@@ -5,7 +5,6 @@
 
 #include "rdmacm_md.h"
 
-#define UCT_RDMACM_MD_PREFIX              "rdmacm"
 
 static ucs_config_field_t uct_rdmacm_md_config_table[] = {
   {"", "", NULL,
@@ -195,8 +194,10 @@ out:
     return is_accessible;
 }
 
-static ucs_status_t uct_rdmacm_query_md_resources(uct_md_resource_desc_t **resources_p,
-                                                  unsigned *num_resources_p)
+static ucs_status_t
+uct_rdmacm_query_md_resources(uct_component_t *component,
+                              uct_md_resource_desc_t **resources_p,
+                              unsigned *num_resources_p)
 {
     struct rdma_event_channel *event_ch = NULL;
 
@@ -205,21 +206,22 @@ static ucs_status_t uct_rdmacm_query_md_resources(uct_md_resource_desc_t **resou
     if (event_ch == NULL) {
         ucs_debug("could not create an RDMACM event channel. %m. "
                   "Disabling the RDMACM resource");
-        *resources_p     = NULL;
-        *num_resources_p = 0;
-        return UCS_OK;
+        return uct_md_query_empty_md_resource(resources_p, num_resources_p);
+
     }
 
     rdma_destroy_event_channel(event_ch);
 
-    return uct_single_md_resource(&uct_rdmacm_mdc, resources_p, num_resources_p);
+    return uct_md_query_single_md_resource(component, resources_p,
+                                           num_resources_p);
 }
 
 static ucs_status_t
-uct_rdmacm_md_open(const char *md_name, const uct_md_config_t *uct_md_config,
-                   uct_md_h *md_p)
+uct_rdmacm_md_open(uct_component_t *component, const char *md_name,
+                   const uct_md_config_t *uct_md_config, uct_md_h *md_p)
 {
-    uct_rdmacm_md_config_t *md_config = ucs_derived_of(uct_md_config, uct_rdmacm_md_config_t);
+    uct_rdmacm_md_config_t *md_config = ucs_derived_of(uct_md_config,
+                                                       uct_rdmacm_md_config_t);
     uct_rdmacm_md_t *md;
     ucs_status_t status;
 
@@ -230,7 +232,7 @@ uct_rdmacm_md_open(const char *md_name, const uct_md_config_t *uct_md_config,
     }
 
     md->super.ops            = &uct_rdmacm_md_ops;
-    md->super.component      = &uct_rdmacm_mdc;
+    md->super.component      = &uct_rdmacm_component;
     md->addr_resolve_timeout = md_config->addr_resolve_timeout;
 
     *md_p = &md->super;
@@ -240,8 +242,19 @@ out:
     return status;
 }
 
-UCT_MD_COMPONENT_DEFINE(uct_rdmacm_mdc, UCT_RDMACM_MD_PREFIX,
-                        uct_rdmacm_query_md_resources, uct_rdmacm_md_open, NULL,
-                        ucs_empty_function_return_unsupported,
-                        (void*)ucs_empty_function_return_success,
-                        "RDMACM_", uct_rdmacm_md_config_table, uct_rdmacm_md_config_t);
+uct_component_t uct_rdmacm_component = {
+    .query_md_resources = uct_rdmacm_query_md_resources,
+    .md_open         = uct_rdmacm_md_open,
+    .rkey_unpack     = (void*)ucs_empty_function_return_unsupported,
+    .rkey_ptr        = (void*)ucs_empty_function_return_unsupported,
+    .rkey_release    = (void*)ucs_empty_function_return_success,
+    .name            = "rdmacm",
+    .md_config       = {
+        .name        = "RDMA-CM memory domain",
+        .prefix      =  "IB_",
+        .table       = uct_rdmacm_md_config_table,
+        .size        = sizeof(uct_rdmacm_md_config_t),
+    },
+    .tl_list         = UCT_COMPONENT_TL_LIST_INITIALIZER(&uct_rdmacm_component)
+};
+UCT_COMPONENT_REGISTER(&uct_rdmacm_component)

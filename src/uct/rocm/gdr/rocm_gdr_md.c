@@ -104,7 +104,7 @@ static ucs_status_t uct_rocm_gdr_mem_dereg(uct_md_h md, uct_mem_h memh)
 static ucs_status_t uct_rocm_gdr_query_md_resources(uct_md_resource_desc_t **resources_p,
                                                     unsigned *num_resources_p)
 {
-    return uct_single_md_resource(&uct_rocm_gdr_md_component, resources_p,
+    return uct_query_single_md_resource(&uct_rocm_gdr_md_component, resources_p,
                                   num_resources_p);
 }
 

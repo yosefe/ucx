@@ -20,7 +20,7 @@ static ucs_status_t uct_ugni_query_md_resources(uct_md_resource_desc_t **resourc
                                                 unsigned *num_resources_p)
 {
     if (getenv("PMI_GNI_PTAG") != NULL) {
-        return uct_single_md_resource(&uct_ugni_md_component, resources_p, num_resources_p);
+        return uct_query_single_md_resource(&uct_ugni_md_component, resources_p, num_resources_p);
     } else {
         *resources_p     = NULL;
         *num_resources_p = 0;

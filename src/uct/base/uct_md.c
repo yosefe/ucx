@@ -19,8 +19,6 @@
 #include <malloc.h>
 
 
-UCS_LIST_HEAD(uct_md_components_list);
-
 ucs_config_field_t uct_md_config_table[] = {
 
   {NULL}
@@ -58,7 +56,7 @@ ucs_status_t uct_md_open(uct_component_h component, const char *md_name,
     ucs_status_t status;
     uct_md_h md;
 
-    status = component->md_open(md_name, config, &md);
+    status = component->md_open(component, md_name, config, &md);
     if (status != UCS_OK) {
         return status;
     }
@@ -135,9 +133,10 @@ void uct_release_tl_resource_list(uct_tl_resource_desc_t *resources)
     ucs_free(resources);
 }
 
-ucs_status_t uct_single_md_resource(uct_md_component_t *mdc,
-                                    uct_md_resource_desc_t **resources_p,
-                                    unsigned *num_resources_p)
+ucs_status_t
+uct_md_query_single_md_resource(uct_component_t *component,
+                                uct_md_resource_desc_t **resources_p,
+                                unsigned *num_resources_p)
 {
     uct_md_resource_desc_t *resource;
 
@@ -146,10 +145,20 @@ ucs_status_t uct_single_md_resource(uct_md_component_t *mdc,
         return UCS_ERR_NO_MEMORY;
     }
 
-    ucs_snprintf_zero(resource->md_name, UCT_MD_NAME_MAX, "%s", mdc->name);
+    ucs_snprintf_zero(resource->md_name, UCT_MD_NAME_MAX, "%s",
+                      component->name);
 
-    *resources_p     = resource;
+    *resources_p = resource;
     *num_resources_p = 1;
+    return UCS_OK;
+}
+
+ucs_status_t
+uct_md_query_empty_md_resource(uct_md_resource_desc_t **resources_p,
+                               unsigned *num_resources_p)
+{
+    *resources_p     = NULL;
+    *num_resources_p = 0;
     return UCS_OK;
 }
 
@@ -295,9 +304,9 @@ ucs_status_t uct_md_config_read(uct_component_h component,
     uct_config_bundle_t *bundle = NULL;
     ucs_status_t status;
 
-    status = uct_config_read(&bundle, component->md_config_table,
-                             component->md_config_size, env_prefix,
-                             component->cfg_prefix);
+    status = uct_config_read(&bundle, component->md_config.table,
+                             component->md_config.size, env_prefix,
+                             component->md_config.prefix);
     if (status != UCS_OK) {
         ucs_error("Failed to read MD config");
         return status;
@@ -457,12 +466,4 @@ ucs_status_t uct_md_detect_memory_type(uct_md_h md, void *addr, size_t length,
                                        uct_memory_type_t *mem_type_p)
 {
     return md->ops->detect_memory_type(md, addr, length, mem_type_p);
-}
-
-int uct_md_is_hugetlb(uct_md_h md, uct_mem_h memh)
-{
-    if (md->ops->is_hugetlb != NULL) {
-        return md->ops->is_hugetlb(md, memh);
-    }
-    return 0;
 }

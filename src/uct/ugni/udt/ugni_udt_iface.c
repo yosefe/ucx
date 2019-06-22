@@ -487,7 +487,7 @@ UCS_CLASS_DEFINE_NEW_FUNC(uct_ugni_udt_iface_t, uct_iface_t, uct_md_h,
                           uct_worker_h, const uct_iface_params_t*,
                           const uct_iface_config_t*);
 
-UCT_TL_COMPONENT_DEFINE(uct_ugni_udt_tl_component,
+UCT_TL_DEFINE(uct_ugni_udt_tl_component,
                         uct_ugni_udt_query_tl_resources,
                         uct_ugni_udt_iface_t,
                         UCT_UGNI_UDT_TL_NAME,

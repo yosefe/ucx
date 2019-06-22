@@ -8,7 +8,9 @@
 #define _GNU_SOURCE
 #include "cma_md.h"
 
+#include <ucs/debug/log.h>
 #include <ucs/sys/string.h>
+#include <ucs/sys/sys.h>
 #include <sys/prctl.h>
 #include <sys/uio.h>
 #include <string.h>
@@ -17,8 +19,6 @@
 #  include <sys/capability.h>
 #endif
 
-
-uct_md_component_t uct_cma_md_component;
 
 static int uct_cma_test_ptrace_scope()
 {
@@ -107,17 +107,16 @@ static int uct_cma_test_writev()
     return 1;
 }
 
-static ucs_status_t uct_cma_query_md_resources(uct_md_resource_desc_t **resources_p,
-                                               unsigned *num_resources_p)
+static ucs_status_t
+uct_cma_query_md_resources(uct_component_t *component,
+                           uct_md_resource_desc_t **resources_p,
+                           unsigned *num_resources_p)
 {
     if (uct_cma_test_writev() && uct_cma_test_ptrace_scope()) {
-        return uct_single_md_resource(&uct_cma_md_component,
-                                      resources_p,
-                                      num_resources_p);
+        return uct_md_query_single_md_resource(component, resources_p,
+                                               num_resources_p);
     } else {
-        *resources_p     = NULL;
-        *num_resources_p = 0;
-        return UCS_OK;
+        return uct_md_query_empty_md_resource(resources_p, num_resources_p);
     }
 }
 
@@ -132,8 +131,9 @@ static ucs_status_t uct_cma_mem_reg(uct_md_h md, void *address, size_t length,
     return UCS_OK;
 }
 
-static ucs_status_t uct_cma_md_open(const char *md_name, const uct_md_config_t *md_config,
-                                    uct_md_h *md_p)
+static ucs_status_t
+uct_cma_md_open(uct_component_t *component, const char *md_name,
+                const uct_md_config_t *md_config, uct_md_h *md_p)
 {
     static uct_md_ops_t md_ops = {
         .close              = (void*)ucs_empty_function,
@@ -147,18 +147,12 @@ static ucs_status_t uct_cma_md_open(const char *md_name, const uct_md_config_t *
     };
     static uct_md_t md = {
         .ops          = &md_ops,
-        .component    = &uct_cma_md_component
+        .component    = &uct_cma_component
     };
 
     *md_p = &md;
     return UCS_OK;
 }
-
-UCT_MD_COMPONENT_DEFINE(uct_cma_md_component, "cma",
-                        uct_cma_query_md_resources, uct_cma_md_open, NULL,
-                        uct_md_stub_rkey_unpack,
-                        ucs_empty_function_return_success, "CMA_",
-                        uct_md_config_table, uct_md_config_t)
 
 ucs_status_t uct_cma_md_query(uct_md_h md, uct_md_attr_t *md_attr)
 {
@@ -175,3 +169,15 @@ ucs_status_t uct_cma_md_query(uct_md_h md, uct_md_attr_t *md_attr)
     memset(&md_attr->local_cpus, 0xff, sizeof(md_attr->local_cpus));
     return UCS_OK;
 }
+
+uct_component_t uct_cma_component = {
+    .query_md_resources = uct_cma_query_md_resources,
+    .md_open            = uct_cma_md_open,
+    .rkey_unpack        = uct_md_stub_rkey_unpack,
+    .rkey_ptr           = (void*)ucs_empty_function_return_unsupported,
+    .rkey_release       = (void*)ucs_empty_function_return_success,
+    .name               = "cma",
+    .md_config          = UCT_MD_DEFAULT_CONFIG_INITIALIZER,
+    .tl_list            = UCT_COMPONENT_TL_LIST_INITIALIZER(&uct_cma_component)
+};
+UCT_COMPONENT_REGISTER(&uct_cma_component);

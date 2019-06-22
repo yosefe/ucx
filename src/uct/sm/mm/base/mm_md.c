@@ -7,6 +7,11 @@
 
 #include "mm_md.h"
 
+#include <ucs/debug/log.h>
+#include <inttypes.h>
+#include <limits.h>
+
+
 ucs_config_field_t uct_mm_md_config_table[] = {
   {"", "", NULL,
    ucs_offsetof(uct_mm_md_config_t, super), UCS_CONFIG_TYPE_TABLE(uct_md_config_table)},
@@ -21,6 +26,20 @@ ucs_config_field_t uct_mm_md_config_table[] = {
 
   {NULL}
 };
+
+ucs_status_t uct_mm_query_md_resources(uct_component_t *component,
+                                       uct_md_resource_desc_t **resources_p,
+                                       unsigned *num_resources_p)
+{
+    uct_mm_component_t *mmc = ucs_derived_of(component, uct_mm_component_t);
+
+    if (mmc->ops->query() == UCS_OK) {
+        return uct_md_query_single_md_resource(component, resources_p,
+                                               num_resources_p);
+    } else {
+        return uct_md_query_empty_md_resource(resources_p, num_resources_p);
+    }
+}
 
 ucs_status_t uct_mm_mem_alloc(uct_md_h md, size_t *length_p, void **address_p,
                               unsigned flags, const char *alloc_name,
@@ -219,16 +238,9 @@ static void uct_mm_md_close(uct_md_h md)
 {
     uct_mm_md_t *mm_md = ucs_derived_of(md, uct_mm_md_t);
 
-    ucs_config_parser_release_opts(mm_md->config, md->component->md_config_table);
+    ucs_config_parser_release_opts(mm_md->config, md->component->md_config.table);
     ucs_free(mm_md->config);
     ucs_free(mm_md);
-}
-
-int uct_mm_is_hugetlb(uct_md_h md, uct_mem_h memh)
-{
-    uct_mm_seg_t *seg = memh;
-
-    return seg->is_hugetlb;
 }
 
 uct_md_ops_t uct_mm_md_ops = {
@@ -240,11 +252,10 @@ uct_md_ops_t uct_mm_md_ops = {
     .mem_dereg          = uct_mm_mem_dereg,
     .mkey_pack          = uct_mm_mkey_pack,
     .detect_memory_type = ucs_empty_function_return_unsupported,
-    .is_hugetlb         = uct_mm_is_hugetlb,
 };
 
-ucs_status_t uct_mm_md_open(const char *md_name, const uct_md_config_t *md_config,
-                            uct_md_h *md_p, uct_md_component_t *mdc)
+ucs_status_t uct_mm_md_open(uct_component_t *component, const char *md_name,
+                            const uct_md_config_t *config, uct_md_h *md_p)
 {
     uct_mm_md_t *mm_md;
     ucs_status_t status;
@@ -256,24 +267,22 @@ ucs_status_t uct_mm_md_open(const char *md_name, const uct_md_config_t *md_confi
         goto err;
     }
 
-    mm_md->config = ucs_malloc(mdc->md_config_size, "mm_md config");
+    mm_md->config = ucs_malloc(component->md_config.size, "mm_md config");
     if (mm_md->config == NULL) {
         ucs_error("Failed to allocate memory for mm_md config");
         status = UCS_ERR_NO_MEMORY;
         goto err_free_mm_md;
     }
 
-    status = ucs_config_parser_clone_opts(md_config, mm_md->config,
-                                          mdc->md_config_table);
+    status = ucs_config_parser_clone_opts(config, mm_md->config,
+                                          component->md_config.table);
     if (status != UCS_OK) {
         ucs_error("Failed to clone opts");
         goto err_free_mm_md_config;
     }
 
-    mdc->rkey_ptr = uct_mm_rkey_ptr;
-
-    mm_md->super.ops = &uct_mm_md_ops;
-    mm_md->super.component = mdc;
+    mm_md->super.ops       = &uct_mm_md_ops;
+    mm_md->super.component = component;
 
     *md_p = &mm_md->super;
     return UCS_OK;

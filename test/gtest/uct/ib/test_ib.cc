@@ -120,7 +120,8 @@ bool test_uct_ib::test_eth_port() {
     ucs_status_t status;
     uint8_t gid_index;
 
-    status = uct_ib_md_open(ibv_get_device_name(m_ibctx->device), m_md_config,
+    status = uct_ib_md_open(&uct_ib_component,
+                            ibv_get_device_name(m_ibctx->device), m_md_config,
                             &uct_md);
     ASSERT_UCS_OK(status);
 

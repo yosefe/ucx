@@ -305,7 +305,7 @@ static ucs_status_t uct_cuda_copy_query_tl_resources(uct_md_h md,
     return UCS_OK;
 }
 
-UCT_TL_COMPONENT_DEFINE(uct_cuda_copy_tl,
+UCT_TL_DEFINE(uct_cuda_copy_tl,
                         uct_cuda_copy_query_tl_resources,
                         uct_cuda_copy_iface_t,
                         UCT_CUDA_COPY_TL_NAME,

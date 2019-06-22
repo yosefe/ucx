@@ -5,6 +5,7 @@
 
 #include "tcp.h"
 
+#include <uct/base/uct_md.h>
 #include <ucs/async/async.h>
 #include <ucs/sys/string.h>
 #include <ucs/config/types.h>
@@ -12,6 +13,7 @@
 #include <sys/poll.h>
 #include <netinet/tcp.h>
 #include <dirent.h>
+
 
 static ucs_config_field_t uct_tcp_iface_config_table[] = {
   {"", "", NULL,
@@ -596,5 +598,5 @@ out:
 UCT_TL_COMPONENT_DEFINE(uct_tcp_tl, uct_tcp_query_tl_resources, uct_tcp_iface_t,
                         UCT_TCP_NAME, "TCP_", uct_tcp_iface_config_table,
                         uct_tcp_iface_config_t);
-UCT_MD_REGISTER_TL(&uct_tcp_md, &uct_tcp_tl);
+UCT_MD_REGISTER_TL(&uct_tcp_component, &uct_tcp_tl);
 

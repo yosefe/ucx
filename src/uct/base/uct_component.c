@@ -14,6 +14,8 @@
 #include <string.h>
 
 
+UCS_LIST_HEAD(uct_md_components_list);
+
 ucs_status_t uct_query_components(uct_component_h **components_p,
                                   unsigned *num_components_p)
 {
@@ -56,8 +58,7 @@ ucs_status_t uct_component_query(uct_component_h component,
 
     if (component_attr->field_mask & (UCT_COMPONENT_ATTR_FIELD_MD_RESOURCE_COUNT|
                                       UCT_COMPONENT_ATTR_FIELD_MD_RESOURCES)) {
-        // TODO change definition of md->query_resources
-        status = mdc->query_resources(&resources, &num_resources);
+        status = mdc->query_md_resources(mdc, &resources, &num_resources);
         if (status != UCS_OK) {
             return status;
         }

@@ -9,7 +9,10 @@
 #include "knem_io.h"
 
 #include <ucs/arch/cpu.h>
+#include <ucs/debug/log.h>
+#include <ucs/sys/sys.h>
 #include <ucm/api/ucm.h>
+
 
 static ucs_config_field_t uct_knem_md_config_table[] = {
     {"", "", NULL,
@@ -43,8 +46,10 @@ ucs_status_t uct_knem_md_query(uct_md_h uct_md, uct_md_attr_t *md_attr)
     return UCS_OK;
 }
 
-static ucs_status_t uct_knem_query_md_resources(uct_md_resource_desc_t **resources_p,
-                                                unsigned *num_resources_p)
+static ucs_status_t
+uct_knem_query_md_resources(uct_component_t *component,
+                            uct_md_resource_desc_t **resources_p,
+                            unsigned *num_resources_p)
 {
     int fd;
     int rc;
@@ -54,35 +59,31 @@ static ucs_status_t uct_knem_query_md_resources(uct_md_resource_desc_t **resourc
 
     fd = open("/dev/knem", O_RDWR);
     if (fd < 0) {
-        ucs_debug("Could not open the KNEM device file at /dev/knem: %m. Disabling knem resource");
-        *resources_p     = NULL;
-        *num_resources_p = 0;
-        return UCS_OK;
+        ucs_debug("could not open the KNEM device file at /dev/knem: %m. Disabling knem resource");
+        goto out_empty;
     }
 
     rc = ioctl(fd, KNEM_CMD_GET_INFO, &info);
     if (rc < 0) {
-        *resources_p     = NULL;
-        *num_resources_p = 0;
-        close(fd);
         ucs_debug("KNEM get info failed. not using knem, err = %d %m", rc);
-        return UCS_OK;
+        goto out_empty_close_fd;
     }
 
     if (KNEM_ABI_VERSION != info.abi) {
-        *resources_p     = NULL;
-        *num_resources_p = 0;
-        close(fd);
         ucs_error("KNEM ABI mismatch: KNEM_ABI_VERSION: %d, Driver binary interface version: %d",
                   KNEM_ABI_VERSION, info.abi);
-        return UCS_OK;
+        goto out_empty_close_fd;
     }
 
     /* We have to close it since it is not clear
      * if it will be selected in future */
     close(fd);
-    return uct_single_md_resource(&uct_knem_md_component, resources_p,
-                                  num_resources_p);
+    return uct_md_query_single_md_resource(component, resources_p, num_resources_p);
+
+out_empty_close_fd:
+    close(fd);
+out_empty:
+    return uct_md_query_empty_md_resource(resources_p, num_resources_p);
 }
 
 static void uct_knem_md_close(uct_md_h md)
@@ -319,9 +320,9 @@ static ucs_rcache_ops_t uct_knem_rcache_ops = {
     .dump_region = uct_knem_rcache_dump_region_cb
 };
 
-static ucs_status_t uct_knem_md_open(const char *md_name,
-                                     const uct_md_config_t *uct_md_config,
-                                     uct_md_h *md_p)
+static ucs_status_t
+uct_knem_md_open(uct_component_t *component, const char *md_name,
+                 const uct_md_config_t *uct_md_config, uct_md_h *md_p)
 {
     const uct_knem_md_config_t *md_config = ucs_derived_of(uct_md_config, uct_knem_md_config_t);
     uct_knem_md_t *knem_md;
@@ -335,7 +336,7 @@ static ucs_status_t uct_knem_md_open(const char *md_name,
     }
 
     knem_md->super.ops         = &md_ops;
-    knem_md->super.component   = &uct_knem_md_component;
+    knem_md->super.component   = &uct_knem_component;
     knem_md->reg_cost.overhead = 1200.0e-9;
     knem_md->reg_cost.growth   = 0.007e-9;
     knem_md->rcache            = NULL;
@@ -379,8 +380,19 @@ static ucs_status_t uct_knem_md_open(const char *md_name,
     return UCS_OK;
 }
 
-UCT_MD_COMPONENT_DEFINE(uct_knem_md_component, "knem",
-                        uct_knem_query_md_resources, uct_knem_md_open, 0,
-                        uct_knem_rkey_unpack,
-                        uct_knem_rkey_release, "KNEM_", uct_knem_md_config_table,
-                        uct_knem_md_config_t)
+uct_component_t uct_knem_component = {
+    .query_md_resources = uct_knem_query_md_resources,
+    .md_open            = uct_knem_md_open,
+    .rkey_unpack        = uct_knem_rkey_unpack,
+    .rkey_ptr           = (void*)ucs_empty_function_return_unsupported,
+    .rkey_release       = uct_knem_rkey_release,
+    .name               = "knem",
+    .md_config          = {
+        .name           = "KNEM memory domain",
+        .prefix         = "KNEM_",
+        .table          = uct_knem_md_config_table,
+        .size           = sizeof(uct_knem_md_config_t),
+    },
+    .tl_list            = UCT_COMPONENT_TL_LIST_INITIALIZER(&uct_knem_component)
+};
+UCT_COMPONENT_REGISTER(&uct_knem_component);

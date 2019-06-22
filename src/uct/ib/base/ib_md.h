@@ -176,7 +176,7 @@ typedef struct uct_ib_md_ops_entry {
         ucs_list_add_tail(&uct_ib_md_ops_list, &entry.list); \
     }
 
-extern uct_md_component_t uct_ib_mdc;
+extern uct_component_t uct_ib_component;
 
 
 static inline uint32_t uct_ib_md_direct_rkey(uct_rkey_t uct_rkey)
@@ -225,8 +225,8 @@ static inline uint16_t uct_ib_md_atomic_offset(uint8_t atomic_mr_id)
 }
 
 
-ucs_status_t
-uct_ib_md_open(const char *md_name, const uct_md_config_t *uct_md_config, uct_md_h *md_p);
+ucs_status_t uct_ib_md_open(uct_component_t *component, const char *md_name,
+                            const uct_md_config_t *uct_md_config, uct_md_h *md_p);
 
 ucs_status_t uct_ib_md_open_common(uct_ib_md_t *md,
                                    struct ibv_device *ib_device,

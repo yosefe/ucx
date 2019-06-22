@@ -10,6 +10,7 @@
 #include "ib_verbs.h"
 
 #include <uct/api/uct.h>
+#include <uct/base/uct_iface.h>
 #include <ucs/stats/stats.h>
 #include <ucs/debug/assert.h>
 #include <ucs/datastruct/khash.h>

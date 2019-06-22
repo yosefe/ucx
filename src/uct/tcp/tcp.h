@@ -6,7 +6,8 @@
 #ifndef UCT_TCP_MD_H
 #define UCT_TCP_MD_H
 
-#include <uct/base/uct_md.h>
+#include <uct/base/uct_component.h>
+#include <uct/base/uct_iface.h>
 #include <ucs/sys/sock.h>
 #include <ucs/sys/string.h>
 #include <ucs/datastruct/khash.h>
@@ -190,7 +191,7 @@ typedef struct uct_tcp_iface_config {
 } uct_tcp_iface_config_t;
 
 
-extern uct_md_component_t uct_tcp_md;
+extern uct_component_t uct_tcp_component;
 extern const char *uct_tcp_address_type_names[];
 extern const uct_tcp_cm_state_t uct_tcp_ep_cm_state[];
 

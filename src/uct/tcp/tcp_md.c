@@ -5,6 +5,8 @@
 
 #include "tcp.h"
 
+#include <uct/base/uct_md.h>
+
 
 static ucs_status_t uct_tcp_md_query(uct_md_h md, uct_md_attr_t *attr)
 {
@@ -21,14 +23,9 @@ static ucs_status_t uct_tcp_md_query(uct_md_h md, uct_md_attr_t *attr)
     return UCS_OK;
 }
 
-static ucs_status_t uct_tcp_query_md_resources(uct_md_resource_desc_t **resources_p,
-                                                unsigned *num_resources_p)
-{
-    return uct_single_md_resource(&uct_tcp_md, resources_p, num_resources_p);
-}
-
-static ucs_status_t uct_tcp_md_open(const char *md_name, const uct_md_config_t *md_config,
-                                    uct_md_h *md_p)
+static ucs_status_t
+uct_tcp_md_open(uct_component_t *component, const char *md_name,
+                const uct_md_config_t *md_config, uct_md_h *md_p)
 {
     static uct_md_ops_t md_ops = {
         .close              = ucs_empty_function,
@@ -40,15 +37,21 @@ static ucs_status_t uct_tcp_md_open(const char *md_name, const uct_md_config_t *
     };
     static uct_md_t md = {
         .ops          = &md_ops,
-        .component    = &uct_tcp_md
+        .component    = &uct_tcp_component
     };
 
     *md_p = &md;
     return UCS_OK;
 }
 
-UCT_MD_COMPONENT_DEFINE(uct_tcp_md, UCT_TCP_NAME,
-                        uct_tcp_query_md_resources, uct_tcp_md_open, NULL,
-                        ucs_empty_function_return_unsupported,
-                        ucs_empty_function_return_success, "TCP_",
-                        uct_md_config_table, uct_md_config_t);
+uct_component_t uct_tcp_component = {
+    .query_md_resources = uct_md_query_single_md_resource,
+    .md_open            = uct_tcp_md_open,
+    .rkey_unpack        = ucs_empty_function_return_unsupported,
+    .rkey_ptr           = ucs_empty_function_return_unsupported,
+    .rkey_release       = ucs_empty_function_return_unsupported,
+    .name               = UCT_TCP_NAME,
+    .md_config          = UCT_MD_DEFAULT_CONFIG_INITIALIZER,
+    .tl_list            = UCT_COMPONENT_TL_LIST_INITIALIZER(&uct_tcp_component)
+};
+UCT_COMPONENT_REGISTER(&uct_tcp_component)

@@ -157,7 +157,7 @@ static ucs_status_t uct_rocm_gdr_query_tl_resources(uct_md_h md,
     return UCS_OK;
 }
 
-UCT_TL_COMPONENT_DEFINE(uct_rocm_gdr_tl,
+UCT_TL_DEFINE(uct_rocm_gdr_tl,
                         uct_rocm_gdr_query_tl_resources,
                         uct_rocm_gdr_iface_t,
                         UCT_ROCM_GDR_TL_NAME,

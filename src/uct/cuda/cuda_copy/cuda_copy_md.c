@@ -108,7 +108,7 @@ static ucs_status_t uct_cuda_copy_query_md_resources(uct_md_resource_desc_t **re
         return UCS_OK;
     }
 
-    return uct_single_md_resource(&uct_cuda_copy_md_component, resources_p, num_resources_p);
+    return uct_query_single_md_resource(&uct_cuda_copy_md_component, resources_p, num_resources_p);
 }
 
 static void uct_cuda_copy_md_close(uct_md_h uct_md) {

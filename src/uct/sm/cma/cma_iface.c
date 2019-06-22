@@ -12,7 +12,7 @@
 #include <ucs/sys/string.h>
 
 
-UCT_MD_REGISTER_TL(&uct_cma_md_component, &uct_cma_tl);
+UCT_MD_REGISTER_TL(&uct_cma_component, &uct_cma_tl);
 
 static ucs_config_field_t uct_cma_iface_config_table[] = {
     {"", "ALLOC=huge,thp,mmap,heap;BW=11145MBs", NULL,

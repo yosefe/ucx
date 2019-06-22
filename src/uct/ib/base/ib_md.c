@@ -14,13 +14,14 @@
 #include <ucs/sys/math.h>
 #include <ucs/sys/module.h>
 #include <ucs/sys/string.h>
+#include <ucs/sys/sys.h>
 #include <ucm/api/ucm.h>
 #include <pthread.h>
 #include <sys/resource.h>
+#include <unistd.h>
 #include <float.h>
 
 
-#define UCT_IB_MD_PREFIX         "ib"
 #define UCT_IB_MD_RCACHE_DEFAULT_ALIGN 16
 
 /* define string to use it in debug messages */
@@ -778,7 +779,8 @@ static uct_md_ops_t UCS_V_UNUSED uct_ib_md_global_odp_ops = {
     .detect_memory_type = ucs_empty_function_return_unsupported,
 };
 
-static ucs_status_t uct_ib_query_md_resources(uct_md_resource_desc_t **resources_p,
+static ucs_status_t uct_ib_query_md_resources(uct_component_t *component,
+                                              uct_md_resource_desc_t **resources_p,
                                               unsigned *num_resources_p)
 {
     UCS_MODULE_FRAMEWORK_DECLARE(uct_ib);
@@ -1099,8 +1101,8 @@ static double uct_ib_md_pci_bw(const uct_ib_md_config_t *md_config,
     return uct_ib_md_read_pci_bw(ib_device);
 }
 
-ucs_status_t
-uct_ib_md_open(const char *md_name, const uct_md_config_t *uct_md_config, uct_md_h *md_p)
+ucs_status_t uct_ib_md_open(uct_component_t *component, const char *md_name,
+                            const uct_md_config_t *uct_md_config, uct_md_h *md_p)
 {
     const uct_ib_md_config_t *md_config = ucs_derived_of(uct_md_config, uct_ib_md_config_t);
     ucs_status_t status = UCS_ERR_UNSUPPORTED;
@@ -1167,7 +1169,8 @@ ucs_status_t uct_ib_md_open_common(uct_ib_md_t *md,
     int ret;
 
     md->super.ops       = &uct_ib_md_ops;
-    md->super.component = &uct_ib_mdc;
+    md->super.component = &uct_ib_component;
+    md->config          = md_config->ext;
 
     /* Create statistics */
     status = UCS_STATS_NODE_ALLOC(&md->stats, &uct_ib_md_stats_class,
@@ -1340,8 +1343,19 @@ static uct_ib_md_ops_t uct_ib_verbs_md_ops = {
 
 UCT_IB_MD_OPS(uct_ib_verbs_md_ops, 0);
 
-UCT_MD_COMPONENT_DEFINE(uct_ib_mdc, UCT_IB_MD_PREFIX,
-                        uct_ib_query_md_resources, uct_ib_md_open, NULL,
-                        uct_ib_rkey_unpack,
-                        (void*)ucs_empty_function_return_success /* release */,
-                        "IB_", uct_ib_md_config_table, uct_ib_md_config_t);
+uct_component_t uct_ib_component = {
+    .query_md_resources = uct_ib_query_md_resources,
+    .md_open         = uct_ib_md_open,
+    .rkey_unpack     = uct_ib_rkey_unpack,
+    .rkey_ptr        = (void*)ucs_empty_function_return_unsupported,
+    .rkey_release    = (void*)ucs_empty_function,
+    .name            = "ib",
+    .md_config       = {
+        .name        = "IB memory domain",
+        .prefix      = "IB_",
+        .table       = uct_ib_md_config_table,
+        .size        = sizeof(uct_ib_md_config_t),
+    },
+    .tl_list         = UCT_COMPONENT_TL_LIST_INITIALIZER(&uct_ib_component)
+};
+UCT_COMPONENT_REGISTER(&uct_ib_component);

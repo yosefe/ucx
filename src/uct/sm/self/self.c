@@ -6,6 +6,7 @@
 #include "self.h"
 
 #include <uct/sm/base/sm_ep.h>
+#include <uct/sm/base/sm_iface.h>
 #include <ucs/type/class.h>
 #include <ucs/sys/string.h>
 #include <ucs/arch/cpu.h>
@@ -27,7 +28,7 @@
 
 /* Forward declarations */
 static uct_iface_ops_t uct_self_iface_ops;
-static uct_md_component_t uct_self_md;
+static uct_component_t uct_self_component;
 
 
 static ucs_config_field_t uct_self_iface_config_table[] = {
@@ -333,7 +334,7 @@ static uct_iface_ops_t uct_self_iface_ops = {
 UCT_TL_COMPONENT_DEFINE(uct_self_tl, uct_self_query_tl_resources, uct_self_iface_t,
                         UCT_SELF_NAME, "SELF_", uct_self_iface_config_table,
                         uct_self_iface_config_t);
-UCT_MD_REGISTER_TL(&uct_self_md, &uct_self_tl);
+UCT_MD_REGISTER_TL(&uct_self_component, &uct_self_tl);
 
 static ucs_status_t uct_self_md_query(uct_md_h md, uct_md_attr_t *attr)
 {
@@ -352,12 +353,6 @@ static ucs_status_t uct_self_md_query(uct_md_h md, uct_md_attr_t *attr)
     return UCS_OK;
 }
 
-static ucs_status_t uct_self_query_md_resources(uct_md_resource_desc_t **resources_p,
-                                                unsigned *num_resources_p)
-{
-    return uct_single_md_resource(&uct_self_md, resources_p, num_resources_p);
-}
-
 static ucs_status_t uct_self_mem_reg(uct_md_h md, void *address, size_t length,
                                      unsigned flags, uct_mem_h *memh_p)
 {
@@ -366,8 +361,8 @@ static ucs_status_t uct_self_mem_reg(uct_md_h md, void *address, size_t length,
     return UCS_OK;
 }
 
-static ucs_status_t uct_self_md_open(const char *md_name, const uct_md_config_t *md_config,
-                                     uct_md_h *md_p)
+static ucs_status_t uct_self_md_open(uct_component_t *component, const char *md_name,
+                                     const uct_md_config_t *config, uct_md_h *md_p)
 {
     static uct_md_ops_t md_ops = {
         .close              = (void*)ucs_empty_function,
@@ -379,7 +374,7 @@ static ucs_status_t uct_self_md_open(const char *md_name, const uct_md_config_t 
     };
     static uct_md_t md = {
         .ops          = &md_ops,
-        .component    = &uct_self_md
+        .component    = &uct_self_component
     };
 
     *md_p = &md;
@@ -399,8 +394,14 @@ static ucs_status_t uct_self_md_rkey_unpack(uct_md_component_t *mdc,
     return UCS_OK;
 }
 
-static UCT_MD_COMPONENT_DEFINE(uct_self_md, UCT_SELF_NAME,
-                               uct_self_query_md_resources, uct_self_md_open, NULL,
-                               uct_self_md_rkey_unpack,
-                               ucs_empty_function_return_success, "SELF_",
-                               uct_md_config_table, uct_md_config_t);
+static uct_component_t uct_self_component = {
+    .query_md_resources = uct_md_query_single_md_resource,
+    .md_open            = uct_self_md_open,
+    .rkey_unpack        = uct_self_md_rkey_unpack,
+    .rkey_ptr           = ucs_empty_function_return_unsupported,
+    .rkey_release       = ucs_empty_function_return_success,
+    .name               = UCT_SELF_NAME,
+    .md_config          = UCT_MD_DEFAULT_CONFIG_INITIALIZER,
+    .tl_list            = UCT_COMPONENT_TL_LIST_INITIALIZER(&uct_self_component)
+};
+UCT_COMPONENT_REGISTER(&uct_self_component);

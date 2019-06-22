@@ -12,7 +12,7 @@
 #include <ucs/sys/string.h>
 
 
-UCT_MD_REGISTER_TL(&uct_knem_md_component, &uct_knem_tl);
+UCT_MD_REGISTER_TL(&uct_knem_component, &uct_knem_tl);
 
 static ucs_config_field_t uct_knem_iface_config_table[] = {
     {"", "BW=13862MBs", NULL,
