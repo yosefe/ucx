@@ -60,9 +60,7 @@ struct uct_mm_iface {
     uct_sm_iface_t          super;
 
     /* Receive FIFO */
-    uct_mm_id_t             fifo_mm_id;       /* memory id which will be received */
-                                              /* after allocating the fifo */
-    void                    *shared_mem;      /* the beginning of the receive fifo */
+    uct_allocated_memory_t  recv_fifo_mem;
 
     uct_mm_fifo_ctl_t       *recv_fifo_ctl;   /* pointer to the struct at the */
                                               /* beginning of the receive fifo */
@@ -70,7 +68,7 @@ struct uct_mm_iface {
                                               /* this struct is cache line aligned and */
                                               /* doesn't necessarily start where */
                                               /* shared_mem starts */
-    void                    *recv_fifo_elements; /* pointer to the first fifo element */
+    void                    *recv_fifo_elems; /* pointer to the first fifo element */
                                                  /* in the receive fifo */
     uint64_t                read_index;          /* actual reading location */
 
@@ -85,13 +83,12 @@ struct uct_mm_iface {
 
     size_t                  rx_headroom;
     ucs_arbiter_t           arbiter;
-    const char              *path;            /* path to the backing file (for 'posix') */
     uct_recv_desc_t         release_desc;
 
     struct {
-        unsigned fifo_size;
-        unsigned fifo_elem_size;
-        unsigned seg_size;                    /* size of the receive descriptor (for payload)*/
+        unsigned            fifo_size;
+        unsigned            fifo_elem_size;
+        unsigned            seg_size;           /* size of the receive descriptor (for payload)*/
     } config;
 };
 
@@ -102,21 +99,17 @@ struct uct_mm_fifo_element {
     uint16_t        length;         /* length of actual data */
 
     /* bcopy parameters */
-    size_t          desc_mpool_size;
-    uct_mm_id_t     desc_mmid;      /* the mmid of the the memory chunk that
-                                     * the desc (that this fifo_elem points to)
-                                     * belongs to */
+    uct_mm_packed_rkey_t packed_rkey;
+
     size_t          desc_offset;    /* the offset of the desc (its data location for bcopy)
                                      * within the memory chunk it belongs to */
-    void            *desc_chunk_base_addr;
+
     /* the data follows here (in case of inline messaging) */
 } UCS_S_PACKED;
 
 
 struct uct_mm_recv_desc {
-    uct_mm_id_t         key;
-    void                *base_address;
-    size_t              mpool_length;
+    uct_mem_h           memh;
     uct_recv_desc_t     recv;   /* has to be in the end */
 };
 
@@ -126,12 +119,17 @@ struct uct_mm_recv_desc {
  *
  * @param _var          Variable for MD component.
  * @param _name         Component name token
- * @param _ops          Memory domain operations, of type uct_mm_mapper_ops_t.
+ * @param _md_ops       Memory domain operations, of type uct_mm_md_ops_t.
+ * @param _rkey_unpack  Remote key unpack function
+ * @param _rkey_release Remote key release function
  * @param _cfg_prefix   Prefix for configuration variables.
  */
-#define UCT_MM_TL_DEFINE(_name, _ops, _cfg_prefix) \
+#define UCT_MM_TL_DEFINE(_name, _md_ops, _rkey_unpack, _rkey_release, \
+                         _cfg_prefix) \
     \
-    UCT_MM_COMPONENT_DEFINE(uct_##_name##_component, _name, _ops, _cfg_prefix) \
+    UCT_MM_COMPONENT_DEFINE(uct_##_name##_component, _name, _md_ops, \
+                            _rkey_unpack, _rkey_release, _cfg_prefix) \
+    \
     UCT_TL_DEFINE(&(uct_##_name##_component).super, \
                   _name, \
                   uct_sm_base_query_tl_devices, \
@@ -162,29 +160,16 @@ uct_mm_iface_invoke_am(uct_mm_iface_t *iface, uint8_t am_id, void *data,
 }
 
 
-static uct_mm_fifo_ctl_t* uct_mm_set_fifo_ctl(void *mem_region)
-{
-    return (uct_mm_fifo_ctl_t*) ucs_align_up_pow2
-           ((uintptr_t) mem_region , UCS_SYS_CACHE_LINE_SIZE);
-}
-
 /**
  * Set aligned pointers of the FIFO according to the beginning of the allocated
  * memory.
  *
  * @param [in] mem_region  pointer to the beginning of the allocated memory.
  * @param [out] fifo_elems an aligned pointer to the first FIFO element.
+ * TODO
  */
-static inline void uct_mm_set_fifo_elems_ptr(void *mem_region, void **fifo_elems)
-{
-   uct_mm_fifo_ctl_t *fifo_ctl;
-
-   /* initiate the the uct_mm_fifo_ctl struct, holding the head and the tail */
-   fifo_ctl = uct_mm_set_fifo_ctl(mem_region);
-
-   /* initiate the pointer to the beginning of the first FIFO element */
-   *fifo_elems = (void*) fifo_ctl + UCT_MM_FIFO_CTL_SIZE_ALIGNED;
-}
+void uct_mm_iface_set_fifo_ptrs(void *fifo_mem, uct_mm_fifo_ctl_t **fifo_ctl_p,
+                                void **fifo_elems_p);
 
 UCS_CLASS_DECLARE_NEW_FUNC(uct_mm_iface_t, uct_iface_t, uct_md_h, uct_worker_h,
                            const uct_iface_params_t*, const uct_iface_config_t*);

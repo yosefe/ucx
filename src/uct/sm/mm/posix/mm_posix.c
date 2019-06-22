@@ -14,6 +14,7 @@
 
 
 #define UCT_MM_POSIX_SHM_OPEN_MODE  (0666)
+#define UCT_MM_POSIX_CREATE_FLAGS   (O_CREAT | O_EXCL)
 #define UCT_MM_POSIX_MMAP_PROT      (PROT_READ | PROT_WRITE)
 #define UCT_MM_POSIX_HUGETLB        UCS_BIT(0)
 #define UCT_MM_POSIX_SHM_OPEN       UCS_BIT(1)
@@ -21,28 +22,37 @@
 #define UCT_MM_POSIX_CTRL_BITS      3
 #define UCT_MM_POSIX_FD_BITS        29
 #define UCT_MM_POSIX_PID_BITS       32
+#define UCT_MM_POSIX_SHM_OPEN_DIR   "/dev/shm"
 
 typedef struct uct_posix_md_config {
     uct_mm_md_config_t      super;
     char                    *path;
-    ucs_ternary_value_t     use_shm_open;
     int                     use_proc_link;
 } uct_posix_md_config_t;
+
+typedef struct uct_mm_posix_seg {
+    uct_mm_seg_t            super;
+    char                    path[0];
+} uct_mm_posix_seg_t;
+
+typedef struct uct_mm_posix_packed_rkey {
+    uct_mm_packed_rkey_t    super;
+    char                    path[0];
+} uct_mm_posix_packed_rkey_t;
+
+typedef struct uct_posix_remote_seg {
+    void                    *attach_address;
+    size_t                  length;
+} uct_posix_remote_seg_t;
+
 
 static ucs_config_field_t uct_posix_md_config_table[] = {
   {"MM_", "", NULL,
    ucs_offsetof(uct_posix_md_config_t, super), UCS_CONFIG_TYPE_TABLE(uct_mm_md_config_table)},
 
-  {"USE_SHM_OPEN", "try", "Use shm_open() for opening a file for memory mapping. "
-   "Possible values are:\n"
-   " y   - Use only shm_open() to open a backing file.\n"
-   " n   - Use only open() to open a backing file.\n"
-   " try - Try to use shm_open() and if it fails, use open().\n"
-   "If shm_open() is used, the path to the file defaults to /dev/shm.\n"
-   "If open() is used, the path to the file is specified in the parameter bellow (DIR).",
-   ucs_offsetof(uct_posix_md_config_t, use_shm_open), UCS_CONFIG_TYPE_TERNARY},
-
-  {"DIR", "/tmp", "The path to the backing file in case open() is used.",
+  {"DIR", UCT_MM_POSIX_SHM_OPEN_DIR,
+   "The path to the backing file. If it's equal to " UCT_MM_POSIX_SHM_OPEN_DIR " then \n"
+   "shm_open() is used. Otherwise, open() is used.",
    ucs_offsetof(uct_posix_md_config_t, path), UCS_CONFIG_TYPE_STRING},
 
   {"USE_PROC_LINK", "y", "Use /proc/<pid>/fd/<fd> to share posix file.\n"
@@ -53,13 +63,24 @@ static ucs_config_field_t uct_posix_md_config_table[] = {
   {NULL}
 };
 
-static ucs_status_t uct_posix_test_mem(size_t length, int shm_fd)
+static int uct_posix_use_shm_open(const uct_posix_md_config_t *posix_config)
 {
-    int *buf;
-    int chunk_size = 256 * 1024;
-    ucs_status_t status = UCS_OK;
+    return !strcmp(posix_config->path, UCT_MM_POSIX_SHM_OPEN_DIR);
+}
+
+static ucs_status_t uct_posix_md_query(uct_md_h md, uct_md_attr_t *md_attr)
+{
+    uct_mm_md_query(md, md_attr, 1);
+    return UCS_OK;
+}
+
+static ucs_status_t uct_posix_test_mem(int shm_fd, size_t length)
+{
+    const size_t chunk_size = 16 * 1024;
     size_t size_to_write, remaining;
     ssize_t single_write;
+    ucs_status_t status;
+    int *buf;
 
     buf = ucs_malloc(chunk_size, "write buffer");
     if (buf == NULL) {
@@ -98,181 +119,171 @@ static ucs_status_t uct_posix_test_mem(size_t length, int shm_fd)
         remaining -= single_write;
     }
 
+    status = UCS_OK;
+
 out_free_buf:
     ucs_free(buf);
-
 out:
     return status;
 }
 
-static size_t uct_posix_get_path_size(uct_md_h md)
+static ucs_status_t
+uct_posix_make_file_path(const char *path, const char *file_name,
+                         char **file_path_p)
 {
-    uct_mm_md_t *mm_md = ucs_derived_of(md, uct_mm_md_t);
-    uct_posix_md_config_t *posix_config = ucs_derived_of(mm_md->config,
-                                                         uct_posix_md_config_t);
+    char *file_path;
+    size_t path_len;
 
-    /* if shm_open is requested, the path to the backing file is /dev/shm
-     * by default. however, if shm_open isn't used, in case UCS_NO was set for
-     * use_shm_open or if UCS_TRY was set but using shm_open() was unsuccessful,
-     * the size of the path to the requested backing file is needed so that the
-     * user would know how much space to allocated for the rkey. */
-    if (posix_config->use_shm_open == UCS_YES) {
-        return 0;
-    } else {
-        return 1 + strlen(posix_config->path);
+    ucs_assert(file_name[0] == '/');
+
+    path_len  = strlen(path) + strlen(file_name) + 1;
+    file_path = ucs_malloc(path_len, "posix_path");
+    if (file_path == NULL) {
+        return UCS_ERR_NO_MEMORY;
     }
+
+    snprintf(file_path, path_len, "%s%s", path, file_name);
+    *file_path_p = file_path;
+    return UCS_OK;
 }
 
-static uint8_t uct_posix_get_priority()
+static ucs_status_t uct_posix_shm_open(const char *file_name, int flags,
+                                       int *shm_fd_p)
 {
-    return 0;
+    int fd = shm_open(file_name, flags | O_RDWR, UCT_MM_POSIX_SHM_OPEN_MODE);
+    if (fd < 0) {
+        ucs_error("shared memory shm_open(file_name=%s) failed: %m", file_name);
+        return UCS_ERR_SHMEM_SEGMENT;
+    }
+
+    *shm_fd_p = fd;
+    return UCS_OK;
 }
 
-static ucs_status_t uct_posix_set_path(char *file_name, int use_shm_open,
-                                       const char *path, uint64_t uuid)
+static ucs_status_t uct_posix_path_open(const char *path, const char *file_name,
+                                        int flags, int *shm_fd_p)
 {
     ucs_status_t status;
-    int ret, len;
+    char *file_path;
+    int fd;
 
-    if (!use_shm_open) {
-        strncpy(file_name, path, NAME_MAX);
-    }
-
-    len = strlen(file_name);
-    ret = snprintf(file_name + len, NAME_MAX - len,
-                   "/ucx_posix_mm_%s_%s_%016lx", ucs_get_user_name(),
-                   ucs_get_host_name(), uuid);
-    if ((ret >= (NAME_MAX - len)) || (ret < 1)) {
-        status = UCS_ERR_INVALID_PARAM;
+    status = uct_posix_make_file_path(path, file_name, &file_path);
+    if (status != UCS_OK) {
         return status;
     }
 
-    return UCS_OK;
-}
-
-static ucs_status_t uct_posix_shm_open(const char *file_name, size_t length, int *shm_fd)
-{
-    ucs_status_t status;
-
-    /* Create shared memory object and set its size */
-    *shm_fd = shm_open(file_name, O_CREAT | O_RDWR | O_EXCL,
-                       UCT_MM_POSIX_SHM_OPEN_MODE);
-    if (*shm_fd == -1) {
-        ucs_error("Error returned from shm_open %s. File name is: %s",
-                  strerror(errno), file_name);
+    fd = open(file_path, flags | O_RDWR, UCT_MM_POSIX_SHM_OPEN_MODE);
+    if (fd < 0) {
+        ucs_error("shared memory open(file_path=%s) failed: %m", file_path);
         status = UCS_ERR_SHMEM_SEGMENT;
-        goto err;
-    }
-    if (ftruncate(*shm_fd, length) == -1) {
-        ucs_error("Error returned from ftruncate %m");
-        status = UCS_ERR_SHMEM_SEGMENT;
-        goto err_shm_unlink;
+    } else {
+        *shm_fd_p = fd;
+        status    = UCS_OK;
     }
 
-    return UCS_OK;
-
-err_shm_unlink:
-    close(*shm_fd);
-    if (shm_unlink(file_name) != 0) {
-        ucs_warn("unable to shm_unlink the shared memory segment");
-    }
-err:
+    ucs_free(file_path);
     return status;
 }
 
-static ucs_status_t uct_posix_open(const char *file_name, size_t length, int *shm_fd)
+static ucs_status_t uct_posix_unlink(const char *path, const char *file_name)
 {
-    ucs_status_t status;
+    ucs_status_t status = UCS_OK;
+    char *file_path;
+    int ret;
 
-    /* use open with the given path */
-    *shm_fd = open(file_name, O_CREAT | O_RDWR | O_EXCL, UCT_MM_POSIX_SHM_OPEN_MODE);
-    if (*shm_fd == -1) {
-        ucs_error("Error returned from open %s . File name is: %s",
-                  strerror(errno), file_name);
-        status = UCS_ERR_SHMEM_SEGMENT;
-        goto err;
-    }
-
-    if (ftruncate(*shm_fd, length) == -1) {
-        ucs_error("Error returned from ftruncate %m");
-        status = UCS_ERR_SHMEM_SEGMENT;
-        goto err_close;
-    }
-
-    return UCS_OK;
-
-err_close:
-    close(*shm_fd);
-    if (unlink(file_name) != 0) {
-        ucs_warn("unable to unlink the shared memory segment");
-    }
-err:
-    return status;
-}
-
-static ucs_status_t
-uct_posix_open_backing_file(char *file_name, uint64_t *uuid, uct_posix_md_config_t *config,
-                            size_t length, int *shm_fd, const char **path_p)
-{
-    ucs_status_t status;
-
-    if (config->use_shm_open != UCS_NO) {
-        status = uct_posix_set_path(file_name, 1, NULL, *uuid >> UCT_MM_POSIX_CTRL_BITS);
+    if (path == NULL) {
+        ret = shm_unlink(file_name);
+        if (ret < 0) {
+            ucs_error("shm_unlink(file_name=%s) failed: %m", file_name);
+            status = UCS_ERR_SHMEM_SEGMENT;
+        }
+    } else {
+        status = uct_posix_make_file_path(path, file_name, &file_path);
         if (status != UCS_OK) {
             goto out;
         }
 
-        status = uct_posix_shm_open(file_name, length, shm_fd);
-        if ((config->use_shm_open == UCS_TRY) && (status != UCS_OK)) {
-            goto use_open;
-        } else {
-            *uuid |= UCT_MM_POSIX_SHM_OPEN;
-            goto out;
+        ret = unlink(file_path);
+        if (ret < 0) {
+            ucs_error("unlink(file_name=%s) failed: %m", file_path);
+            status = UCS_ERR_SHMEM_SEGMENT;
         }
+
+        ucs_free(file_path);
     }
 
-use_open:
-    status = uct_posix_set_path(file_name, 0, config->path, *uuid >> UCT_MM_POSIX_CTRL_BITS);
-    if (status != UCS_OK) {
-        goto out;
-    }
-
-    status = uct_posix_open(file_name, length, shm_fd);
-    if (status != UCS_OK) {
-        return status;
-    }
-
-    *uuid &= ~UCT_MM_POSIX_SHM_OPEN;
-    *path_p = config->path;
 out:
     return status;
 }
 
-static ucs_status_t
-uct_posix_alloc(uct_md_h md, size_t *length_p, ucs_ternary_value_t hugetlb,
-                unsigned md_map_flags, const char *alloc_name, void **address_p,
-                uct_mm_id_t *mmid_p, const char **path_p, int *is_hugetlb)
+static void uct_posix_get_file_name(char *file_name, size_t max,
+                                       uint64_t uuid)
 {
-    ucs_status_t status;
-    int shm_fd = -1;
-    uint64_t uuid;
-    char *file_name;
-    int mmap_flags;
-    void *addr_wanted;
-    uct_mm_md_t *mm_md = ucs_derived_of(md, uct_mm_md_t);
-    uct_posix_md_config_t *posix_config = ucs_derived_of(mm_md->config,
-                                                         uct_posix_md_config_t);
+    snprintf(file_name, max, "/ucx_posix_mm_%s_%s_%016lx", ucs_get_user_name(),
+             ucs_get_host_name(), uuid);
+}
 
-    if (0 == *length_p) {
-        ucs_error("Unexpected length %zu", *length_p);
-        status = UCS_ERR_INVALID_PARAM;
-        goto err;
+static ucs_status_t uct_posix_mmap(void *address, size_t length, int flags,
+                                   int fd, const char *alloc_name, int show_err,
+                                   void **address_p)
+{
+    void *result;
+
+    result = ucs_mmap(address, length, UCT_MM_POSIX_MMAP_PROT,
+                      MAP_SHARED | flags, fd, 0 UCS_MEMTRACK_VAL);
+    if (result == MAP_FAILED) {
+       ucs_log(show_err ? UCS_LOG_LEVEL_ERROR : UCS_LOG_LEVEL_DEBUG,
+               "shared memory mmap(addr=%p, length=%zu, flags=%s%s, fd=%d) failed: %m",
+               address, length,
+               (flags & MAP_FIXED)   ? " FIXED"   : "",
+#ifdef MAP_HUGETLB
+               (flags & MAP_HUGETLB) ? " HUGETLB" : "",
+#else
+               "",
+#endif
+               fd);
+       return UCS_ERR_SHMEM_SEGMENT;
     }
 
-    file_name = ucs_calloc(1, NAME_MAX, "shared mr posix");
-    if (file_name == NULL) {
-        status = UCS_ERR_NO_MEMORY;
-        ucs_error("Failed to allocate memory for the shm_open file name. %m");
+    *address_p = result;
+    return UCS_OK;
+}
+
+static ucs_status_t uct_posix_munmap(void *address, size_t length)
+{
+    int ret;
+
+    ret = ucs_munmap(address, length);
+    if (ret != 0) {
+        ucs_warn("shared memory munmap(address=%p, length=%zu) failed: %m",
+                 address, length);
+        return UCS_ERR_SHMEM_SEGMENT;
+    }
+
+    return UCS_OK;
+}
+
+static ucs_status_t
+uct_posix_mem_alloc(uct_md_h md, size_t *length_p, void **address_p,
+                    unsigned flags, const char *alloc_name, uct_mem_h *memh_p)
+{
+    uct_mm_md_t *mm_md                  = ucs_derived_of(md, uct_mm_md_t);
+    uct_posix_md_config_t *posix_config = ucs_derived_of(mm_md->config,
+                                                         uct_posix_md_config_t);
+    uint64_t file_uuid, mmid, mmid_uuid, mmid_flags;
+    void *mmap_address, *address;
+    char file_name[NAME_MAX];
+    uct_mm_posix_seg_t *seg;
+    ucs_status_t status;
+    int force_hugetlb;
+    size_t path_size;
+    int mmap_flags;
+    int shm_fd;
+    char *path;
+
+    if (0 == *length_p) {
+        ucs_error("invalid length %zu", *length_p);
+        status = UCS_ERR_INVALID_PARAM;
         goto err;
     }
 
@@ -282,43 +293,39 @@ uct_posix_alloc(uct_md_h md, size_t *length_p, ucs_ternary_value_t hugetlb,
      * 1 bit is for indicating whether or not hugepages were used.
      * 1 bit is for indicating whether or not shm_open() was used.
      * 1 bit is for indicating whether or not /proc/<pid>/fd/<fd> was used. */
-    uuid = ucs_generate_uuid(0);
+    mmid_flags = 0;
+    file_uuid  = ucs_generate_uuid(0);
 
-    status = uct_posix_open_backing_file(file_name, &uuid, posix_config,
-                                         *length_p, &shm_fd, path_p);
-    if (status != UCS_OK) {
-        goto err_free_file;
-    }
+    uct_posix_get_file_name(file_name, sizeof(file_name) - 1, file_uuid);
 
-    /* immediately unlink the file */
-    if (posix_config->use_proc_link) {
-        int ret = (uuid & UCT_MM_POSIX_SHM_OPEN) ? shm_unlink(file_name) : unlink(file_name);
-        if (ret != 0) {
-            ucs_warn("unable to unlink the shared memory segment. File name is: %s",
-                     file_name);
-            status = UCS_ERR_SHMEM_SEGMENT;
-            goto err_free_file;
+    if (uct_posix_use_shm_open(posix_config)) {
+        status = uct_posix_shm_open(file_name, UCT_MM_POSIX_CREATE_FLAGS,
+                                    &shm_fd);
+        if (status != UCS_OK) {
+            /* shm_open was requested, and failed */
+            goto err;
         }
 
-        uuid |= UCT_MM_POSIX_PROC_LINK;
+        mmid_flags |= UCT_MM_POSIX_SHM_OPEN;
+        path        = NULL;
+        path_size   = 0;
     } else {
-        uuid &= ~UCT_MM_POSIX_PROC_LINK;
+        status = uct_posix_path_open(posix_config->path, file_name,
+                                UCT_MM_POSIX_CREATE_FLAGS, &shm_fd);
+        if (status != UCS_OK) {
+            goto err;
+        }
+
+        path       = posix_config->path;
+        path_size  = strlen(posix_config->path + 1);
     }
 
-    /* check is the location of the backing file has enough memory for the needed size
-     * by trying to write there before calling mmap */
-    status = uct_posix_test_mem(*length_p, shm_fd);
-    if (status != UCS_OK) {
-        goto err_shm_unlink;
-    }
-
-    status = UCS_ERR_NO_MEMORY;
-
+    /* Remove the original file, to use the symlink in procfs  */
     if (posix_config->use_proc_link) {
-        /* encode fd and pid into uuid */
-        uuid &= UCS_MASK_SAFE(UCT_MM_POSIX_CTRL_BITS);
-        uuid |= (shm_fd << UCT_MM_POSIX_CTRL_BITS);
-        uuid |= ((uint64_t)getpid()) << (UCT_MM_POSIX_CTRL_BITS + UCT_MM_POSIX_FD_BITS);
+        status = uct_posix_unlink(path, file_name);
+        if (status != UCS_OK) {
+            goto err_close;
+        }
 
         /* Here we encoded fd into uuid using 29 bits, which
          * is less than 32 bits (one integer), so there are
@@ -326,236 +333,251 @@ uct_posix_alloc(uct_md_h md, size_t *length_p, ucs_ternary_value_t hugetlb,
          * to the original fd. If they are not equal, which means
          * 29 bits is not enough for fd, we need proper solutions
          * to deal with it. */
-        ucs_assert(shm_fd == ((uuid >> UCT_MM_POSIX_CTRL_BITS) & UCS_MASK_SAFE(UCT_MM_POSIX_FD_BITS)));
+        mmid_uuid   = ((uint64_t)getpid() << UCT_MM_POSIX_FD_BITS) | shm_fd;
+        mmid_flags |= UCT_MM_POSIX_PROC_LINK;
+    } else {
+        mmid_uuid   = file_uuid;
+    }
+
+    /* Check is the location of the backing file has enough memory for the
+     * needed size by trying to write there before calling mmap */
+    status = uct_posix_test_mem(shm_fd, *length_p);
+    if (status != UCS_OK) {
+        goto err_close;
     }
 
     /* mmap the shared memory segment that was created by shm_open */
 
-    if (md_map_flags & UCT_MD_MEM_FLAG_FIXED) {
-        mmap_flags  = MAP_FIXED|MAP_SHARED;
-        addr_wanted = *address_p;
+    if (flags & UCT_MD_MEM_FLAG_FIXED) {
+        mmap_address = *address_p;
+        mmap_flags   = MAP_FIXED;
     } else {
-        mmap_flags   = MAP_SHARED;
-        addr_wanted  = NULL;
+        mmap_address = NULL;
+        mmap_flags   = 0;
     }
 
+    /* try HUGETLB mmap */
+    address = MAP_FAILED;
+    if (posix_config->super.hugetlb_mode != UCS_NO) {
+        force_hugetlb = (posix_config->super.hugetlb_mode == UCS_YES);
 #ifdef MAP_HUGETLB
-    if (hugetlb != UCS_NO) {
-       (*address_p) = ucs_mmap(addr_wanted, *length_p, UCT_MM_POSIX_MMAP_PROT,
-                               mmap_flags | MAP_HUGETLB,
-                               shm_fd, 0 UCS_MEMTRACK_VAL);
-       if ((*address_p) !=  MAP_FAILED) {
-           /* indicate that the memory was mapped with hugepages */
-           uuid |= UCT_MM_POSIX_HUGETLB;
-           *is_hugetlb = 1;
-           goto out_ok;
-       }
-
-       ucs_debug("mm failed to allocate %zu bytes with hugetlb %m", *length_p);
-    }
-
+        status = uct_posix_mmap(mmap_address, *length_p, mmap_flags | MAP_HUGETLB,
+                                shm_fd, alloc_name, force_hugetlb, &address);
 #else
-    if (hugetlb == UCS_YES) {
-        ucs_error("Hugepages were requested but they cannot be used with posix mmap.");
         status = UCS_ERR_SHMEM_SEGMENT;
-        goto err_shm_unlink;
-    }
+        if (force_hugetlb) {
+            ucs_error("shared memory allocation failed: "
+                      "MAP_HUGETLB is not supported on the system");
+        }
 #endif
-
-    if (hugetlb != UCS_YES) {
-       (*address_p) = ucs_mmap(addr_wanted, *length_p, UCT_MM_POSIX_MMAP_PROT,
-                               mmap_flags, shm_fd, 0 UCS_MEMTRACK_VAL);
-       if ((*address_p) != MAP_FAILED) {
-           /* indicate that the memory was mapped without hugepages */
-           uuid &= ~UCT_MM_POSIX_HUGETLB;
-           goto out_ok;
+        if ((status != UCS_OK) && force_hugetlb) {
+            goto err_close;
+        } else if (status == UCS_OK) {
+           mmid_flags |= UCT_MM_POSIX_HUGETLB;
        }
-
-       ucs_debug("mm failed to allocate %zu bytes without hugetlb for %s: %m",
-                 *length_p, alloc_name);
     }
 
-err_shm_unlink:
-    close(shm_fd);
-    if (!posix_config->use_proc_link) {
-        if (shm_unlink(file_name) != 0) {
-            ucs_warn("unable to unlink the shared memory segment");
+    /* fallback to regular mmap */
+    if (address == MAP_FAILED) {
+        ucs_assert(posix_config->super.hugetlb_mode != UCS_YES);
+        status = uct_posix_mmap(mmap_address, *length_p, mmap_flags, shm_fd,
+                                alloc_name, 1, &address);
+        if (status != UCS_OK) {
+            goto err_close;
         }
     }
-err_free_file:
-    ucs_free(file_name);
+
+    if (flags & UCT_MD_MEM_FLAG_FIXED) {
+        ucs_assert(address == *address_p);
+    }
+
+    /* create new memory segment */
+    mmid   = mmid_flags | (mmid_uuid << UCT_MM_POSIX_CTRL_BITS);
+    status = uct_mm_md_mem_seg_new(sizeof(*seg) + path_size, mmid, address,
+                                   *length_p, (uct_mm_seg_t**)&seg);
+    if (status != UCS_OK) {
+        goto err_munmap;
+    }
+
+    ucs_debug("allocated posix shared memory at %p length %zu", address,
+              *length_p);
+
+    memcpy(seg->path, path, path_size);
+    *address_p = address;
+    *memh_p    = seg;
+
+    if (!posix_config->use_proc_link) {
+        close(shm_fd); /* closing the shm_fd here won't unmap the mem region*/
+    }
+
+    return UCS_OK;
+
+err_munmap:
+    uct_posix_munmap(address, *length_p);
+err_close:
+    close(shm_fd);
+    if (!posix_config->use_proc_link) {
+        uct_posix_unlink(path, file_name);
+    }
 err:
     return status;
+}
 
-out_ok:
-    ucs_free(file_name);
-    if (!posix_config->use_proc_link) {
-        /* closing the shm_fd here won't unmap the mem region*/
-        close(shm_fd);
+static ucs_status_t uct_posix_mem_free(uct_md_h md, uct_mem_h memh)
+{
+    uct_mm_posix_seg_t *seg  = memh;
+    uct_mm_id_t         mmid = seg->super.mmid;
+    ucs_status_t status;
+    char file_name[NAME_MAX];
+    int fd;
+
+    status = uct_posix_munmap(seg->super.address, seg->super.length);
+    if (status != UCS_OK) {
+        return status;
     }
-    *mmid_p = uuid;
+
+    if (mmid & UCT_MM_POSIX_PROC_LINK) {
+        fd = (mmid >> UCT_MM_POSIX_CTRL_BITS) & UCS_MASK(UCT_MM_POSIX_FD_BITS);
+        close(fd);
+    } else {
+        uct_posix_get_file_name(file_name, sizeof(file_name) - 1,
+                                   mmid >> UCT_MM_POSIX_CTRL_BITS);
+        status = uct_posix_unlink(seg->path, file_name);
+        if (status != UCS_OK) {
+            return status;
+        }
+    }
+
+    ucs_free(seg);
     return UCS_OK;
 }
 
-static ucs_status_t uct_posix_attach(uct_mm_id_t mmid, size_t length,
-                                     void *remote_address,
-                                     void **local_address,
-                                     uint64_t *cookie, const char *path)
+static ucs_status_t
+uct_posix_rkey_unpack(uct_component_t *component, const void *rkey_buffer,
+                      uct_rkey_t *rkey_p, void **handle_p)
 {
-    void *ptr;
-    char *file_name;
+    const uct_mm_posix_packed_rkey_t *packed_rkey = rkey_buffer;
+    uct_mm_id_t                       mmid        = packed_rkey->super.mmid;
+    uint64_t                          mmid_uuid   = mmid >> UCT_MM_POSIX_CTRL_BITS;
+    uct_posix_remote_seg_t *rseg;
+    char file_name[NAME_MAX];
+    ucs_status_t status;
+    int mmap_flags;
     int shm_fd;
-    ucs_status_t status = UCS_OK;
 
-    file_name = ucs_calloc(1, NAME_MAX, "shared mr posix");
-    if (file_name == NULL) {
-        ucs_error("Failed to allocate memory for file_name to attach. %m");
+    rseg = ucs_malloc(sizeof(*rseg), "posix_remote_seg");
+    if (rseg == NULL) {
+        ucs_error("failed to allocate posix remote segment descriptor");
         status = UCS_ERR_NO_MEMORY;
         goto err;
     }
 
+    mmid_uuid = mmid >> UCT_MM_POSIX_CTRL_BITS;
     if (mmid & UCT_MM_POSIX_PROC_LINK) {
-        int orig_fd, pid;
-        uct_mm_id_t temp_mmid;
-
-        temp_mmid = mmid >> UCT_MM_POSIX_CTRL_BITS;
-        orig_fd = temp_mmid & UCS_MASK_SAFE(UCT_MM_POSIX_FD_BITS);
-        temp_mmid >>= UCT_MM_POSIX_FD_BITS;
-        pid = temp_mmid & UCS_MASK_SAFE(UCT_MM_POSIX_PID_BITS);
-
-        /* get internal path /proc/pid/fd/<fd> */
-        snprintf(file_name, NAME_MAX, "/proc/%d/fd/%d", pid, orig_fd);
-
-        shm_fd = open(file_name, O_RDWR, UCT_MM_POSIX_SHM_OPEN_MODE);
+        snprintf(file_name, sizeof(file_name), "/%ld/fd/%ld",
+                 /* pid */ mmid_uuid >> UCT_MM_POSIX_FD_BITS,
+                 /* fd  */ mmid_uuid &  UCS_MASK(UCT_MM_POSIX_FD_BITS));
+        status = uct_posix_path_open("/proc", file_name, 0, &shm_fd);
     } else {
-        status = uct_posix_set_path(file_name, mmid & UCT_MM_POSIX_SHM_OPEN, path,
-                                    mmid >> UCT_MM_POSIX_CTRL_BITS);
-        if (status != UCS_OK) {
-            goto err_free_file;
-        }
-
-        /* use the mmid (62 bits) to recreate the file_name for opening */
+        uct_posix_get_file_name(file_name, sizeof(file_name), mmid_uuid);
         if (mmid & UCT_MM_POSIX_SHM_OPEN) {
-            shm_fd = shm_open(file_name, O_RDWR | O_EXCL, UCT_MM_POSIX_SHM_OPEN_MODE);
+            status = uct_posix_shm_open(file_name, 0, &shm_fd);
         } else {
-            shm_fd = open(file_name, O_CREAT | O_RDWR, UCT_MM_POSIX_SHM_OPEN_MODE);
+            status = uct_posix_path_open(packed_rkey->path, file_name, 0,
+                                         &shm_fd);
         }
     }
-
-    if (shm_fd == -1) {
-        ucs_error("Error returned from open in attach. %s. File name is: %s%s",
-                  strerror(errno),
-                  (mmid & UCT_MM_POSIX_PROC_LINK) ? "" :
-                   (mmid & UCT_MM_POSIX_SHM_OPEN) ? "/dev/shm" : "",
-                  file_name);
-
-        status = UCS_ERR_SHMEM_SEGMENT;
-        goto err_free_file;
+    if (status != UCS_OK) {
+        goto err_free_rseg;
     }
 
 #ifdef MAP_HUGETLB
-    if (mmid & UCT_MM_POSIX_HUGETLB) {
-        ptr = ucs_mmap(NULL ,length, UCT_MM_POSIX_MMAP_PROT,
-                       MAP_SHARED | MAP_HUGETLB,
-                       shm_fd, 0 UCS_MEMTRACK_NAME("posix mmap attach"));
-    } else
+    mmap_flags = (mmid & UCT_MM_POSIX_HUGETLB) ? MAP_HUGETLB : 0;
+#else
+    mmap_flags = 0;
 #endif
-    {
-        ptr = ucs_mmap(NULL ,length, UCT_MM_POSIX_MMAP_PROT, MAP_SHARED,
-                       shm_fd, 0 UCS_MEMTRACK_NAME("posix mmap attach"));
-    }
-    if (ptr == MAP_FAILED) {
-        ucs_error("ucs_mmap(shm_fd=%d) failed: %m", (int)shm_fd);
-        status = UCS_ERR_SHMEM_SEGMENT;
+    status = uct_posix_mmap(NULL, packed_rkey->super.length, mmap_flags, shm_fd,
+                            "posix_attach", 1, &rseg->attach_address);
+    if (status != UCS_OK) {
         goto err_close_fd;
     }
 
-    ucs_trace("attached remote segment '%s' remote_address %p at address %p",
-              file_name, remote_address, ptr);
+    ucs_trace("attached remote segment '%s' remote_address 0x%lx at address %p",
+              file_name, packed_rkey->super.owner_ptr, rseg->attach_address);
 
-    *local_address = ptr;
-    *cookie = 0xdeadbeef;
+    uct_mm_md_make_rkey(rseg->attach_address, packed_rkey->super.owner_ptr,
+                        rkey_p);
+    rseg->length = packed_rkey->super.length;
+    *handle_p    = rseg;
+    close(shm_fd); /* closing the fd here won't unmap the mem region */
+    return UCS_OK;
 
 err_close_fd:
-    /* closing the fd here won't unmap the mem region (if ucs_mmap was successful) */
     close(shm_fd);
-err_free_file:
-    ucs_free(file_name);
+err_free_rseg:
+    ucs_free(rseg);
 err:
     return status;
 }
 
-static ucs_status_t uct_posix_detach(uct_mm_remote_seg_t *mm_desc)
+static void
+uct_posix_rkey_release(uct_component_t *component, uct_rkey_t rkey, void *handle)
 {
-    int ret;
+    uct_posix_remote_seg_t *rseg = handle;
+    ucs_status_t status;
 
-    ret = ucs_munmap(mm_desc->address, mm_desc->length);
-    if (ret != 0) {
-        ucs_warn("Unable to unmap shared memory segment at %p: %m", mm_desc->address);
-        return UCS_ERR_SHMEM_SEGMENT;
+    status = uct_posix_munmap(rseg->attach_address, rseg->length);
+    if (status != UCS_OK) {
+        return;
+    }
+
+    ucs_free(rseg);
+}
+
+static ucs_status_t
+uct_posix_mkey_pack(uct_md_h md, uct_mem_h memh, void *rkey_buffer)
+{
+    uct_mm_posix_packed_rkey_t *packed_rkey = rkey_buffer;
+    uct_mm_posix_seg_t *seg = memh;
+
+    (void)uct_mm_mkey_pack(md, memh, rkey_buffer); // TODO base function
+    if (seg->path) {
+        strcpy(packed_rkey->path, seg->path);
     }
 
     return UCS_OK;
 }
 
-static ucs_status_t uct_posix_free(void *address, uct_mm_id_t mm_id, size_t length,
-                                   const char *path)
+static size_t uct_posix_rkey_extra_size(const uct_mm_md_config_t *config)
 {
-    int ret;
-    ucs_status_t status = UCS_OK;
+    const uct_posix_md_config_t *posix_config =
+                    ucs_derived_of(config, uct_posix_md_config_t);
 
-    ret = ucs_munmap(address, length);
-    if (ret != 0) {
-        ucs_error("Unable to unmap shared memory segment at %p: %m", address);
-        status = UCS_ERR_SHMEM_SEGMENT;
-        goto err;
-    }
-
-    if (mm_id & UCT_MM_POSIX_PROC_LINK) {
-        int orig_fd;
-        mm_id >>= UCT_MM_POSIX_CTRL_BITS;
-        orig_fd = (int)(mm_id & UCS_MASK_SAFE(UCT_MM_POSIX_FD_BITS));
-        close(orig_fd);
-    } else {
-        char *file_name = ucs_calloc(1, NAME_MAX, "shared mr posix mmap");
-        if (file_name == NULL) {
-            ucs_error("Failed to allocate memory for the shm_unlink file name. %m");
-            status = UCS_ERR_NO_MEMORY;
-            goto err;
-        }
-
-        status = uct_posix_set_path(file_name, mm_id & UCT_MM_POSIX_SHM_OPEN, path,
-                                    mm_id >> UCT_MM_POSIX_CTRL_BITS);
-        if (status != UCS_OK) {
-            goto out_free_file;
-        }
-
-        /* use the mmid (62 bits uuid) to recreate the file_name for unlink */
-        ret = (mm_id & UCT_MM_POSIX_SHM_OPEN) ? shm_unlink(file_name) : unlink(file_name);
-        if (ret != 0) {
-            ucs_warn("unable to unlink the shared memory segment. File name is: %s",
-                     file_name);
-            status = UCS_ERR_SHMEM_SEGMENT;
-        }
-
-out_free_file:
-        ucs_free(file_name);
-    }
-
-err:
-    return status;
+    /* if shm_open is requested, the path to the backing file is /dev/shm
+     * by default. however, if shm_open isn't used, the size of the path to the
+     * requested backing file is needed so that the user would know how much
+     * space to allocated for the rkey.
+     */
+    return uct_posix_use_shm_open(posix_config) ? 0 :
+           strlen(posix_config->path) + 1;
 }
 
-static uct_mm_mapper_ops_t uct_posix_mapper_ops = {
-   .query   = ucs_empty_function_return_success,
-   .get_path_size = uct_posix_get_path_size,
-   .get_priority = uct_posix_get_priority,
-   .reg     = NULL,
-   .dereg   = NULL,
-   .alloc   = uct_posix_alloc,
-   .attach  = uct_posix_attach,
-   .detach  = uct_posix_detach,
-   .free    = uct_posix_free
+static uct_mm_md_ops_t uct_posix_md_ops = {
+   .super = {
+        .close                  = uct_mm_md_close,
+        .query                  = uct_posix_md_query,
+        .mem_alloc              = uct_posix_mem_alloc,
+        .mem_free               = uct_posix_mem_free,
+        .mem_advise             = (void*)ucs_empty_function_return_unsupported,
+        .mem_reg                = (void*)ucs_empty_function_return_unsupported,
+        .mem_dereg              = (void*)ucs_empty_function_return_unsupported,
+        .mkey_pack              = uct_posix_mkey_pack,
+        .is_sockaddr_accessible = (void*)ucs_empty_function_return_zero,
+        .detect_memory_type     = (void*)ucs_empty_function_return_unsupported
+    },
+   .is_supported                = ucs_empty_function_return_one,
+   .rkey_extra_size             = uct_posix_rkey_extra_size,
 };
 
-UCT_MM_TL_DEFINE(posix, &uct_posix_mapper_ops, "POSIX_")
+UCT_MM_TL_DEFINE(posix, &uct_posix_md_ops, uct_posix_rkey_unpack,
+                 uct_posix_rkey_release, "POSIX_")
