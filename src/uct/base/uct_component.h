@@ -14,8 +14,8 @@
 #include <ucs/sys/compiler.h>
 
 
-typedef struct uct_md_component uct_component_t;
-typedef uct_component_t uct_md_component_t; /* for compatibility */
+typedef struct uct_component uct_component_t;
+typedef struct uct_component uct_md_component_t; /* for compatibility */
 
 
 /**
@@ -101,17 +101,15 @@ typedef ucs_status_t (*uct_component_rkey_ptr_func_t)(
  * @param [in]  rkey                    Release this remote key.
  * @param [in]  handle                  Remote key handle, as returned from
  *                                      @ref uct_component_rkey_unpack_func_t.
- *
- * @return UCS_OK on success or error code in case of failure.
  */
-typedef ucs_status_t (*uct_component_rkey_release_func_t)(
+typedef void (*uct_component_rkey_release_func_t)(
                 uct_component_t *component, uct_rkey_t rkey, void *handle);
 
 
 /**
  * Defines a UCT component
  */
-struct uct_md_component {
+struct uct_component {
     const char                              name[UCT_MD_COMPONENT_NAME_MAX]; /**< Component name */
     uct_component_query_md_resources_func_t query_md_resources; /**< Query memory domain resources method */
     uct_component_md_open_func_t            md_open;            /**< Memory domain open method */

@@ -220,12 +220,11 @@ static ucs_status_t uct_knem_rkey_unpack(uct_md_component_t *mdc,
     return UCS_OK;
 }
 
-static ucs_status_t uct_knem_rkey_release(uct_md_component_t *mdc, uct_rkey_t rkey,
-                                          void *handle)
+static void uct_knem_rkey_release(uct_component_t *component, uct_rkey_t rkey,
+                                  void *handle)
 {
     ucs_assert(NULL == handle);
-    ucs_free((void *)rkey);
-    return UCS_OK;
+    ucs_free((void*)rkey);
 }
 
 static uct_md_ops_t md_ops = {

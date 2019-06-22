@@ -23,6 +23,4 @@ typedef struct uct_cma_iface {
 } uct_cma_iface_t;
 
 
-extern uct_tl_component_t uct_cma_tl;
-
 #endif

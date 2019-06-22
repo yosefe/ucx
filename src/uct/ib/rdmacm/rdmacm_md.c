@@ -257,4 +257,3 @@ uct_component_t uct_rdmacm_component = {
     },
     .tl_list         = UCT_COMPONENT_TL_LIST_INITIALIZER(&uct_rdmacm_component)
 };
-UCT_COMPONENT_REGISTER(&uct_rdmacm_component)

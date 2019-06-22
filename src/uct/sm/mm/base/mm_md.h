@@ -82,16 +82,8 @@ typedef struct uct_mm_component {
 #define uct_mm_md_mapper_ops(_md) \
     uct_mm_mdc_mapper_ops((_md)->component)
 
-/*
- * Define a memory-mapper component for MM.
- *
- * @param _var          Variable for MD component.
- * @param _name         String which is the component name.
- * @param _ops          Mapper operations, of type uct_mm_mapper_ops_t.
- * @param _prefix       Prefix for defining the vars config table and config struct.
- * @param _cfg_prefix   Prefix for configuration environment vars.
- */
-#define UCT_MM_COMPONENT_DEFINE(_var, _name, _md_ops, _prefix, _cfg_prefix) \
+
+#define UCT_MM_COMPONENT_DEFINE(_var, _name, _md_ops, _cfg_prefix) \
     \
     static uct_mm_component_t _var = { \
         .super = { \
@@ -104,8 +96,8 @@ typedef struct uct_mm_component {
             .md_config          = { \
                 .name           = #_name " memory domain", \
                 .prefix         = _cfg_prefix, \
-                .table          = _prefix##_md_config_table, \
-                .size           = sizeof(_prefix##_md_config_t), \
+                .table          = uct_##_name##_md_config_table, \
+                .size           = sizeof(uct_##_name##_md_config_t), \
             }, \
             .tl_list            = UCT_COMPONENT_TL_LIST_INITIALIZER( \
                                       &(_var).super) \
@@ -172,7 +164,7 @@ ucs_status_t uct_mm_rkey_unpack(uct_md_component_t *mdc, const void *rkey_buffer
 ucs_status_t uct_mm_rkey_ptr(uct_md_component_t *mdc, uct_rkey_t rkey,
                              void *handle, uint64_t raddr, void **laddr_p);
 
-ucs_status_t uct_mm_rkey_release(uct_md_component_t *mdc, uct_rkey_t rkey, void *handle);
+void uct_mm_rkey_release(uct_md_component_t *mdc, uct_rkey_t rkey, void *handle);
 
 ucs_status_t uct_mm_md_open(uct_component_t *component, const char *md_name,
                             const uct_md_config_t *config, uct_md_h *md_p);

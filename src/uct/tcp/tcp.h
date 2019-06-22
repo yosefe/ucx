@@ -6,7 +6,6 @@
 #ifndef UCT_TCP_MD_H
 #define UCT_TCP_MD_H
 
-#include <uct/base/uct_component.h>
 #include <uct/base/uct_iface.h>
 #include <ucs/sys/sock.h>
 #include <ucs/sys/string.h>

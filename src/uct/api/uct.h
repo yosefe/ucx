@@ -521,7 +521,8 @@ enum {
                                                fixed address */
     UCT_MD_FLAG_RKEY_PTR   = UCS_BIT(6),  /**< MD supports direct access to
                                                remote memory via a pointer that
-                                               is returned by @ref uct_rkey_ptr */
+                                               is returned by @ref uct_rkey_ptr
+                                               TODO should be per component */
     UCT_MD_FLAG_SOCKADDR   = UCS_BIT(7)   /**< MD support for client-server
                                                connection establishment via
                                                sockaddr */
@@ -1717,16 +1718,6 @@ ucs_status_t uct_md_mem_dereg(uct_md_h md, uct_mem_h memh);
  */
 ucs_status_t uct_md_detect_memory_type(uct_md_h md, void *addr, size_t length,
                                        uct_memory_type_t *mem_type_p);
-
-
-/**
- * @ingroup UCT_MD
- * @brief Check if the memory allocated by the md was allocated with hugetlb.
- *
- * @param [in]  md           Memory domain to check
- * @param [in]  memh         Memory handle to the allocated memory
- */
-int uct_md_is_hugetlb(uct_md_h md, uct_mem_h memh);
 
 
 /**

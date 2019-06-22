@@ -224,14 +224,17 @@ ucs_status_t uct_mm_rkey_ptr(uct_md_component_t *mdc, uct_rkey_t rkey,
     return UCS_OK;
 }
 
-ucs_status_t uct_mm_rkey_release(uct_md_component_t *mdc, uct_rkey_t rkey, void *handle)
+void uct_mm_rkey_release(uct_md_component_t *mdc, uct_rkey_t rkey, void *handle)
 {
     ucs_status_t status;
     uct_mm_remote_seg_t *mm_desc = handle;
 
     status = uct_mm_mdc_mapper_ops(mdc)->detach(mm_desc);
+    if (status != UCS_OK) {
+        return;
+    }
+
     ucs_free(mm_desc);
-    return status;
 }
 
 static void uct_mm_md_close(uct_md_h md)

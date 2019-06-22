@@ -8,10 +8,10 @@
 #define UCT_MD_H_
 
 #include "uct_component.h"
-#include "uct_iface.h"
 
 #include <uct/api/uct.h>
 #include <ucs/config/parser.h>
+#include <string.h>
 
 
 typedef struct uct_md_rcache_config {
@@ -30,30 +30,6 @@ struct uct_md_config {
     /* C standard prohibits empty structures */
     char                   __dummy;
 };
-
-
-/**
- * MD->Transport
- */
-typedef struct uct_md_registered_tl {
-    ucs_list_link_t        list;
-    uct_tl_component_t     *tl;
-} uct_md_registered_tl_t;
-
-
-/**
- * Add a transport component to a md component
- * (same transport component can be added to multiple md components).
- *
- * @param _mdc           Pointer to MD component to add the TL component to.
- * @param _tlc           Pointer to TL component.
- */
-#define UCT_MD_REGISTER_TL(_mdc, _tlc) \
-    UCS_STATIC_INIT { \
-        static uct_md_registered_tl_t reg; \
-        reg.tl = (_tlc); \
-        ucs_list_add_tail(&(_mdc)->tl_list, &reg.list); \
-    }
 
 
 /**
@@ -84,8 +60,6 @@ struct uct_md_ops {
 
     ucs_status_t (*detect_memory_type)(uct_md_h md, void *addr, size_t length,
                                        uct_memory_type_t *mem_type_p);
-
-    int          (*is_hugetlb)(uct_md_h md, uct_mem_h memh);
 };
 
 
@@ -115,6 +89,27 @@ uct_md_fill_md_name(uct_md_h md, void *buffer)
 }
 
 
+static inline ucs_status_t
+uct_md_mkey_pack_internal(uct_md_h md, uct_mem_h memh, void *rkey_buffer)
+{
+    return md->ops->mkey_pack(md, memh, rkey_buffer);
+}
+
+
+static inline ucs_status_t
+uct_rkey_unpack_internal(uct_component_h component, const void *rkey_buffer,
+                         uct_rkey_t *rkey_p, void **handle_p)
+{
+    return component->rkey_unpack(component, rkey_buffer, rkey_p, handle_p);
+}
+
+static inline void
+uct_rkey_release_internal(uct_component_t *component, uct_rkey_t rkey,
+                          void *handle)
+{
+    component->rkey_release(component, rkey, handle);
+}
+
 /*
  * Base implementation of query_md_resources(), which returns a single md
  * resource whose name is identical to component name.
@@ -136,11 +131,6 @@ uct_md_query_empty_md_resource(uct_md_resource_desc_t **resources_p,
 ucs_status_t uct_md_stub_rkey_unpack(uct_md_component_t *mdc,
                                      const void *rkey_buffer, uct_rkey_t *rkey_p,
                                      void **handle_p);
-
-uct_tl_component_t *uct_find_tl_on_md(uct_md_component_t *mdc,
-                                      uint64_t md_flags,
-                                      const char *tl_name);
-
 
 extern ucs_config_field_t uct_md_config_table[];
 
