@@ -100,13 +100,13 @@ typedef struct ucs_config_bw_spec {
     }
 
 #define UCS_CONFIG_REGISTER_TABLE(_table, _name, _prefix, _type) \
-    static ucs_config_global_list_entry_t _fields##_config_entry = { \
+    static ucs_config_global_list_entry_t _table##_config_entry = { \
         .table  = _table, \
         .name   = _name, \
         .prefix = _prefix, \
         .size   = sizeof(_type) \
     }; \
-    UCS_CONFIG_REGISTER_TABLE_ENTRY(&_fields##_config_entry);
+    UCS_CONFIG_REGISTER_TABLE_ENTRY(&_table##_config_entry);
 
 /*
  * Parsing and printing different data types
