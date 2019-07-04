@@ -78,10 +78,12 @@ protected:
     void run_profiled_code(int num_iters);
 
     void test_header(const ucs_profile_header_t *hdr, unsigned exp_mode,
-                     unsigned exp_num_records, const void **ptr);
+                     const void **ptr);
     void test_locations(const ucs_profile_location_t *locations,
-                        uint64_t exp_count, unsigned num_locations,
-                        const void **ptr);
+                        unsigned num_locations, const void **ptr);
+    void test_thread_locations(const ucs_profile_thread_header_t *thread_hdr,
+                               unsigned num_locations, uint64_t exp_count,
+                               unsigned exp_num_records, const void **ptr);
 
     void do_test(unsigned int_mode, const std::string& str_mode);
 };
@@ -172,21 +174,21 @@ void test_profile::run_profiled_code(int num_iters)
 }
 
 void test_profile::test_header(const ucs_profile_header_t *hdr, unsigned exp_mode,
-                               unsigned exp_num_records, const void **ptr)
+                               const void **ptr)
 {
+    EXPECT_EQ(UCS_PROFILE_FILE_VERSION,         hdr->version);
     EXPECT_EQ(std::string(ucs_get_host_name()), std::string(hdr->hostname));
     EXPECT_EQ(getpid(),                         (pid_t)hdr->pid);
     EXPECT_EQ(exp_mode,                         hdr->mode);
     EXPECT_EQ(NUM_LOCAITONS,                    hdr->num_locations);
-    EXPECT_EQ(exp_num_records,                  hdr->num_records);
+    EXPECT_EQ(num_threads(),                    hdr->num_threads);
     EXPECT_NEAR(hdr->one_second / ucs_time_from_sec(1.0), 1.0, 0.01);
 
     *ptr = hdr + 1;
 }
 
 void test_profile::test_locations(const ucs_profile_location_t *locations,
-                                  uint64_t exp_count, unsigned num_locations,
-                                  const void **ptr)
+                                  unsigned num_locations, const void **ptr)
 {
     std::set<std::string> loc_names;
     for (unsigned i = 0; i < num_locations; ++i) {
@@ -194,9 +196,6 @@ void test_profile::test_locations(const ucs_profile_location_t *locations,
         EXPECT_EQ(std::string(basename(__FILE__)), std::string(loc->file));
         EXPECT_GE(loc->line, MIN_LINE);
         EXPECT_LE(loc->line, MAX_LINE);
-        EXPECT_LE(loc->total_time,
-                  ucs_time_from_sec(1.0) * ucs::test_time_multiplier() * exp_count);
-        EXPECT_EQ(exp_count, loc->count);
         loc_names.insert(loc->name);
     }
 
@@ -211,16 +210,37 @@ void test_profile::test_locations(const ucs_profile_location_t *locations,
     *ptr = locations + num_locations;
 }
 
+void test_profile::test_thread_locations(
+                               const ucs_profile_thread_header_t *thread_hdr,
+                               unsigned num_locations, uint64_t exp_count,
+                               unsigned exp_num_records, const void **ptr)
+{
+    const ucs_profile_thread_location_t *loc;
+
+    EXPECT_NE(m_tids.end(),    m_tids.find(thread_hdr->tid));
+    EXPECT_EQ(exp_num_records, thread_hdr->num_records);
+
+    EXPECT_LE(thread_hdr->end_time,   ucs_get_time());
+    EXPECT_LE(thread_hdr->start_time, thread_hdr->end_time);
+    EXPECT_LE(thread_hdr->end_time - thread_hdr->start_time,
+              ucs_time_from_sec(1.0) * ucs::test_time_multiplier() * (1 + exp_count));
+
+    for (unsigned i = 0; i < num_locations; ++i) {
+        loc = &reinterpret_cast<const ucs_profile_thread_location_t*>
+                        (thread_hdr + 1)[i];
+        EXPECT_EQ(exp_count, loc->count);
+        EXPECT_LE(loc->total_time,
+                  ucs_time_from_sec(1.0) * ucs::test_time_multiplier() * exp_count);
+    }
+
+    *ptr = reinterpret_cast<const ucs_profile_thread_location_t*>(thread_hdr + 1) +
+           num_locations;
+}
+
 void test_profile::do_test(unsigned int_mode, const std::string& str_mode)
 {
     const char* UCS_PROFILE_FILENAME = "test.prof";
     const int   ITER                 = 5;
-
-    uint64_t exp_count =       (int_mode & UCS_BIT(UCS_PROFILE_MODE_ACCUM)) ?
-                               ITER : 0;
-    uint64_t exp_num_records = (int_mode & UCS_BIT(UCS_PROFILE_MODE_LOG)) ?
-                               (NUM_LOCAITONS * ITER) : 0;
-
 
     scoped_profile p(*this, UCS_PROFILE_FILENAME, str_mode.c_str());
     run_profiled_code(ITER);
@@ -231,19 +251,30 @@ void test_profile::do_test(unsigned int_mode, const std::string& str_mode)
     /* Read and test file header */
     const ucs_profile_header_t *hdr =
                     reinterpret_cast<const ucs_profile_header_t*>(ptr);
-    test_header(hdr, int_mode, exp_num_records, &ptr);
+    test_header(hdr, int_mode, &ptr);
 
     /* Read and test global locations */
     const ucs_profile_location_t *locations =
                     reinterpret_cast<const ucs_profile_location_t*>(ptr);
-    test_locations(locations, exp_count, hdr->num_locations, &ptr);
+    test_locations(locations, hdr->num_locations, &ptr);
 
     /* Read and test threads */
     for (int i = 0; i < num_threads(); ++i) {
+        const ucs_profile_thread_header_t *thread_hdr =
+                        reinterpret_cast<const ucs_profile_thread_header_t*>(ptr);
+
+        uint64_t exp_count =       (int_mode & UCS_BIT(UCS_PROFILE_MODE_ACCUM)) ?
+                                   ITER : 0;
+        uint64_t exp_num_records = (int_mode & UCS_BIT(UCS_PROFILE_MODE_LOG)) ?
+                                   (NUM_LOCAITONS * ITER) : 0;
+
+        test_thread_locations(thread_hdr, hdr->num_locations, exp_count,
+                              exp_num_records, &ptr);
+
         const ucs_profile_record_t *records =
                         reinterpret_cast<const ucs_profile_record_t*>(ptr);
         uint64_t prev_ts = records[0].timestamp;
-        for (uint64_t i = 0; i < hdr->num_records; ++i) {
+        for (uint64_t i = 0; i < thread_hdr->num_records; ++i) {
             const ucs_profile_record_t *rec = &records[i];
 
             /* test location index */
@@ -264,7 +295,7 @@ void test_profile::do_test(unsigned int_mode, const std::string& str_mode)
             }
         }
 
-        ptr = records + hdr->num_records;
+        ptr = records + thread_hdr->num_records;
     }
 
     EXPECT_EQ(&data[data.size()], ptr) << data.size();
@@ -284,6 +315,7 @@ UCS_TEST_P(test_profile, log_accum) {
 }
 
 INSTANTIATE_TEST_CASE_P(st, test_profile, ::testing::Values(1));
+INSTANTIATE_TEST_CASE_P(mt, test_profile, ::testing::Values(2, 4, 8));
 
 class test_profile_perf : public test_profile {
 };
