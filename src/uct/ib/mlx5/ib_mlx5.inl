@@ -19,6 +19,14 @@ uct_ib_mlx5_cqe_is_hw_owned(uint8_t op_own, unsigned index, unsigned mask)
     return (op_own & MLX5_CQE_OWNER_MASK) == !(index & mask);
 }
 
+#define MLX5E_CQE_FORMAT_MASK 0xc
+#define MLX5_COMPRESSED       0x3
+
+static inline int mlx5_get_cqe_format(struct mlx5_cqe64 *cqe)
+{
+        return (cqe->op_own & MLX5E_CQE_FORMAT_MASK) >> 2;
+}
+
 static UCS_F_ALWAYS_INLINE struct mlx5_cqe64*
 uct_ib_mlx5_poll_cq(uct_ib_iface_t *iface, uct_ib_mlx5_cq_t *cq)
 {
@@ -37,6 +45,10 @@ uct_ib_mlx5_poll_cq(uct_ib_iface_t *iface, uct_ib_mlx5_cq_t *cq)
         ucs_assert((op_own >> 4) != MLX5_CQE_INVALID);
         uct_ib_mlx5_check_completion(iface, cq, cqe);
         return NULL; /* No CQE */
+    }
+
+    if (ucs_unlikely(mlx5_get_cqe_format(cqe) == MLX5_COMPRESSED)) {
+        ucs_fatal("unsupported");
     }
 
     cq->cq_ci = index + 1;
