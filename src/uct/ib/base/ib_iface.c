@@ -610,16 +610,8 @@ ucs_status_t uct_ib_verbs_create_cq(struct ibv_context *context, int cqe,
     if (!cq && (errno == ENOSYS))
 #endif
     {
-        struct ibv_exp_cq_init_attr cq_attr;
-
-        cq_attr.comp_mask = IBV_EXP_CQ_INIT_ATTR_FLAGS;
-        cq_attr.flags     = IBV_EXP_CQ_COMPRESSED_CQE;
         *inl = 0;
-
-//        ucs_warn("enable cqz");
-//        cq = ibv_create_cq(context, cqe, NULL, channel, comp_vector);
-        cq = ibv_exp_create_cq(context, cqe, NULL, channel, comp_vector,
-                               &cq_attr);
+        cq = ibv_create_cq(context, cqe, NULL, channel, comp_vector);
     }
 
     if (!cq) {
