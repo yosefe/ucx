@@ -221,18 +221,29 @@ static ucs_status_t ucp_wireup_connect_local(ucp_ep_h ep, const uint8_t *tli,
                                              const ucp_address_entry_t *address_list)
 {
     const ucp_address_entry_t *address;
+    unsigned address_index;
     ucp_lane_index_t lane;
     ucs_status_t status;
     ucp_md_map_t UCS_V_UNUSED md_map;
+    uint64_t used_addresses;
 
     ucs_trace("ep %p: connect local transports", ep);
+
+    used_addresses = 0;
 
     for (lane = 0; lane < ucp_ep_num_lanes(ep); ++lane) {
         if (!ucp_ep_is_lane_p2p(ep, lane)) {
             continue;
         }
 
-        address = &address_list[tli[lane]];
+        address_index = tli[lane];
+        if (used_addresses & UCS_BIT(address_index)) {
+            ucs_fatal("cannot connect more than one lane to same remote address");
+        }
+
+        used_addresses |= UCS_BIT(address_index);
+        address         = &address_list[address_index];
+
         status = uct_ep_connect_to_ep(ep->uct_eps[lane], address->dev_addr,
                                       address->ep_addr);
         if (status != UCS_OK) {

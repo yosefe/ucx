@@ -950,3 +950,70 @@ UCP_INSTANTIATE_TEST_CASE_TLS(test_ucp_wireup_fallback,
 /* Test all available ib transports */
 UCP_INSTANTIATE_TEST_CASE_TLS(test_ucp_wireup_fallback,
                               ib, "ib")
+
+
+/* NOTE: this fixture is NOT inherited from test_ucp_wireup, because we want to
+ * create our own entities.
+ */
+class test_ucp_wireup_assymetric : public ucp_test {
+protected:
+    virtual void init() {
+        // Don't create entities
+    }
+
+    void tag_sendrecv(size_t size) {
+        std::string send_data(size, 's');
+        std::string recv_data(size, 'x');
+
+        ucs_status_ptr_t sreq = ucp_tag_send_nb(
+                        sender().ep(0), &send_data[0], size,
+                        ucp_dt_make_contig(1), 1,
+                        (ucp_send_callback_t)ucs_empty_function);
+        ucs_status_ptr_t rreq = ucp_tag_recv_nb(
+                        receiver().worker(), &recv_data[0], size,
+                        ucp_dt_make_contig(1), 1, 1,
+                        (ucp_tag_recv_callback_t)ucs_empty_function);
+        wait(sreq);
+        wait(rreq);
+
+        EXPECT_EQ(send_data, recv_data);
+    }
+
+public:
+    static ucp_params_t get_ctx_params() {
+        ucp_params_t params = ucp_test::get_ctx_params();
+        params.field_mask  |= UCP_PARAM_FIELD_FEATURES;
+        params.features     = UCP_FEATURE_TAG;
+        return params;
+    }
+};
+
+UCS_TEST_SKIP_COND_P(test_ucp_wireup_assymetric, connect, is_self()) {
+
+    // create sender
+    UCS_TEST_MESSAGE << "create sender";
+    {
+        ucs::scoped_setenv pci_bw_env("UCX_IB_PCI_BW", "mlx5_0:50Gbs,mlx5_4:100Gbs");
+        create_entity();
+    }
+
+    // create receiver
+    UCS_TEST_MESSAGE << "create receiver";
+    {
+        ucs::scoped_setenv pci_bw_env("UCX_IB_PCI_BW", "mlx5_0:100Gbs,mlx5_4:50Gbs");
+        create_entity();
+    }
+
+    UCS_TEST_MESSAGE << "connect";
+    sender().connect(&receiver(), get_ep_params());
+    receiver().connect(&sender(), get_ep_params());
+
+    ucp_ep_print_info(sender().ep(0), stdout);
+    ucp_ep_print_info(receiver().ep(0), stdout);
+
+    tag_sendrecv(1);
+    tag_sendrecv(100000);
+}
+
+UCP_INSTANTIATE_TEST_CASE(test_ucp_wireup_assymetric)
+UCP_INSTANTIATE_TEST_CASE_TLS(test_ucp_wireup_assymetric, all, "all")

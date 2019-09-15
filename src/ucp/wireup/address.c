@@ -298,6 +298,7 @@ static ucs_status_t
 ucp_address_pack_ep_address(ucp_ep_h ep, ucp_rsc_index_t tl_index,
                             uct_ep_addr_t *addr)
 {
+    ucp_lane_index_t found_lane = UCP_NULL_LANE;
     ucp_lane_index_t lane;
 
     for (lane = 0; lane < ucp_ep_num_lanes(ep); ++lane) {
@@ -307,12 +308,19 @@ ucp_address_pack_ep_address(ucp_ep_h ep, ucp_rsc_index_t tl_index,
              * address, and the length will be correct because the resource index
              * is of the next_ep.
              */
-            return uct_ep_get_address(ep->uct_eps[lane], addr);
+            if (found_lane != UCP_NULL_LANE) {
+                ucs_fatal("more than one lane uses same resource index");
+            }
+            found_lane = lane;
         }
     }
 
-    ucs_bug("provided ucp_ep without required transport");
-    return UCS_ERR_INVALID_ADDR;
+    if (found_lane == UCP_NULL_LANE) {
+        ucs_bug("provided ucp_ep without required transport");
+        return UCS_ERR_INVALID_ADDR;
+    }
+
+    return uct_ep_get_address(ep->uct_eps[found_lane], addr);
 }
 
 static int ucp_address_pack_iface_attr(ucp_worker_h worker, void *ptr,
