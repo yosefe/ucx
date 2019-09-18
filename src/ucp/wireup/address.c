@@ -647,6 +647,8 @@ static ucs_status_t ucp_address_do_pack(ucp_worker_h worker, ucp_ep_h ep,
                 ep_addr_len = iface_attr->ep_addr_len;
 
                 for (lane = 0; lane < ucp_ep_num_lanes(ep); ++lane) {
+                    uint8_t *ep_addr;
+
                     if (ucp_ep_get_rsc_index(ep, lane) != rsc_index) {
                         continue;
                     }
@@ -657,6 +659,7 @@ static ucs_status_t ucp_address_do_pack(ucp_worker_h worker, ucp_ep_h ep,
                                                            ep_addr_len);
 
                     /* pack ep address */
+                    ep_addr = ptr;
                     status = uct_ep_get_address(ep->uct_eps[lane], ptr);
                     if (status != UCS_OK) {
                         return status;
@@ -671,33 +674,48 @@ static ucs_status_t ucp_address_do_pack(ucp_worker_h worker, ucp_ep_h ep,
                     *(uint8_t*)ptr = remote_lane;
                     ptr            = UCS_PTR_TYPE_OFFSET(ptr, uint8_t);
 
-                    ucs_trace("pack addr[%d].ep_addr[%d] : len %zu lane %d->%d",
-                               index, num_ep_addrs, ep_addr_len, lane,
-                               remote_lane);
+                    {
+                        char astr[128];
+                        char *p = astr;
+                        int i;
+                        for (i = 0; i < ep_addr_len; ++i) {
+                            sprintf(p, "%02x", ep_addr[i]);
+                            p += 2;
+                        }
+                        *p=0;
+
+                        ucs_trace("pack addr[%d].ep_addr[%d] : len %zu lane %d->%d %s",
+                                   index, num_ep_addrs, ep_addr_len, lane,
+                                   remote_lane, astr);
+                    }
                     ++num_ep_addrs;
                 }
 
                 if (num_ep_addrs > 0) {
                     *(uint8_t*)flags_ptr    |= UCP_ADDRESS_FLAG_HAVE_EP_ADDR;
-                    *(uint8_t*)ep_flags_ptr |= UCP_ADDRESS_FLAG_LAST;
+                    if (!ucp_worker_unified_mode(worker)) {
+                        *(uint8_t*)ep_flags_ptr |= UCP_ADDRESS_FLAG_LAST;
+                    }
                 }
             }
 
-            ucs_trace("pack addr[%d] : "UCT_TL_RESOURCE_DESC_FMT" "
-                      "eps %u md_flags 0x%"PRIx64" tl_flags 0x%"PRIx64" bw %e + %e/n ovh %e "
-                      "lat_ovh %e dev_priority %d a32 0x%lx/0x%lx a64 0x%lx/0x%lx",
-                      index,
-                      UCT_TL_RESOURCE_DESC_ARG(&context->tl_rscs[rsc_index].tl_rsc),
-                      num_ep_addrs, md_flags, iface_attr->cap.flags,
-                      iface_attr->bandwidth.dedicated,
-                      iface_attr->bandwidth.shared,
-                      iface_attr->overhead,
-                      iface_attr->latency.overhead,
-                      iface_attr->priority,
-                      iface_attr->cap.atomic32.op_flags,
-                      iface_attr->cap.atomic32.fop_flags,
-                      iface_attr->cap.atomic64.op_flags,
-                      iface_attr->cap.atomic64.fop_flags);
+            if (flags & UCP_ADDRESS_PACK_FLAG_TRACE) {
+                ucs_trace("pack addr[%d] : "UCT_TL_RESOURCE_DESC_FMT" "
+                          "eps %u md_flags 0x%"PRIx64" tl_flags 0x%"PRIx64" bw %e + %e/n ovh %e "
+                          "lat_ovh %e dev_priority %d a32 0x%lx/0x%lx a64 0x%lx/0x%lx",
+                          index,
+                          UCT_TL_RESOURCE_DESC_ARG(&context->tl_rscs[rsc_index].tl_rsc),
+                          num_ep_addrs, md_flags, iface_attr->cap.flags,
+                          iface_attr->bandwidth.dedicated,
+                          iface_attr->bandwidth.shared,
+                          iface_attr->overhead,
+                          iface_attr->latency.overhead,
+                          iface_attr->priority,
+                          iface_attr->cap.atomic32.op_flags,
+                          iface_attr->cap.atomic32.fop_flags,
+                          iface_attr->cap.atomic64.op_flags,
+                          iface_attr->cap.atomic64.fop_flags);
+            }
             ++index;
         }
     }
@@ -914,19 +932,21 @@ ucs_status_t ucp_address_unpack(ucp_worker_t *worker, const void *buffer,
                 ptr           = UCS_PTR_TYPE_OFFSET(ptr, uint8_t);
             }
 
-            ucs_trace("unpack addr[%d] : eps %u md_flags 0x%"PRIx64" tl_flags 0x%"PRIx64" bw %e + %e/n ovh %e "
-                      "lat_ovh %e dev_priority %d a32 0x%lx/0x%lx a64 0x%lx/0x%lx",
-                      (int)(address - address_list), address->num_ep_addrs,
-                      address->md_flags, address->iface_attr.cap_flags,
-                      address->iface_attr.bandwidth.dedicated,
-                      address->iface_attr.bandwidth.shared,
-                      address->iface_attr.overhead,
-                      address->iface_attr.lat_ovh,
-                      address->iface_attr.priority,
-                      address->iface_attr.atomic.atomic32.op_flags,
-                      address->iface_attr.atomic.atomic32.fop_flags,
-                      address->iface_attr.atomic.atomic64.op_flags,
-                      address->iface_attr.atomic.atomic64.fop_flags);
+            if (flags & UCP_ADDRESS_PACK_FLAG_TRACE) {
+                ucs_trace("unpack addr[%d] : eps %u md_flags 0x%"PRIx64" tl_flags 0x%"PRIx64" bw %e + %e/n ovh %e "
+                          "lat_ovh %e dev_priority %d a32 0x%lx/0x%lx a64 0x%lx/0x%lx",
+                          (int)(address - address_list), address->num_ep_addrs,
+                          address->md_flags, address->iface_attr.cap_flags,
+                          address->iface_attr.bandwidth.dedicated,
+                          address->iface_attr.bandwidth.shared,
+                          address->iface_attr.overhead,
+                          address->iface_attr.lat_ovh,
+                          address->iface_attr.priority,
+                          address->iface_attr.atomic.atomic32.op_flags,
+                          address->iface_attr.atomic.atomic32.fop_flags,
+                          address->iface_attr.atomic.atomic64.op_flags,
+                          address->iface_attr.atomic.atomic64.fop_flags);
+            }
             ++address;
         }
 
