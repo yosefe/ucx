@@ -372,12 +372,12 @@ UCS_TEST_P(test_ucp_wireup_1sided, address) {
     ucs_status_t status;
     size_t size;
     void *buffer;
-    unsigned order[UCP_MAX_RESOURCES];
+    ucp_lane_index_t lanes2remote[UCP_MAX_LANES];
     std::set<uint8_t> packed_dev_priorities, unpacked_dev_priorities;
     ucp_rsc_index_t tl;
 
-    status = ucp_address_pack(sender().worker(), NULL, -1, -1, order, &size,
-                              &buffer);
+    status = ucp_address_pack(sender().worker(), NULL, -1, -1, lanes2remote,
+                              &size, &buffer);
     ASSERT_UCS_OK(status);
     ASSERT_TRUE(buffer != NULL);
     ASSERT_GT(size, 0ul);
@@ -423,10 +423,10 @@ UCS_TEST_P(test_ucp_wireup_1sided, empty_address) {
     ucs_status_t status;
     size_t size;
     void *buffer;
-    unsigned order[UCP_MAX_RESOURCES];
+    ucp_lane_index_t lanes2remote[UCP_MAX_LANES];
 
-    status = ucp_address_pack(sender().worker(), NULL, 0, -1, order, &size,
-                              &buffer);
+    status = ucp_address_pack(sender().worker(), NULL, 0, -1, lanes2remote,
+                              &size, &buffer);
     ASSERT_UCS_OK(status);
     ASSERT_TRUE(buffer != NULL);
     ASSERT_GT(size, 0ul);
@@ -989,6 +989,8 @@ public:
 };
 
 UCS_TEST_SKIP_COND_P(test_ucp_wireup_assymetric, connect, is_self()) {
+
+//    UCS_TEST_SKIP_R("still broken");
 
     // create sender
     UCS_TEST_MESSAGE << "create sender";

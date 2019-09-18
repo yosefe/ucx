@@ -55,19 +55,24 @@ struct ucp_address_iface_attr {
     ucp_tl_iface_atomic_flags_t atomic;       /* Atomic operations */
 };
 
+typedef struct ucp_address_entry_ep_addr {
+    ucp_lane_index_t            lane;         /* Lane index (local or remote) */
+    const uct_ep_addr_t         *addr;        /* Pointer to ep address */
+} ucp_address_entry_ep_addr_t;
 
 /**
  * Address entry.
  */
 struct ucp_address_entry {
-    const uct_device_addr_t    *dev_addr;      /* Points to device address */
-    const uct_iface_addr_t     *iface_addr;    /* Interface address, NULL if not available */
-    const uct_ep_addr_t        *ep_addr;       /* Endpoint address, NULL if not available */
-    ucp_address_iface_attr_t   iface_attr;     /* Interface attributes information */
-    uint64_t                   md_flags;       /* MD reg/alloc flags */
-    uint16_t                   tl_name_csum;   /* Checksum of transport name */
-    ucp_rsc_index_t            md_index;       /* Memory domain index */
-    ucp_rsc_index_t            dev_index;      /* Device index */
+    const uct_device_addr_t     *dev_addr;      /* Points to device address */
+    const uct_iface_addr_t      *iface_addr;    /* Interface address, NULL if not available */
+    unsigned                    num_ep_addrs;   /* How many endpoint address are in ep_addrs */
+    ucp_address_entry_ep_addr_t ep_addrs[UCP_MAX_LANES]; /* Endpoint addresses */
+    ucp_address_iface_attr_t    iface_attr;     /* Interface attributes information */
+    uint64_t                    md_flags;       /* MD reg/alloc flags */
+    uint16_t                    tl_name_csum;   /* Checksum of transport name */
+    ucp_rsc_index_t             md_index;       /* Memory domain index */
+    ucp_rsc_index_t             dev_index;      /* Device index */
 };
 
 
@@ -96,18 +101,15 @@ struct ucp_unpacked_address {
  *                           (ep or iface) should be packed.
  * @param [in]  flags       UCP_ADDRESS_PACK_FLAG_xx flags to specify address
  *                          format.
- * @param [out] order       If != NULL, filled with the order of addresses as they
- *                           were packed. For example: first entry in the array is
- *                           the address index of the first transport specified
- *                           by tl_bitmap. The array should be large enough to
- *                           hold all transports specified by tl_bitmap.
+ * TODO
  * @param [out] size_p      Filled with buffer size.
  * @param [out] buffer_p    Filled with pointer to packed buffer. It should be
  *                           released by ucs_free().
  */
 ucs_status_t ucp_address_pack(ucp_worker_h worker, ucp_ep_h ep,
                               uint64_t tl_bitmap, uint64_t flags,
-                              unsigned *order, size_t *size_p, void **buffer_p);
+                              const ucp_lane_index_t *lanes2remote,
+                              size_t *size_p, void **buffer_p);
 
 
 /**

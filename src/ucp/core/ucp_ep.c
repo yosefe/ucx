@@ -166,9 +166,7 @@ ucs_status_t ucp_ep_create_sockaddr_aux(ucp_worker_h worker,
         goto err_delete;
     }
 
-    status = ucp_wireup_ep_connect_aux(wireup_ep, params,
-                                       remote_address->address_count,
-                                       remote_address->address_list);
+    status = ucp_wireup_ep_connect_aux(wireup_ep, params, remote_address);
     if (status != UCS_OK) {
         goto err_destroy_wireup_ep;
     }
@@ -328,7 +326,7 @@ ucs_status_t ucp_ep_create_to_worker_addr(ucp_worker_h worker,
                                           unsigned ep_init_flags,
                                           const char *message, ucp_ep_h *ep_p)
 {
-    uint8_t addr_indices[UCP_MAX_LANES];
+    unsigned addr_indices[UCP_MAX_LANES];
     ucs_status_t status;
     ucp_ep_h ep;
 
@@ -339,9 +337,8 @@ ucs_status_t ucp_ep_create_to_worker_addr(ucp_worker_h worker,
     }
 
     /* initialize transport endpoints */
-    status = ucp_wireup_init_lanes(ep, params, ep_init_flags,
-                                   remote_address->address_count,
-                                   remote_address->address_list, addr_indices);
+    status = ucp_wireup_init_lanes(ep, params, ep_init_flags, remote_address,
+                                   addr_indices);
     if (status != UCS_OK) {
         goto err_delete;
     }
@@ -1510,7 +1507,7 @@ int ucp_ep_config_get_multi_lane_prio(const ucp_lane_index_t *lanes,
 
 void ucp_ep_config_lane_info_str(ucp_context_h context,
                                  const ucp_ep_config_key_t *key,
-                                 const uint8_t *addr_indices,
+                                 const unsigned *addr_indices,
                                  ucp_lane_index_t lane,
                                  ucp_rsc_index_t aux_rsc_index,
                                  char *buf, size_t max)
@@ -1606,7 +1603,7 @@ void ucp_ep_config_lane_info_str(ucp_context_h context,
 
 static void ucp_ep_config_print(FILE *stream, ucp_worker_h worker,
                                 const ucp_ep_config_t *config,
-                                const uint8_t *addr_indices,
+                                const unsigned *addr_indices,
                                 ucp_rsc_index_t aux_rsc_index)
 {
     ucp_context_h context = worker->context;
@@ -1679,7 +1676,7 @@ void ucp_ep_print_info(ucp_ep_h ep, FILE *stream)
     UCP_WORKER_THREAD_CS_ENTER_CONDITIONAL(ep->worker);
 
     fprintf(stream, "#\n");
-    fprintf(stream, "# UCP endpoint\n");
+    fprintf(stream, "# UCP endpoint %p\n", ep);
     fprintf(stream, "#\n");
     fprintf(stream, "#               peer: %s\n", ucp_ep_peer_name(ep));
 

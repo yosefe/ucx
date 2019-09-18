@@ -1220,16 +1220,16 @@ ucp_wireup_select_wireup_msg_lane(ucp_worker_h worker,
 static UCS_F_NOINLINE void
 ucp_wireup_select_ctx_init(ucp_wireup_select_ctx_t *select_ctx,
                            ucp_ep_h ep, const ucp_ep_params_t *params,
-                           unsigned ep_init_flags, unsigned address_count,
-                           const ucp_address_entry_t *address_list,
+                           unsigned ep_init_flags,
+                           const ucp_unpacked_address_t *remote_address,
                            uint64_t tl_bitmap)
 {
     select_ctx->ep            = ep;
     select_ctx->params        = params;
     select_ctx->ep_init_flags = ep_init_flags;
     select_ctx->tl_bitmap     = tl_bitmap;
-    select_ctx->address_list  = address_list;
-    select_ctx->address_count = address_count;
+    select_ctx->address_list  = remote_address->address_list;
+    select_ctx->address_count = remote_address->address_count;
     select_ctx->num_lanes     = 0;
     select_ctx->allow_am      = ucp_wireup_allow_am_emulation_layer(params,
                                                                     ep_init_flags);
@@ -1293,7 +1293,7 @@ ucp_wireup_search_lanes(ucp_wireup_select_ctx_t *select_ctx,
 
 static UCS_F_NOINLINE void
 ucp_wireup_construct_lanes(ucp_wireup_select_ctx_t *select_ctx,
-                           uint8_t *addr_indices, ucp_ep_config_key_t *key)
+                           unsigned *addr_indices, ucp_ep_config_key_t *key)
 {
     ucp_ep_h ep           = select_ctx->ep;
     ucp_worker_h worker   = ep->worker;
@@ -1377,10 +1377,11 @@ ucp_wireup_construct_lanes(ucp_wireup_select_ctx_t *select_ctx,
     key->am_bw_lanes[0] = key->am_lane;
 }
 
-ucs_status_t ucp_wireup_select_lanes(ucp_ep_h ep, const ucp_ep_params_t *params,
-                                     unsigned ep_init_flags, unsigned address_count,
-                                     const ucp_address_entry_t *address_list,
-                                     uint8_t *addr_indices, ucp_ep_config_key_t *key)
+ucs_status_t
+ucp_wireup_select_lanes(ucp_ep_h ep, const ucp_ep_params_t *params,
+                        unsigned ep_init_flags,
+                        const ucp_unpacked_address_t *remote_address,
+                        unsigned *addr_indices, ucp_ep_config_key_t *key)
 {
     ucp_worker_h worker = ep->worker;
     ucp_wireup_select_ctx_t select_ctx;
@@ -1388,8 +1389,7 @@ ucs_status_t ucp_wireup_select_lanes(ucp_ep_h ep, const ucp_ep_params_t *params,
 
     if (worker->scalable_tl_bitmap) {
         ucp_wireup_select_ctx_init(&select_ctx, ep, params, ep_init_flags,
-                                   address_count, address_list,
-                                   worker->scalable_tl_bitmap);
+                                   remote_address, worker->scalable_tl_bitmap);
         status = ucp_wireup_search_lanes(&select_ctx, key);
         if (status == UCS_OK) {
             goto out;
@@ -1401,7 +1401,7 @@ ucs_status_t ucp_wireup_select_lanes(ucp_ep_h ep, const ucp_ep_params_t *params,
     }
 
     ucp_wireup_select_ctx_init(&select_ctx, ep, params, ep_init_flags,
-                               address_count, address_list, -1);
+                               remote_address, -1);
     status = ucp_wireup_search_lanes(&select_ctx, key);
     if (status != UCS_OK) {
         return status;
@@ -1423,17 +1423,15 @@ static double ucp_wireup_aux_score_func(ucp_context_h context,
             iface_attr->overhead + remote_iface_attr->overhead));
 }
 
-ucs_status_t ucp_wireup_select_aux_transport(ucp_ep_h ep,
-                                             const ucp_ep_params_t *params,
-                                             const ucp_address_entry_t *address_list,
-                                             unsigned address_count,
-                                             ucp_wireup_select_info_t *select_info)
+ucs_status_t
+ucp_wireup_select_aux_transport(ucp_ep_h ep, const ucp_ep_params_t *params,
+                                const ucp_unpacked_address_t *remote_address,
+                                ucp_wireup_select_info_t *select_info)
 {
     ucp_wireup_criteria_t criteria = {0};
     ucp_wireup_select_ctx_t select_ctx;
 
-    ucp_wireup_select_ctx_init(&select_ctx, ep, params, 0,
-                               address_count, address_list, -1);
+    ucp_wireup_select_ctx_init(&select_ctx, ep, params, 0, remote_address, -1);
 
     ucp_wireup_fill_aux_criteria(&criteria, params);
 
