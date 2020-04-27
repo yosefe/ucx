@@ -40,7 +40,6 @@ static size_t ucp_tag_pack_eager_only_dt(void *dest, void *arg)
     ucp_request_t *req = arg;
 
     hdr->super.tag = req->send.msg_proto.tag.tag;
-    hdr->ep_ptr    = ucp_request_get_dest_ep_ptr(req);
 
     return ucp_tag_pack_eager_common(req, hdr + 1, req->send.length,
                                      sizeof(*hdr), 1);
@@ -52,7 +51,6 @@ static size_t ucp_tag_pack_eager_sync_only_dt(void *dest, void *arg)
     ucp_request_t *req = arg;
 
     hdr->super.super.tag = req->send.msg_proto.tag.tag;
-    hdr->super.ep_ptr    = ucp_request_get_dest_ep_ptr(req);
     hdr->req.ep_ptr      = ucp_request_get_dest_ep_ptr(req);
     hdr->req.reqptr      = (uintptr_t)req;
 
@@ -72,7 +70,6 @@ static size_t ucp_tag_pack_eager_first_dt(void *dest, void *arg)
                            sizeof(*hdr);
     length               = ucs_min(length, req->send.length);
     hdr->super.super.tag = req->send.msg_proto.tag.tag;
-    hdr->super.ep_ptr    = ucp_request_get_dest_ep_ptr(req);
     hdr->total_len       = req->send.length;
     hdr->msg_id          = req->send.msg_proto.message_id;
 
@@ -92,7 +89,6 @@ static size_t ucp_tag_pack_eager_sync_first_dt(void *dest, void *arg)
                                  sizeof(*hdr);
     length                     = ucs_min(length, req->send.length);
     hdr->super.super.super.tag = req->send.msg_proto.tag.tag;
-    hdr->super.super.ep_ptr    = ucp_request_get_dest_ep_ptr(req);
     hdr->super.total_len       = req->send.length;
     hdr->req.ep_ptr            = ucp_request_get_dest_ep_ptr(req);
     hdr->super.msg_id          = req->send.msg_proto.message_id;
@@ -110,7 +106,6 @@ static size_t ucp_tag_pack_eager_middle_dt(void *dest, void *arg)
     length      = ucs_min(ucp_ep_get_max_bcopy(req->send.ep, req->send.lane) -
                           sizeof(*hdr),
                           req->send.length - req->send.state.dt.offset);
-    hdr->ep_ptr = ucp_request_get_dest_ep_ptr(req);
     hdr->msg_id = req->send.msg_proto.message_id;
     hdr->offset = req->send.state.dt.offset;
 
@@ -172,8 +167,6 @@ static ucs_status_t ucp_tag_eager_zcopy_single(uct_pending_req_t *self)
     ucp_eager_hdr_t hdr;
 
     hdr.super.tag = req->send.msg_proto.tag.tag;
-    hdr.ep_ptr    = ucp_request_get_dest_ep_ptr(req);
-
     return ucp_do_am_zcopy_single(self, UCP_AM_ID_EAGER_ONLY, &hdr, sizeof(hdr),
                                   ucp_proto_am_zcopy_req_complete);
 }
@@ -185,11 +178,9 @@ static ucs_status_t ucp_tag_eager_zcopy_multi(uct_pending_req_t *self)
     ucp_eager_middle_hdr_t middle_hdr;
 
     first_hdr.super.super.tag = req->send.msg_proto.tag.tag;
-    first_hdr.super.ep_ptr    = ucp_request_get_dest_ep_ptr(req);
     first_hdr.total_len       = req->send.length;
     first_hdr.msg_id          = req->send.msg_proto.message_id;
     middle_hdr.msg_id         = req->send.msg_proto.message_id;
-    middle_hdr.ep_ptr         = ucp_request_get_dest_ep_ptr(req);
     middle_hdr.offset         = req->send.state.dt.offset;
 
     return ucp_do_am_zcopy_multi(self,
@@ -285,7 +276,6 @@ static ucs_status_t ucp_tag_eager_sync_zcopy_single(uct_pending_req_t *self)
     ucp_eager_sync_hdr_t hdr;
 
     hdr.super.super.tag = req->send.msg_proto.tag.tag;
-    hdr.super.ep_ptr    = ucp_request_get_dest_ep_ptr(req);
     hdr.req.ep_ptr      = ucp_request_get_dest_ep_ptr(req);
     hdr.req.reqptr      = (uintptr_t)req;
 
@@ -300,13 +290,11 @@ static ucs_status_t ucp_tag_eager_sync_zcopy_multi(uct_pending_req_t *self)
     ucp_eager_middle_hdr_t middle_hdr;
 
     first_hdr.super.super.super.tag = req->send.msg_proto.tag.tag;
-    first_hdr.super.super.ep_ptr    = ucp_request_get_dest_ep_ptr(req);
     first_hdr.super.total_len       = req->send.length;
     first_hdr.req.ep_ptr            = ucp_request_get_dest_ep_ptr(req);
     first_hdr.req.reqptr            = (uintptr_t)req;
     first_hdr.super.msg_id          = req->send.msg_proto.message_id;
     middle_hdr.msg_id               = req->send.msg_proto.message_id;
-    middle_hdr.ep_ptr               = ucp_request_get_dest_ep_ptr(req);
     middle_hdr.offset               = req->send.state.dt.offset;
 
     return ucp_do_am_zcopy_multi(self,
@@ -350,7 +338,7 @@ void ucp_tag_eager_sync_send_ack(ucp_worker_h worker, void *hdr, uint16_t recv_f
     ucs_assert(reqhdr->reqptr != 0);
     req = ucp_proto_ssend_ack_request_alloc(worker, reqhdr->ep_ptr);
     if (req == NULL) {
-        return;
+        ucs_fatal("could not allocate request");
     }
 
     req->send.proto.am_id          = UCP_AM_ID_EAGER_SYNC_ACK;

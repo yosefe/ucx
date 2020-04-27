@@ -1,4 +1,4 @@
-/**
+            /**
 * Copyright (C) Mellanox Technologies Ltd. 2001-2015.  ALL RIGHTS RESERVED.
 * Copyright (C) Los Alamos National Security, LLC. 2019 ALL RIGHTS RESERVED.
 *
@@ -29,8 +29,6 @@
 #include <ucs/sys/string.h>
 #include <ucs/sys/sock.h>
 #include <string.h>
-
-#include <ucp/tag/tag_match.inl>
 
 
 typedef struct {
@@ -91,7 +89,6 @@ ucs_status_t ucp_ep_new(ucp_worker_h worker, const char *peer_name,
     ucp_ep_config_key_t key;
     ucp_lane_index_t lane;
     ucp_ep_h ep;
-    int ret;
 
     ep = ucs_strided_alloc_get(&worker->ep_alloc, "ucp_ep");
     if (ep == NULL) {
@@ -140,11 +137,6 @@ ucs_status_t ucp_ep_new(ucp_worker_h worker, const char *peer_name,
     }
 
     ucs_list_add_tail(&worker->all_eps, &ucp_ep_ext_gen(ep)->ep_list);
-    kh_put(ucp_worker_ep_ptrs, &worker->ep_ptrs, (uintptr_t)ep, &ret);
-    if (ret == 0) {
-        ucs_warn("failed to add ep %p to worker (%p) ep ptrs hash", ep, worker);
-    }
-
     *ep_p = ep;
     ucs_debug("created ep %p to %s %s", ep, ucp_ep_peer_name(ep), message);
     return UCS_OK;
@@ -157,20 +149,10 @@ err:
 
 void ucp_ep_delete(ucp_ep_h ep)
 {
-    khiter_t iter;
-
     ucs_callbackq_remove_if(&ep->worker->uct->progress_q,
                             ucp_wireup_msg_ack_cb_pred, ep);
     UCS_STATS_NODE_FREE(ep->stats);
     ucs_list_del(&ucp_ep_ext_gen(ep)->ep_list);
-
-    iter = kh_get(ucp_worker_ep_ptrs, &ep->worker->ep_ptrs, (uintptr_t)ep);
-    if (iter != kh_end(&ep->worker->ep_ptrs)) {
-        kh_del(ucp_worker_ep_ptrs, &ep->worker->ep_ptrs, iter);
-    } else {
-        ucs_warn("ep %p does not exist on worker %p", ep, ep->worker);
-    }
-
     ucs_strided_alloc_put(&ep->worker->ep_alloc, ep);
 }
 
@@ -783,79 +765,6 @@ void ucp_ep_cleanup_lanes(ucp_ep_h ep)
     }
 }
 
-static void ucp_worker_matchq_purge(ucp_tag_frag_match_t *matchq)
-{
-    ucp_recv_desc_t *rdesc;
-
-    ucs_queue_for_each_extract(rdesc, &matchq->unexp_q, tag_frag_queue, 1) {
-        ucs_debug("releasing unexpected rdesc %p", rdesc);
-        ucp_recv_desc_release(rdesc);
-    }
-}
-
-static void ucp_ep_cleanup_unexp(ucp_ep_h ep)
-{
-    ucp_tag_match_t *tm = &ep->worker->tm;
-    const ucp_rndv_rts_hdr_t *rndv_rts_hdr;
-    const ucp_eager_middle_hdr_t *eager_mid_hdr;
-    const ucp_eager_hdr_t *eager_hdr;
-    ucp_recv_desc_t *rdesc, *tmp;
-    ucp_tag_frag_match_t *matchq;
-    ucp_request_t *rreq;
-    uint64_t msg_id;
-    khiter_t iter;
-
-    ucs_debug("cleanup ep %p", ep);
-
-    /* remove from unexpected queue */
-    ucs_list_for_each_safe(rdesc, tmp, &tm->unexpected.all,
-                           tag_list[UCP_RDESC_ALL_LIST]) {
-        if (rdesc->flags & UCP_RECV_DESC_FLAG_RNDV) {
-            rndv_rts_hdr = (const void*)(rdesc + 1);
-            if (rndv_rts_hdr->sreq.ep_ptr != (uintptr_t)ep) {
-                /* rndv not matched */
-                continue;
-            }
-        } else {
-            eager_hdr = (const void*)(rdesc + 1);
-            if ((uintptr_t)ep != eager_hdr->ep_ptr) {
-                /* rndv not matched */
-                continue;
-            }
-        }
-
-        ucs_debug("releasing unexpected rdesc %p", rdesc);
-        ucp_tag_unexp_remove(rdesc);
-        ucp_recv_desc_release(rdesc);
-    }
-
-    /* remove from fragments hash */
-    kh_foreach_key(&tm->frag_hash, msg_id, {
-        iter   = kh_get(ucp_tag_frag_hash, &tm->frag_hash, msg_id);
-        matchq = &kh_val(&tm->frag_hash, iter);
-        if (!ucp_tag_frag_match_is_unexp(matchq)) {
-            /* remove receive request from expected hash */
-            rreq = matchq->exp_req;
-            if (rreq->recv.tag.ep_ptr == (uintptr_t)ep) {
-                ucs_debug("completing req %p", rreq);
-                ucp_request_complete_tag_recv(rreq, UCS_ERR_CANCELED);
-                kh_del(ucp_tag_frag_hash, &tm->frag_hash, iter);
-            }
-        } else {
-            /* remove receive fragments from unexpected matchq */
-            rdesc = ucs_queue_head_elem_non_empty(&matchq->unexp_q, ucp_recv_desc_t,
-                                                  tag_frag_queue);
-            ucs_assert(!(rdesc->flags & UCP_RECV_DESC_FLAG_RNDV));
-            eager_mid_hdr = (void*)(rdesc + 1);
-            if (eager_mid_hdr->ep_ptr == (uintptr_t)ep) {
-                ucp_worker_matchq_purge(matchq);
-                kh_del(ucp_tag_frag_hash, &tm->frag_hash, iter);
-            }
-        }
-    });
-
-}
-
 /* Must be called with async lock held */
 void ucp_ep_disconnected(ucp_ep_h ep, int force)
 {
@@ -871,7 +780,6 @@ void ucp_ep_disconnected(ucp_ep_h ep, int force)
 
     ucp_stream_ep_cleanup(ep);
     ucp_am_ep_cleanup(ep);
-    ucp_ep_cleanup_unexp(ep);
     ucp_ep_complete_rndv_reqs(ep);
 
     ep->flags &= ~UCP_EP_FLAG_USED;
@@ -997,6 +905,8 @@ ucs_status_ptr_t ucp_ep_close_nb(ucp_ep_h ep, unsigned mode)
     }
 
     UCS_ASYNC_BLOCK(&worker->async);
+
+    ucp_ep_complete_rndv_reqs(ep);
 
     ep->flags |= UCP_EP_FLAG_CLOSED;
     request = ucp_ep_flush_internal(ep,

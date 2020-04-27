@@ -21,7 +21,6 @@
  */
 typedef struct {
     ucp_tag_hdr_t             super;
-    uintptr_t                 ep_ptr;
 } UCS_S_PACKED ucp_eager_hdr_t;
 
 
@@ -40,7 +39,6 @@ typedef struct {
  */
 typedef struct {
     uint64_t                  msg_id;
-    uintptr_t                 ep_ptr;
     size_t                    offset;
 } UCS_S_PACKED ucp_eager_middle_hdr_t;
 
