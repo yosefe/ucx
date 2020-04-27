@@ -117,4 +117,6 @@ void ucp_tag_frag_list_process_queue(ucp_tag_match_t *tm, ucp_request_t *req,
                                      uint64_t msg_id
                                      UCS_STATS_ARG(int counter_idx));
 
+void ucp_tag_ep_cleanup(ucp_ep_h ep);
+
 #endif

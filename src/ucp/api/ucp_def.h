@@ -623,6 +623,8 @@ typedef struct ucp_ep_params {
      */
     ucp_conn_request_h      conn_request;
 
+    uint64_t                conn_id;
+
 } ucp_ep_params_t;
 
 

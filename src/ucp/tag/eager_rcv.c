@@ -88,6 +88,11 @@ ucp_eager_tagged_handler(void *arg, void *data, size_t length, unsigned am_flags
     ucs_assert(flags & UCP_RECV_DESC_FLAG_EAGER);
 
     recv_tag = eager_hdr->super.tag;
+
+    if (!ucp_worker_check_tag_conn_id(worker, recv_tag)) {
+        return UCS_OK;
+    }
+
     recv_len = length - hdr_len;
 
     req = ucp_tag_exp_search(&worker->tm, recv_tag);
@@ -162,6 +167,10 @@ ucp_eager_common_middle_handler(ucp_worker_t *worker, void *data, size_t length,
     size_t recv_len;
     khiter_t iter;
     int ret;
+
+    if (!ucp_worker_check_tag_conn_id(worker, hdr->super.super.tag)) {
+        return UCS_OK;
+    }
 
     iter   = kh_put(ucp_tag_frag_hash, &worker->tm.frag_hash, hdr->msg_id, &ret);
     ucs_assert(ret >= 0);

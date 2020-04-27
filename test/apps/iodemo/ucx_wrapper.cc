@@ -82,11 +82,13 @@ bool UcxContext::init()
     ucp_params_t ucp_params;
     ucp_params.field_mask   = UCP_PARAM_FIELD_FEATURES |
                               UCP_PARAM_FIELD_REQUEST_INIT |
+                              UCP_PARAM_FIELD_TAG_SENDER_MASK |
                               UCP_PARAM_FIELD_REQUEST_SIZE;
     ucp_params.features     = UCP_FEATURE_TAG |
                               UCP_FEATURE_STREAM;
     ucp_params.request_init = request_init;
     ucp_params.request_size = sizeof(ucx_request);
+    ucp_params.tag_sender_mask = static_cast<uint64_t>(0xffffffff) << 32;
     ucs_status_t status = ucp_init(&ucp_params, NULL, &_context);
     if (status != UCS_OK) {
         UCX_LOG << "ucp_init() failed: " << ucs_status_string(status);
@@ -97,8 +99,10 @@ bool UcxContext::init()
 
     /* Create worker */
     ucp_worker_params_t worker_params;
-    worker_params.field_mask  = UCP_WORKER_PARAM_FIELD_THREAD_MODE;
+    worker_params.field_mask  = UCP_WORKER_PARAM_FIELD_THREAD_MODE |
+                                UCP_WORKER_PARAM_FIELD_FLAGS;
     worker_params.thread_mode = UCS_THREAD_MODE_SINGLE;
+    worker_params.flags       = UCP_WORKER_PARAM_FLAG_CHECK_CONN_ID;
     status = ucp_worker_create(_context, &worker_params, &_worker);
     if (status != UCS_OK) {
         ucp_cleanup(_context);
@@ -570,10 +574,12 @@ bool UcxConnection::connect_common(ucp_ep_params_t& ep_params)
 
     // create endpoint
     ep_params.field_mask      |= UCP_EP_PARAM_FIELD_ERR_HANDLER |
-                                 UCP_EP_PARAM_FIELD_ERR_HANDLING_MODE;
+                                 UCP_EP_PARAM_FIELD_ERR_HANDLING_MODE |
+                                 UCP_EP_PARAM_FIELD_CONN_ID;
     ep_params.err_mode         = UCP_ERR_HANDLING_MODE_PEER;
     ep_params.err_handler.cb   = error_callback;
     ep_params.err_handler.arg  = reinterpret_cast<void*>(this);
+    ep_params.conn_id          = static_cast<uint64_t>(_conn_id) << 32;
 
     ucs_status_t status = ucp_ep_create(_context.worker(), &ep_params, &_ep);
     if (status != UCS_OK) {

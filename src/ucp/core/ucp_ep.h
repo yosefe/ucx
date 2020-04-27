@@ -323,6 +323,7 @@ typedef struct ucp_ep {
 #if ENABLE_DEBUG_DATA
     char                          peer_name[UCP_WORKER_NAME_MAX];
 #endif
+    uint64_t                      conn_id;
 
     UCS_STATS_NODE_DECLARE(stats)
 

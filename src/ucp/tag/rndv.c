@@ -1085,6 +1085,10 @@ ucs_status_t ucp_rndv_process_rts(void *arg, void *data, size_t length,
     ucp_request_t *rreq;
     ucs_status_t status;
 
+    if (!ucp_worker_check_tag_conn_id(worker, rndv_rts_hdr->super.tag)) {
+        return UCS_OK;
+    }
+
     if (rndv_rts_hdr->status == UCS_ERR_CANCELED) {
         ucp_rndv_unexp_cancel(worker, rndv_rts_hdr);
         return UCS_OK;

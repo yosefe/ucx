@@ -104,7 +104,7 @@ private:
 
     friend class UcxConnection;
 
-    static const ucp_tag_t IOMSG_TAG = 1ull << 63;
+    static const ucp_tag_t IOMSG_TAG = 1ull << 31;
 
     static uint32_t get_next_conn_id();
 

@@ -106,6 +106,7 @@ static size_t ucp_tag_pack_eager_middle_dt(void *dest, void *arg)
     length      = ucs_min(ucp_ep_get_max_bcopy(req->send.ep, req->send.lane) -
                           sizeof(*hdr),
                           req->send.length - req->send.state.dt.offset);
+    hdr->super.super.tag = req->send.msg_proto.tag.tag;
     hdr->msg_id = req->send.msg_proto.message_id;
     hdr->offset = req->send.state.dt.offset;
 
@@ -177,11 +178,12 @@ static ucs_status_t ucp_tag_eager_zcopy_multi(uct_pending_req_t *self)
     ucp_eager_first_hdr_t first_hdr;
     ucp_eager_middle_hdr_t middle_hdr;
 
-    first_hdr.super.super.tag = req->send.msg_proto.tag.tag;
-    first_hdr.total_len       = req->send.length;
-    first_hdr.msg_id          = req->send.msg_proto.message_id;
-    middle_hdr.msg_id         = req->send.msg_proto.message_id;
-    middle_hdr.offset         = req->send.state.dt.offset;
+    first_hdr.super.super.tag  = req->send.msg_proto.tag.tag;
+    first_hdr.total_len        = req->send.length;
+    first_hdr.msg_id           = req->send.msg_proto.message_id;
+    middle_hdr.super.super.tag = req->send.msg_proto.tag.tag;
+    middle_hdr.msg_id          = req->send.msg_proto.message_id;
+    middle_hdr.offset          = req->send.state.dt.offset;
 
     return ucp_do_am_zcopy_multi(self,
                                  UCP_AM_ID_EAGER_FIRST,
@@ -294,6 +296,7 @@ static ucs_status_t ucp_tag_eager_sync_zcopy_multi(uct_pending_req_t *self)
     first_hdr.req.ep_ptr            = ucp_request_get_dest_ep_ptr(req);
     first_hdr.req.reqptr            = (uintptr_t)req;
     first_hdr.super.msg_id          = req->send.msg_proto.message_id;
+    middle_hdr.super.super.tag      = req->send.msg_proto.tag.tag;
     middle_hdr.msg_id               = req->send.msg_proto.message_id;
     middle_hdr.offset               = req->send.state.dt.offset;
 

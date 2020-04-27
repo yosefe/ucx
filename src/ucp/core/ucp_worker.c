@@ -1698,6 +1698,17 @@ ucs_status_t ucp_worker_create(ucp_context_h context,
 #endif
     }
 
+    if (params->field_mask & UCP_WORKER_PARAM_FIELD_FLAGS) {
+        ucs_assert(params->flags & UCP_WORKER_PARAM_FLAG_CHECK_CONN_ID);
+        if (context->config.tag_sender_mask == 0) {
+            ucs_error("tag_sender_mask should be set for worker created"
+                      " with UCP_WORKER_FLAG_CHECK_CONN_ID");
+        } else {
+            worker->flags |= UCP_WORKER_FLAG_CHECK_CONN_ID;
+            kh_init_inplace(ucp_active_conns, &worker->conn_hash);
+        }
+    }
+
     worker->context           = context;
     worker->uuid              = ucs_generate_uuid((uintptr_t)worker);
     worker->flush_ops_count   = 0;
@@ -1914,6 +1925,9 @@ void ucp_worker_destroy(ucp_worker_h worker)
     ucs_strided_alloc_cleanup(&worker->ep_alloc);
     UCS_STATS_NODE_FREE(worker->tm_offload_stats);
     UCS_STATS_NODE_FREE(worker->stats);
+    if (ucp_worker_check_conn(worker)) {
+        kh_destroy_inplace(ucp_active_conns, &worker->conn_hash);
+    }
     ucs_free(worker);
 }
 
@@ -2177,6 +2191,20 @@ void ucp_worker_release_address(ucp_worker_h worker, ucp_address_t *address)
     ucs_free(address);
 }
 
+void ucp_worker_disable_conn_id(const ucp_worker_h worker, ucp_ep_h ep)
+{
+    khiter_t iter;
+
+    if (!ucp_worker_check_conn(worker)) {
+        return;
+    }
+
+    ucs_debug("disabling conn id 0x%lx", ep->conn_id);
+
+    iter = kh_get(ucp_active_conns, &worker->conn_hash, ep->conn_id);
+    ucs_assert_always(iter != kh_end(&worker->conn_hash));
+    kh_del(ucp_active_conns, &worker->conn_hash, iter);
+}
 
 void ucp_worker_print_info(ucp_worker_h worker, FILE *stream)
 {

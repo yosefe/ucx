@@ -38,6 +38,7 @@ typedef struct {
  * EAGER_MIDDLE
  */
 typedef struct {
+    ucp_eager_hdr_t           super;
     uint64_t                  msg_id;
     size_t                    offset;
 } UCS_S_PACKED ucp_eager_middle_hdr_t;

@@ -58,7 +58,8 @@
 enum {
     UCP_WORKER_FLAG_EXTERNAL_EVENT_FD = UCS_BIT(0), /**< worker event fd is external */
     UCP_WORKER_FLAG_EDGE_TRIGGERED    = UCS_BIT(1), /**< events are edge-triggered */
-    UCP_WORKER_FLAG_MT                = UCS_BIT(2)  /**< MT locking is required */
+    UCP_WORKER_FLAG_MT                = UCS_BIT(2), /**< MT locking is required */
+    UCP_WORKER_FLAG_CHECK_CONN_ID     = UCS_BIT(3)
 };
 
 
@@ -159,6 +160,9 @@ enum {
     })
 
 
+KHASH_SET_INIT_INT64(ucp_active_conns)
+
+
 /**
  * UCP worker iface, which encapsulates UCT iface, its attributes and
  * some auxiliary info needed for tag matching offloads.
@@ -249,6 +253,7 @@ typedef struct ucp_worker {
     ucs_list_link_t               rndv_reqs_list;
     uint64_t                      am_message_id; /* For matching long am's */
     ucp_ep_h                      mem_type_ep[UCS_MEMORY_TYPE_LAST];/* memory type eps */
+    khash_t(ucp_active_conns)     conn_hash;     /* Hash table of connected ep ids */
 
     UCS_STATS_NODE_DECLARE(stats)
     UCS_STATS_NODE_DECLARE(tm_offload_stats)
@@ -365,5 +370,34 @@ ucp_worker_sockaddr_is_cm_proto(const ucp_worker_h worker)
 {
     return !!ucp_worker_num_cm_cmpts(worker);
 }
+
+static UCS_F_ALWAYS_INLINE int ucp_worker_check_conn(const ucp_worker_h worker)
+{
+    return worker->flags & UCP_WORKER_FLAG_CHECK_CONN_ID;
+}
+
+static UCS_F_ALWAYS_INLINE int
+ucp_worker_check_tag_conn_id(const ucp_worker_h worker, uint64_t recv_tag)
+{
+    khiter_t iter;
+    uint64_t conn_id;
+
+    if (!ucp_worker_check_conn(worker)) {
+        return 1;
+    }
+
+    conn_id = recv_tag & worker->context->config.tag_sender_mask;
+
+    iter = kh_get(ucp_active_conns, &worker->conn_hash, conn_id);
+    if (ucs_likely(iter != kh_end(&worker->conn_hash))) {
+        return 1;
+    }
+
+    ucs_trace_data("ep id 0x%lx not found in hash", conn_id);
+
+    return 0;
+}
+
+void ucp_worker_disable_conn_id(const ucp_worker_h worker, ucp_ep_h ep);
 
 #endif

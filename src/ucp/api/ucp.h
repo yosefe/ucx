@@ -164,8 +164,9 @@ enum ucp_worker_params_field {
     UCP_WORKER_PARAM_FIELD_CPU_MASK     = UCS_BIT(1), /**< Worker's CPU bitmap */
     UCP_WORKER_PARAM_FIELD_EVENTS       = UCS_BIT(2), /**< Worker's events bitmap */
     UCP_WORKER_PARAM_FIELD_USER_DATA    = UCS_BIT(3), /**< User data */
-    UCP_WORKER_PARAM_FIELD_EVENT_FD     = UCS_BIT(4)  /**< External event file
+    UCP_WORKER_PARAM_FIELD_EVENT_FD     = UCS_BIT(4), /**< External event file
                                                            descriptor */
+    UCP_WORKER_PARAM_FIELD_FLAGS        = UCS_BIT(5)
 };
 
 
@@ -210,6 +211,16 @@ typedef enum {
 } ucp_worker_address_flags_t;
 
 
+typedef enum {
+    /**< Requires all endpoints to be created with UCP_EP_PARAM_FIELD_CONN_ID
+     *   param. All incoming data sent using tag API will be moderated based on
+     *   tags, which should contain endpoint connection id in the bits specified
+     *   by the tag_sender_mask. */
+    UCP_WORKER_PARAM_FLAG_CHECK_CONN_ID = UCS_BIT(0)
+} ucp_worker_flags_t;
+
+
+
 /**
  * @ingroup UCP_ENDPOINT
  * @brief UCP endpoint parameters field mask.
@@ -227,7 +238,8 @@ enum ucp_ep_params_field {
     UCP_EP_PARAM_FIELD_USER_DATA         = UCS_BIT(3), /**< User data pointer */
     UCP_EP_PARAM_FIELD_SOCK_ADDR         = UCS_BIT(4), /**< Socket address field */
     UCP_EP_PARAM_FIELD_FLAGS             = UCS_BIT(5), /**< Endpoint flags */
-    UCP_EP_PARAM_FIELD_CONN_REQUEST      = UCS_BIT(6)  /**< Connection request field */
+    UCP_EP_PARAM_FIELD_CONN_REQUEST      = UCS_BIT(6), /**< Connection request field */
+    UCP_EP_PARAM_FIELD_CONN_ID           = UCS_BIT(7)  /**< Connection id field */
 };
 
 
@@ -947,6 +959,8 @@ typedef struct ucp_worker_params {
      * from @ref ucp_worker_get_efd().
      */
     int                     event_fd;
+
+    uint16_t                flags;
 
 } ucp_worker_params_t;
 

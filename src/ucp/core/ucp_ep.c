@@ -208,6 +208,8 @@ int ucp_ep_is_sockaddr_stub(ucp_ep_h ep)
 static ucs_status_t
 ucp_ep_adjust_params(ucp_ep_h ep, const ucp_ep_params_t *params)
 {
+    int ret;
+
     /* handle a case where the existing endpoint is incomplete */
 
     if (params->field_mask & UCP_EP_PARAM_FIELD_ERR_HANDLING_MODE) {
@@ -226,6 +228,16 @@ ucp_ep_adjust_params(ucp_ep_h ep, const ucp_ep_params_t *params)
     if (params->field_mask & UCP_EP_PARAM_FIELD_USER_DATA) {
         /* user_data overrides err_handler.arg */
         ucp_ep_ext_gen(ep)->user_data = params->user_data;
+    }
+
+    if (params->field_mask & UCP_EP_PARAM_FIELD_CONN_ID) {
+        if (!ucp_worker_check_conn(ep->worker)) {
+            ucs_warn("To configure ep with UCP_EP_PARAM_FIELD_CONN_ID"
+                     " worker has to be created with UCP_WORKER_FLAG_CHECK_CONN_ID");
+        } else {
+            ep->conn_id = params->conn_id;
+            kh_put(ucp_active_conns, &ep->worker->conn_hash, ep->conn_id, &ret);
+        }
     }
 
     return UCS_OK;
@@ -781,6 +793,9 @@ void ucp_ep_disconnected(ucp_ep_h ep, int force)
     ucp_stream_ep_cleanup(ep);
     ucp_am_ep_cleanup(ep);
     ucp_ep_complete_rndv_reqs(ep);
+    if (ucp_worker_check_conn(ep->worker)) {
+        ucp_tag_ep_cleanup(ep);
+    }
 
     ep->flags &= ~UCP_EP_FLAG_USED;
 
@@ -905,6 +920,9 @@ ucs_status_ptr_t ucp_ep_close_nb(ucp_ep_h ep, unsigned mode)
     }
 
     UCS_ASYNC_BLOCK(&worker->async);
+
+    /* Stop receiving messages on this ep */
+    ucp_worker_disable_conn_id(worker, ep);
 
     ucp_ep_complete_rndv_reqs(ep);
 
