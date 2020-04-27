@@ -873,6 +873,8 @@ void ucp_ep_disconnected(ucp_ep_h ep, int force)
 
     ucp_stream_ep_cleanup(ep);
     ucp_am_ep_cleanup(ep);
+    ucp_ep_cleanup_unexp(ep);
+    ucp_ep_complete_rndv_reqs(ep);
 
     ep->flags &= ~UCP_EP_FLAG_USED;
 
@@ -885,9 +887,6 @@ void ucp_ep_disconnected(ucp_ep_h ep, int force)
         ucs_trace("not destroying ep %p because of connection from remote", ep);
         return;
     }
-
-    ucp_ep_cleanup_unexp(ep);
-    ucp_ep_complete_rndv_reqs(ep);
 
     ucp_ep_match_remove_ep(&ep->worker->ep_match_ctx, ep);
     ucp_ep_destroy_internal(ep);
