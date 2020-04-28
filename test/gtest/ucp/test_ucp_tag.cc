@@ -12,6 +12,7 @@
 extern "C" {
 #include <ucp/core/ucp_worker.h>
 #include <ucp/core/ucp_ep.h>
+#include <ucp/api/ucp.h>
 #include <ucp/core/ucp_ep.inl>
 }
 
@@ -31,6 +32,7 @@ void test_ucp_tag::init()
 {
     ucp_test::init();
     sender().connect(&receiver(), get_ep_params());
+    receiver().connect(&sender(), get_ep_params());
 
     ctx_attr.field_mask = 0;
     ctx_attr.field_mask |= UCP_ATTR_FIELD_REQUEST_SIZE;
@@ -340,6 +342,119 @@ bool test_ucp_tag::is_external_request()
 
 ucp_context_attr_t test_ucp_tag::ctx_attr;
 
+#ifdef ENABLE_STATS
+class test_ucp_conn_id : public test_ucp_tag {
+public:
+    static ucp_params_t get_ctx_params() {
+        ucp_params_t params    = test_ucp_tag::get_ctx_params();
+        params.field_mask     |= UCP_PARAM_FIELD_TAG_SENDER_MASK;
+        params.tag_sender_mask = static_cast<uint64_t>(0xFFFFFFFF) << 32;
+        return params;
+    }
+
+    virtual ucp_worker_params_t get_worker_params() {
+        ucp_worker_params_t params = test_ucp_tag::get_worker_params();
+        params.field_mask |= UCP_WORKER_PARAM_FIELD_FLAGS;
+        params.flags  = UCP_WORKER_PARAM_FLAG_CHECK_CONN_ID;
+        return params;
+    }
+
+    ucp_ep_params_t get_ep_params() {
+        ucp_ep_params_t params = test_ucp_tag::get_ep_params();
+        params.field_mask     |= UCP_EP_PARAM_FIELD_ERR_HANDLING_MODE |
+                                 UCP_EP_PARAM_FIELD_ERR_HANDLER |
+                                 UCP_EP_PARAM_FIELD_CONN_ID;
+        params.err_mode        = UCP_ERR_HANDLING_MODE_PEER;
+        params.err_handler.cb  = err_cb;
+        params.err_handler.arg = reinterpret_cast<void*>(this);
+        params.conn_id         = m_id;
+        return params;
+    }
+
+    void init() {
+        stats_activate();
+        test_ucp_tag::init();
+
+        ucp_tag_recv_info_t ri;
+        uint64_t sdata = 0ul;
+        request *sreq  = send_nb(&sdata, sizeof(sdata), ucp_dt_make_contig(1), m_id);
+        recv_b(&sdata, sizeof(sdata), ucp_dt_make_contig(1), m_id, 0xffff, &ri);
+        ucp_test::wait(sreq);
+    }
+
+    void cleanup() {
+        ucp_test::cleanup();
+        stats_restore();
+    }
+
+    void validate_drop() {
+        ucs_stats_node_t* sn = receiver().worker()->stats;
+        uint64_t cnt;
+        cnt = UCS_STATS_GET_COUNTER(sn, UCP_WORKER_STAT_TAG_RX_DROP);
+        EXPECT_GE(cnt, 1ul);
+    }
+
+    void test_send_disconnect(size_t size) {
+        std::string sb(size, 'x');
+        receiver().disconnect_nb(0, 0, UCP_EP_CLOSE_MODE_FLUSH);
+
+        request *sreq = send_nb(&sb[0], size, ucp_dt_make_contig(1), m_id);
+        if (UCS_PTR_IS_PTR(sreq)) {
+            ucp_request_free(sreq);
+        }
+        short_progress_loop();
+        validate_drop();
+    }
+
+    static void err_cb(void *, ucp_ep_h, ucs_status_t) {}
+    static uint64_t m_id;
+};
+
+uint64_t test_ucp_conn_id::m_id = 1ul << 32;
+
+
+UCS_TEST_P(test_ucp_conn_id, check_conn_id)
+{
+    test_send_disconnect(32);
+}
+
+UCS_TEST_P(test_ucp_conn_id, check_conn_id_bcopy, "ZCOPY_THRESH=inf")
+{
+    test_send_disconnect(UCS_KBYTE);
+}
+
+UCS_TEST_P(test_ucp_conn_id, check_conn_id_bcopy_64k, "ZCOPY_THRESH=inf",
+                                                      "RNDV_THRESH=inf")
+{
+    test_send_disconnect(64 * UCS_KBYTE);
+}
+
+UCS_TEST_P(test_ucp_conn_id, check_conn_id_zcopy, "ZCOPY_THRESH=512")
+{
+    test_send_disconnect(UCS_KBYTE);
+}
+
+UCS_TEST_P(test_ucp_conn_id, check_conn_id_zcopy_64k, "ZCOPY_THRESH=512",
+                                                      "RNDV_THRESH=inf")
+{
+    test_send_disconnect(64 * UCS_KBYTE);
+}
+
+UCS_TEST_P(test_ucp_conn_id, check_conn_id_rndv_get, "RNDV_THRESH=4k",
+                                                     "RNDV_SCHEME=get_zcopy")
+{
+    test_send_disconnect(64 * UCS_KBYTE);
+}
+
+UCS_TEST_P(test_ucp_conn_id, check_conn_id_rndv_put, "RNDV_THRESH=4k",
+                                                     "RNDV_SCHEME=put_zcopy")
+{
+    test_send_disconnect(64 * UCS_KBYTE);
+}
+
+UCP_INSTANTIATE_TEST_CASE(test_ucp_conn_id)
+
+#endif
 
 class test_ucp_tag_limits : public test_ucp_tag {
 public:

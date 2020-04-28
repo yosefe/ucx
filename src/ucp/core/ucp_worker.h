@@ -96,6 +96,7 @@ enum {
 
     UCP_WORKER_STAT_TAG_RX_RNDV_EXP,
     UCP_WORKER_STAT_TAG_RX_RNDV_UNEXP,
+    UCP_WORKER_STAT_TAG_RX_DROP,
     UCP_WORKER_STAT_LAST
 };
 
@@ -149,6 +150,9 @@ enum {
 #define UCP_WORKER_STAT_TAG_OFFLOAD(_worker, _name) \
     UCS_STATS_UPDATE_COUNTER((_worker)->tm_offload_stats, \
                              UCP_WORKER_STAT_TAG_OFFLOAD_##_name, 1);
+
+#define UCP_WORKER_STAT_DROP(_worker) \
+    UCS_STATS_UPDATE_COUNTER((_worker)->stats, UCP_WORKER_STAT_TAG_RX_DROP, 1);
 
 #define ucp_worker_mpool_get(_mp) \
     ({ \
@@ -392,6 +396,8 @@ ucp_worker_check_tag_conn_id(const ucp_worker_h worker, uint64_t recv_tag)
     if (ucs_likely(iter != kh_end(&worker->conn_hash))) {
         return 1;
     }
+
+    UCP_WORKER_STAT_DROP(worker);
 
     ucs_trace_data("ep id 0x%lx not found in hash", conn_id);
 
