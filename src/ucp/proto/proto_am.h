@@ -8,6 +8,7 @@
 #define UCP_PROTO_AM_H_
 
 #include <ucp/core/ucp_types.h>
+#include <ucp/tag/tag_match.h>
 #include <ucs/sys/compiler.h>
 
 
@@ -24,6 +25,7 @@ typedef struct {
  * Header for transaction acknowledgment
  */
 typedef struct {
+    ucp_tag_hdr_t             super;
     uint64_t                  reqptr;
     ucs_status_t              status;
 } UCS_S_PACKED ucp_reply_hdr_t;

@@ -30,6 +30,7 @@ typedef struct {
  * Rendezvous RTR
  */
 typedef struct {
+    ucp_tag_hdr_t             super;
     uintptr_t                 sreq_ptr; /* request on the rndv initiator side - sender */
     uintptr_t                 rreq_ptr; /* request on the rndv receiver side */
     uint64_t                  address;  /* holds the address of the data buffer on the receiver's side */
@@ -42,6 +43,7 @@ typedef struct {
  * RNDV_DATA
  */
 typedef struct {
+    ucp_tag_hdr_t             super;
     uintptr_t                 rreq_ptr; /* request on the rndv receiver side */
     size_t                    offset;
 } UCS_S_PACKED ucp_rndv_data_hdr_t;
