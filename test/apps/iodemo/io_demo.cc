@@ -541,14 +541,8 @@ private:
             op_info->num_iters   = 0;
         }
 
-        if (opts().window_size == 1) {
-            if (first_print) {
-                std::cout << get_time_str() << " ";
-                first_print = false;
-            } else {
-                std::cout << ", ";
-            }
-            std::cout << "average latency: " << latency_usec << " usec";
+        if ((opts().window_size == 1) && !first_print) {
+            std::cout << ", average latency: " << latency_usec << " usec";
         }
         std::cout << std::endl;
     }
@@ -750,7 +744,7 @@ static int parse_args(int argc, char **argv, options_t *test_opts)
             std::cout << "  -r <io-request-size>       Size of IO request packet" << std::endl;
             std::cout << "  -c <client retries>        Number of connection retries on client" << std::endl;
             std::cout << "                             (or \"inf\") for failure" << std::endl;
-            std::cout << "  -t <client timeout>        Client timeout" << std::endl;
+            std::cout << "  -t <client timeout>        Client timeout (or \"inf\")" << std::endl;
             std::cout << "  -l <client run-time limit> Time limit to run the IO client (or \"inf\")" << std::endl;
             std::cout << "  -s <random seed>           Random seed to use for randomizing" << std::endl;
             std::cout << "  -v                         Set verbose mode" << std::endl;
