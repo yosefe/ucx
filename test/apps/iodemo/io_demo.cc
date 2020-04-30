@@ -18,6 +18,7 @@
 #include <ctime>
 #include <vector>
 #include <algorithm>
+#include <limits>
 
 #define ALIGNMENT 4096
 
@@ -41,6 +42,7 @@ typedef struct {
     int                  port_num;
     long                 client_retries;
     double               client_timeout;
+    double               client_runtime_limit;
     size_t               iomsg_size;
     size_t               min_data_size;
     size_t               max_data_size;
@@ -272,7 +274,8 @@ public:
 
     DemoClient(const options_t& test_opts) :
         P2pDemoCommon(test_opts),
-        _num_sent(0), _num_completed(0), _error_flag(true), _retry(0)
+        _num_sent(0), _num_completed(0), _error_flag(true),
+        _stop_flag(false), _start_time(get_time()), _retry(0)
     {
     }
 
@@ -395,10 +398,8 @@ public:
             return false;
         }
 
-        // reset number of retries after successful connection
-        _retry = 0;
-
         _error_flag = false;
+        _stop_flag  = false;
 
         // TODO reset these values by canceling requests
         _num_sent      = 0;
@@ -414,7 +415,7 @@ public:
             info.push_back(op_info);
         }
 
-        while ((total_iter < opts().iter_count) && !_error_flag) {
+        while ((total_iter < opts().iter_count) && !_error_flag && !_stop_flag) {
             VERBOSE_LOG << " <<<< iteration " << total_iter << " >>>>";
 
             if (!wait_for_responses(opts().window_size - 1)) {
@@ -446,8 +447,13 @@ public:
 
                     report_performance(total_iter - total_prev_iter,
                                        curr_time - prev_time, info);
+
                     total_prev_iter = total_iter;
                     prev_time       = curr_time;
+
+                    if (need_stop(curr_time)) {
+                        _stop_flag = true;
+                    }
                 }
             }
 
@@ -455,8 +461,12 @@ public:
         }
 
         if (wait_for_responses(0)) {
+            double curr = get_time();
             report_performance(total_iter - total_prev_iter,
-                               get_time() - prev_time, info);
+                               curr - prev_time, info);
+            if (!_stop_flag && need_stop(curr)) {
+                _stop_flag = true;
+            }
         }
 
         delete conn;
@@ -489,6 +499,14 @@ private:
 
         return opts().operations[std::rand() %
                                  opts().operations.size()];
+    }
+
+    inline bool need_stop(double curr) {
+        if ((curr - _start_time) >= opts().client_runtime_limit) {
+            return true;
+        }
+
+        return false;
     }
 
     void report_performance(long num_iters, double elapsed,
@@ -524,7 +542,13 @@ private:
         }
 
         if (opts().window_size == 1) {
-            std::cout << ", average latency: " << latency_usec << " usec";
+            if (first_print) {
+                std::cout << get_time_str() << " ";
+                first_print = false;
+            } else {
+                std::cout << ", ";
+            }
+            std::cout << "average latency: " << latency_usec << " usec";
         }
         std::cout << std::endl;
     }
@@ -533,10 +557,12 @@ private:
     long         _num_sent;
     long         _num_completed;
     bool         _error_flag;
+    bool         _stop_flag;
+    double       _start_time;
     unsigned     _retry;
 };
 
-static int set_data_size(char *str, options_t* test_opts)
+static int set_data_size(char *str, options_t *test_opts)
 {
     const static char token = ':';
     char *val1, *val2;
@@ -567,32 +593,74 @@ static int set_data_size(char *str, options_t* test_opts)
     return 0;
 }
 
-static int parse_args(int argc, char **argv, options_t* test_opts)
+static int set_time(char *str, double *dest_p)
+{
+    char units[3] = "";
+    int num_fields;
+    double value;
+    double per_sec;
+
+    if (!strcmp(str, "inf")) {
+        *dest_p = std::numeric_limits<double>::max();
+        return 0;
+    }
+
+    num_fields = sscanf(str, "%lf%c%c", &value, &units[0], &units[1]);
+    if (num_fields == 1) {
+        per_sec = 1;
+    } else if ((num_fields == 2) || (num_fields == 3)) {
+        if (!strcmp(units, "h")) {
+            per_sec = 1.0 / 3600.0;
+        } else if (!strcmp(units, "m")) {
+            per_sec = 1.0 / 60.0;
+        } else if (!strcmp(units, "s")) {
+            per_sec = 1;
+        } else if (!strcmp(units, "ms")) {
+            per_sec = 1e3;
+        } else if (!strcmp(units, "us")) {
+            per_sec = 1e6;
+        } else if (!strcmp(units, "ns")) {
+            per_sec = 1e9;
+        } else {
+            return -1;
+        }
+    } else {
+        return -1;
+    }
+
+    *(double*)dest_p = value / per_sec;
+    return 0;
+}
+
+static int parse_args(int argc, char **argv, options_t *test_opts)
 {
     char *str;
     bool found;
     int c;
 
-    test_opts->server_addr    = NULL;
-    test_opts->port_num       = 1337;
-    test_opts->client_retries = 10;
-    test_opts->client_timeout = 1.0;
-    test_opts->min_data_size  = 4096;
-    test_opts->max_data_size  = 4096;
-    test_opts->num_buffers    = 1;
-    test_opts->iomsg_size     = 256;
-    test_opts->iter_count     = 1000;
-    test_opts->window_size    = 1;
-    test_opts->random_seed    = std::time(NULL);
-    test_opts->verbose        = false;
+    test_opts->server_addr          = NULL;
+    test_opts->port_num             = 1337;
+    test_opts->client_retries       = std::numeric_limits<long>::max();
+    test_opts->client_timeout       = 1.0;
+    test_opts->client_runtime_limit = std::numeric_limits<double>::max();
+    test_opts->min_data_size        = 4096;
+    test_opts->max_data_size        = 4096;
+    test_opts->num_buffers          = 1;
+    test_opts->iomsg_size           = 256;
+    test_opts->iter_count           = 1000;
+    test_opts->window_size          = 1;
+    test_opts->random_seed          = std::time(NULL);
+    test_opts->verbose              = false;
 
-    while ((c = getopt(argc, argv, "p:c:r:d:b:i:w:o:t:s:v")) != -1) {
+    while ((c = getopt(argc, argv, "p:c:r:d:b:i:w:o:t:l:s:v")) != -1) {
         switch (c) {
         case 'p':
             test_opts->port_num = atoi(optarg);
             break;
         case 'c':
-            test_opts->client_retries = strtol(optarg, NULL, 0);
+            if (strcmp(optarg, "inf")) {
+                test_opts->client_retries = strtol(optarg, NULL, 0);
+            }
             break;
         case 'r':
             test_opts->iomsg_size = strtol(optarg, NULL, 0);
@@ -648,7 +716,16 @@ static int parse_args(int argc, char **argv, options_t* test_opts)
             }
             break;
         case 't':
-            test_opts->client_timeout = atof(optarg);
+            if (set_time(optarg, &test_opts->client_timeout) != 0) {
+                std::cout << "invalid '" << optarg << "' value for client timeout" << std::endl;
+                return -1;
+            }
+            break;
+        case 'l':
+            if (set_time(optarg, &test_opts->client_runtime_limit) != 0) {
+                std::cout << "invalid '" << optarg << "' value for client run-time limit" << std::endl;
+                return -1;
+            }
             break;
         case 's':
             test_opts->random_seed = strtoul(optarg, NULL, 0);
@@ -661,20 +738,22 @@ static int parse_args(int argc, char **argv, options_t* test_opts)
             std::cout << "Usage: io_demo [options] [server_address]" << std::endl;
             std::cout << "" << std::endl;
             std::cout << "Supported options are:" << std::endl;
-            std::cout << "  -p <port>                TCP port number to use" << std::endl;
-            std::cout << "  -o <op1,op2,...,opN>     Comma-separated string of IO operations [read|write]" << std::endl;
-            std::cout << "                           NOTE: if using \"random\", performance" << std::endl;
-            std::cout << "                                 measurments may be inaccurate" << std::endl;
-            std::cout << "  -d <min>:<max>           Range that should be used to get data" << std::endl;
-            std::cout << "                           size of IO payload" << std::endl;
-            std::cout << "  -b <number of buffers>   Number of IO buffers to use for communications" << std::endl;
-            std::cout << "  -i <iterations-count>    Number of iterations to run communication" << std::endl;
-            std::cout << "  -w <window-size>         Number of outstanding requests" << std::endl;
-            std::cout << "  -r <io-request-size>     Size of IO request packet" << std::endl;
-            std::cout << "  -c <client retries>      Number of retries on client for failure" << std::endl;
-            std::cout << "  -t <client timeout>      Client timeout, in seconds" << std::endl;
-            std::cout << "  -s <random seed>         Random seed to use for randomizing" << std::endl;
-            std::cout << "  -v                       Set verbose mode" << std::endl;
+            std::cout << "  -p <port>                  TCP port number to use" << std::endl;
+            std::cout << "  -o <op1,op2,...,opN>       Comma-separated string of IO operations [read|write]" << std::endl;
+            std::cout << "                             NOTE: if using \"random\", performance" << std::endl;
+            std::cout << "                                   measurments may be inaccurate" << std::endl;
+            std::cout << "  -d <min>:<max>             Range that should be used to get data" << std::endl;
+            std::cout << "                             size of IO payload" << std::endl;
+            std::cout << "  -b <number of buffers>     Number of IO buffers to use for communications" << std::endl;
+            std::cout << "  -i <iterations-count>      Number of iterations to run communication" << std::endl;
+            std::cout << "  -w <window-size>           Number of outstanding requests" << std::endl;
+            std::cout << "  -r <io-request-size>       Size of IO request packet" << std::endl;
+            std::cout << "  -c <client retries>        Number of connection retries on client" << std::endl;
+            std::cout << "                             (or \"inf\") for failure" << std::endl;
+            std::cout << "  -t <client timeout>        Client timeout" << std::endl;
+            std::cout << "  -l <client run-time limit> Time limit to run the IO client (or \"inf\")" << std::endl;
+            std::cout << "  -s <random seed>           Random seed to use for randomizing" << std::endl;
+            std::cout << "  -v                         Set verbose mode" << std::endl;
             std::cout << "" << std::endl;
             return -1;
         }
