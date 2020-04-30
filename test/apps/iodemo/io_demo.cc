@@ -746,6 +746,7 @@ static int parse_args(int argc, char **argv, options_t *test_opts)
             std::cout << "                             (or \"inf\") for failure" << std::endl;
             std::cout << "  -t <client timeout>        Client timeout (or \"inf\")" << std::endl;
             std::cout << "  -l <client run-time limit> Time limit to run the IO client (or \"inf\")" << std::endl;
+            std::cout << "                             Examples: -l 17.5s; -l 10m; 15.5h" << std::endl;
             std::cout << "  -s <random seed>           Random seed to use for randomizing" << std::endl;
             std::cout << "  -v                         Set verbose mode" << std::endl;
             std::cout << "" << std::endl;
