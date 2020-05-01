@@ -17,6 +17,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <vector>
+#include <map>
 #include <algorithm>
 #include <limits>
 
@@ -274,10 +275,21 @@ public:
 
     DemoClient(const options_t& test_opts) :
         P2pDemoCommon(test_opts),
-        _num_sent(0), _num_completed(0), _error_flag(true),
-        _stop_flag(false), _start_time(get_time()), _retry(0)
+        _num_sent(0), _num_completed(0), _status(OK),
+        _start_time(get_time()), _retry(0)
     {
+        _status_str[OK]                    = "ok";
+        _status_str[ERROR]                 = "error";
+        _status_str[RUNTIME_EXCEEDED]      = "run-time exceeded";
+        _status_str[CONN_RETRIES_EXCEEDED] = "connection retries exceeded";
     }
+
+    typedef enum {
+        OK,
+        ERROR,
+        RUNTIME_EXCEEDED,
+        CONN_RETRIES_EXCEEDED
+    } status_t;
 
     size_t do_io_read(UcxConnection *conn, uint32_t sn) {
         size_t data_size = get_data_size();
@@ -329,7 +341,7 @@ public:
 
     virtual void dispatch_connection_error(UcxConnection *conn) {
         LOG << "setting error flag on connection " << conn;
-        _error_flag = true;
+        _status = ERROR;
     }
 
     bool wait_for_responses(long max_outstanding) {
@@ -338,7 +350,7 @@ public:
         long count;
 
         count = 0;
-        while (((_num_sent - _num_completed) > max_outstanding) && !_error_flag) {
+        while (((_num_sent - _num_completed) > max_outstanding) && (_status == OK)) {
             if (count < 1000) {
                 progress();
                 ++count;
@@ -360,11 +372,11 @@ public:
             if (elapsed > _test_opts.client_timeout * 10) {
                 LOG << "timeout waiting for " << (_num_sent - _num_completed)
                     << " replies";
-                _error_flag = true;
+                _status = ERROR;
             }
         }
 
-        return !_error_flag;
+        return (_status == OK);
     }
 
     UcxConnection* connect() {
@@ -398,8 +410,7 @@ public:
             return false;
         }
 
-        _error_flag = false;
-        _stop_flag  = false;
+        _status = OK;
 
         // TODO reset these values by canceling requests
         _num_sent      = 0;
@@ -415,7 +426,7 @@ public:
             info.push_back(op_info);
         }
 
-        while ((total_iter < opts().iter_count) && !_error_flag && !_stop_flag) {
+        while ((total_iter < opts().iter_count) && (_status == OK)) {
             VERBOSE_LOG << " <<<< iteration " << total_iter << " >>>>";
 
             if (!wait_for_responses(opts().window_size - 1)) {
@@ -451,9 +462,7 @@ public:
                     total_prev_iter = total_iter;
                     prev_time       = curr_time;
 
-                    if (need_stop(curr_time)) {
-                        _stop_flag = true;
-                    }
+                    check_time_limit(curr_time);
                 }
             }
 
@@ -461,28 +470,36 @@ public:
         }
 
         if (wait_for_responses(0)) {
-            double curr = get_time();
+            double curr_time = get_time();
             report_performance(total_iter - total_prev_iter,
-                               curr - prev_time, info);
-            if (!_stop_flag && need_stop(curr)) {
-                _stop_flag = true;
-            }
+                               curr_time - prev_time, info);
+            check_time_limit(curr_time);
         }
 
         delete conn;
-        return !_error_flag;
+        return (_status == OK) || (_status == RUNTIME_EXCEEDED);
     }
 
-    int update_retry() {
+    // returns true if number of connection retries is exceeded
+    bool update_retry() {
         if (++_retry >= opts().client_retries) {
             /* client failed all retries */
-            return -1;
+            _status = CONN_RETRIES_EXCEEDED;
+            return true;
         }
 
         LOG << "retry " << _retry << "/" << opts().client_retries
             << " in " << opts().client_timeout << " seconds";
         usleep((int)(1e6 * opts().client_timeout));
-        return 0;
+        return false;
+    }
+
+    status_t get_status() const {
+        return _status;
+    }
+
+    const std::string& get_status_str() {
+        return _status_str[_status];
     }
 
 private:
@@ -501,12 +518,11 @@ private:
                                  opts().operations.size()];
     }
 
-    inline bool need_stop(double curr) {
-        if ((curr - _start_time) >= opts().client_runtime_limit) {
-            return true;
+    inline void check_time_limit(double current_time) {
+        if ((_status == OK) &&
+            ((current_time - _start_time) >= opts().client_runtime_limit)) {
+            _status = RUNTIME_EXCEEDED;
         }
-
-        return false;
     }
 
     void report_performance(long num_iters, double elapsed,
@@ -550,12 +566,13 @@ private:
     }
 
 private:
-    long         _num_sent;
-    long         _num_completed;
-    bool         _error_flag;
-    bool         _stop_flag;
-    double       _start_time;
-    unsigned     _retry;
+    long                  _num_sent;
+    long                  _num_completed;
+    status_t              _status;
+    std::map<status_t,
+             std::string> _status_str;
+    double                _start_time;
+    unsigned              _retry;
 };
 
 static int set_data_size(char *str, options_t *test_opts)
@@ -791,15 +808,18 @@ static int do_client(const options_t& test_opts)
     for (;;) {
         if (client.run()) {
             /* successful run */
-            return 0;
+            break;
         }
 
-        if (client.update_retry() != 0) {
+        if (client.update_retry()) {
             break;
         }
     }
 
-    return -1;
+    DemoClient::status_t status = client.get_status();
+    LOG << "client exit with \"" << client.get_status_str() << "\" status";
+    return ((status == DemoClient::status_t::OK) ||
+            (status == DemoClient::status_t::RUNTIME_EXCEEDED)) ? 0 : -1;
 }
 
 int main(int argc, char **argv)
