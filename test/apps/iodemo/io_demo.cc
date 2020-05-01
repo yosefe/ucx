@@ -541,10 +541,12 @@ private:
             op_info->num_iters   = 0;
         }
 
-        if ((opts().window_size == 1) && !first_print) {
-            std::cout << ", average latency: " << latency_usec << " usec";
+        if (!first_print) {
+            if (opts().window_size == 1) {
+                std::cout << ", average latency: " << latency_usec << " usec";
+            }
+            std::cout << std::endl;
         }
-        std::cout << std::endl;
     }
 
 private:
