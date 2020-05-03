@@ -818,8 +818,8 @@ static int do_client(const options_t& test_opts)
 
     DemoClient::status_t status = client.get_status();
     LOG << "client exit with \"" << client.get_status_str() << "\" status";
-    return ((status == DemoClient::status_t::OK) ||
-            (status == DemoClient::status_t::RUNTIME_EXCEEDED)) ? 0 : -1;
+    return ((status == DemoClient::OK) ||
+            (status == DemoClient::RUNTIME_EXCEEDED)) ? 0 : -1;
 }
 
 int main(int argc, char **argv)
