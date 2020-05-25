@@ -2362,12 +2362,13 @@ void ucp_ep_config_lane_info_str(ucp_worker_h worker,
                                  ucs_string_buffer_t *strbuf)
 {
     ucp_context_h context = worker->context;
+    int prio[UCP_LANE_TYPE_LAST];
     uct_tl_resource_desc_t *rsc;
     ucp_rsc_index_t rsc_index;
     ucp_md_index_t dst_md_index;
     ucp_rsc_index_t cmpt_index;
+    ucp_lane_type_t lane_type;
     unsigned path_index;
-    int prio;
 
     rsc_index  = key->lanes[lane].rsc_index;
     rsc        = &context->tl_rscs[rsc_index].tl_rsc;
@@ -2390,31 +2391,30 @@ void ucp_ep_config_lane_info_str(ucp_worker_h worker,
                               context->tl_cmpts[cmpt_index].attr.name,
                               key->lanes[lane].dst_sys_dev);
 
-    prio = ucp_ep_config_get_multi_lane_prio(key->rma_bw_lanes, lane);
-    if (prio != -1) {
-        ucs_string_buffer_appendf(strbuf, " rma_bw#%d", prio);
+    for (lane_type = 0; lane_type < UCP_LANE_TYPE_LAST; ++lane_type) {
+        prio[lane_type] = -1;
     }
 
-    prio = ucp_ep_config_get_multi_lane_prio(key->amo_lanes, lane);
-    if (prio != -1) {
-        ucs_string_buffer_appendf(strbuf, " amo#%d", prio);
-    }
+    prio[UCP_LANE_TYPE_RMA] =
+            ucp_ep_config_get_multi_lane_prio(key->rma_lanes, lane);
+    prio[UCP_LANE_TYPE_AMO] =
+            ucp_ep_config_get_multi_lane_prio(key->amo_lanes, lane);
+    prio[UCP_LANE_TYPE_RMA_BW] =
+            ucp_ep_config_get_multi_lane_prio(key->rma_bw_lanes, lane);
+    prio[UCP_LANE_TYPE_AM_BW] =
+            ucp_ep_config_get_multi_lane_prio(key->am_bw_lanes, lane);
 
-    if (key->am_lane == lane) {
-        ucs_string_buffer_appendf(strbuf, " am");
-    }
+    for (lane_type = 0; lane_type < UCP_LANE_TYPE_LAST; ++lane_type) {
+        if (!(key->lanes[lane].lane_types & UCS_BIT(lane_type))) {
+            continue;
+        }
 
-    if (key->rkey_ptr_lane == lane) {
-        ucs_string_buffer_appendf(strbuf, " rkey_ptr");
-    }
+        ucs_string_buffer_appendf(strbuf, " %s",
+                                  ucp_lane_type_info[lane_type].short_name);
 
-    prio = ucp_ep_config_get_multi_lane_prio(key->am_bw_lanes, lane);
-    if (prio != -1) {
-        ucs_string_buffer_appendf(strbuf, " am_bw#%d", prio);
-    }
-
-    if (lane == key->tag_lane) {
-        ucs_string_buffer_appendf(strbuf, " tag_offload");
+        if (prio[lane_type] != -1) {
+            ucs_string_buffer_appendf(strbuf, "#%d", prio[lane_type]);
+        }
     }
 
     if (key->wireup_msg_lane == lane) {
