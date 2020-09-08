@@ -57,7 +57,7 @@ UcxLog::~UcxLog()
 
 UcxContext::UcxContext(size_t iomsg_size) :
     _context(NULL), _worker(NULL), _listener(NULL), _iomsg_recv_request(NULL),
-    _iomsg_buffer(iomsg_size, '\0')
+    _iomsg_buffer(iomsg_size, '\0'), _progress_count(0)
 {
 }
 
@@ -109,6 +109,8 @@ bool UcxContext::init()
 
     UCX_LOG << "created worker " << _worker;
 
+    gettimeofday(&_tv_state, NULL);
+
     recv_io_message();
     return true;
 }
@@ -154,6 +156,12 @@ void UcxContext::progress()
     progress_io_message();
     progress_conn_requests();
     progress_failed_connections();
+
+    if ((_progress_count % 16) == 0) {
+        progress_show_state();
+    }
+
+    ++_progress_count;
 }
 
 void UcxContext::dispatch_new_connection(UcxConnection *conn)
@@ -278,6 +286,7 @@ void UcxContext::progress_io_message()
         UCX_LOG << "could not find connection with id " << conn_id;
     } else {
         UcxConnection *conn = iter->second;
+        conn->count_iomsg_recv();
         dispatch_io_message(conn, &_iomsg_buffer[0],
                             _iomsg_recv_request->recv_length);
     }
@@ -292,6 +301,25 @@ void UcxContext::progress_failed_connections()
         _failed_conns.pop_front();
         dispatch_connection_error(conn);
     }
+}
+
+void UcxContext::progress_show_state()
+{
+    struct timeval now;
+    gettimeofday(&now, NULL);
+
+    struct timeval elapsed;
+    timersub(&now, &_tv_state, &elapsed);
+    if (elapsed.tv_sec + (elapsed.tv_usec * 1e-6) < 5.0) {
+        return;
+    }
+
+    for (conn_map_t::iterator iter = _conns.begin(); iter != _conns.end();
+            ++iter) {
+        iter->second->show_state();
+    }
+
+    _tv_state = now;
 }
 
 UcxContext::wait_status_t
@@ -386,14 +414,14 @@ void UcxContext::destroy_worker()
     ucp_worker_destroy(_worker);
 }
 
-
 #define UCX_CONN_LOG UcxLog(_log_prefix, true)
 
 unsigned UcxConnection::_num_instances = 0;
 
 UcxConnection::UcxConnection(UcxContext &context, uint32_t conn_id) :
     _context(context), _conn_id(conn_id), _remote_conn_id(0),
-    _ep(NULL), _close_request(NULL)
+    _ep(NULL), _close_request(NULL), _num_send_post(0), _num_recv_post(0),
+    _num_send_comp(0), _num_recv_comp(0)
 {
     ++_num_instances;
     struct sockaddr_in in_addr = {0};
@@ -418,12 +446,17 @@ UcxConnection::~UcxConnection()
     if (!ucs_list_is_empty(&_all_requests)) {
         UCX_CONN_LOG << "waiting for " << ucs_list_length(&_all_requests) <<
                         " uncompleted requests";
+        ucx_request* request;
+        ucs_list_for_each(request, &_all_requests, pos) {
+            UCX_CONN_LOG << "request " << request << " is uncompleted";
+        }
     }
     while (!ucs_list_is_empty(&_all_requests)) {
         ucp_worker_progress(_context.worker());
     }
 
-    UCX_CONN_LOG << "released";
+    UCX_CONN_LOG << "released send: " << _num_send_comp << "/" << _num_send_post
+                         << " recv: " << _num_recv_comp << "/" << _num_recv_post;
     --_num_instances;
 }
 
@@ -438,7 +471,12 @@ bool UcxConnection::connect(const struct sockaddr* saddr, socklen_t addrlen)
     ep_params.sockaddr.addr    = saddr;
     ep_params.sockaddr.addrlen = addrlen;
 
-    return connect_common(ep_params);
+    if (!connect_common(ep_params)) {
+        return false;
+    }
+
+    set_log_prefix(saddr, addrlen);
+    return true;
 }
 
 bool UcxConnection::accept(ucp_conn_request_h conn_req)
@@ -458,7 +496,13 @@ bool UcxConnection::accept(ucp_conn_request_h conn_req)
     ep_params.field_mask   = UCP_EP_PARAM_FIELD_CONN_REQUEST;
     ep_params.conn_request = conn_req;
 
-    return connect_common(ep_params);
+    if (!connect_common(ep_params)) {
+        return false;
+    }
+
+    set_log_prefix((const struct sockaddr*)&conn_req_attr.client_address,
+                   sizeof(conn_req_attr.client_address));
+    return true;
 }
 
 bool UcxConnection::send_io_message(const void *buffer, size_t length,
@@ -482,13 +526,14 @@ bool UcxConnection::recv_data(void *buffer, size_t length, uint32_t sn,
         return false;
     }
 
+    ++_num_recv_post;
     ucp_tag_t tag      = make_data_tag(_conn_id, sn);
     ucp_tag_t tag_mask = std::numeric_limits<ucp_tag_t>::max();
     ucs_status_ptr_t ptr_status = ucp_tag_recv_nb(_context.worker(), buffer,
                                                   length, ucp_dt_make_contig(1),
                                                   tag, tag_mask,
                                                   data_recv_callback);
-    return process_request("ucp_tag_recv_nb", ptr_status, callback);
+    return process_request("ucp_tag_recv_nb", false, ptr_status, callback);
 }
 
 void UcxConnection::cancel_all()
@@ -505,6 +550,21 @@ void UcxConnection::cancel_all()
     }
 
     UCX_CONN_LOG << "canceling " << count << " requests ";
+}
+
+void UcxConnection::count_iomsg_recv()
+{
+    ++_num_recv_post;
+    ++_num_recv_comp;
+}
+
+void UcxConnection::show_state()
+{
+    UCX_CONN_LOG << "state: send: " << _num_send_comp << "/" << _num_send_post
+                       << " recv: " << _num_recv_comp << "/" << _num_recv_post
+                       << " last-send: " << ucs_list_head(&_all_requests,
+                                                          ucx_request, pos);
+                       ;
 }
 
 ucp_tag_t UcxConnection::make_data_tag(uint32_t conn_id, uint32_t sn)
@@ -526,13 +586,15 @@ void UcxConnection::stream_recv_callback(void *request, ucs_status_t status,
 {
 }
 
-void UcxConnection::common_request_callback(void *request, ucs_status_t status)
+void UcxConnection::common_request_callback(void *request, ucs_status_t status,
+                                            bool is_send)
 {
     ucx_request *r = reinterpret_cast<ucx_request*>(request);
 
     assert(!r->completed);
     if (r->callback) {
         // already processed by send function
+        r->conn->count_completion(is_send);
         (*r->callback)(status);
         r->conn->request_completed(r);
         UcxContext::request_release(r);
@@ -543,10 +605,15 @@ void UcxConnection::common_request_callback(void *request, ucs_status_t status)
     }
 }
 
+void UcxConnection::data_send_callback(void *request, ucs_status_t status)
+{
+    common_request_callback(request, status, true);
+}
+
 void UcxConnection::data_recv_callback(void *request, ucs_status_t status,
                                        ucp_tag_recv_info *info)
 {
-    common_request_callback(request, status);
+    common_request_callback(request, status, false);
 }
 
 void UcxConnection::error_callback(void *arg, ucp_ep_h ep, ucs_status_t status)
@@ -558,7 +625,7 @@ void UcxConnection::set_log_prefix(const struct sockaddr* saddr,
                                    socklen_t addrlen)
 {
     std::stringstream ss;
-    ss << "[UCX-connection #" << _conn_id << " " <<
+    ss << "[UCX-connection #" << _conn_id << "->#" << _remote_conn_id << " " <<
           UcxContext::sockaddr_str(saddr, addrlen) << "]";
     memset(_log_prefix, 0, MAX_LOG_PREFIX_SIZE);
     int length = ss.str().length();
@@ -633,10 +700,11 @@ bool UcxConnection::send_common(const void *buffer, size_t length, ucp_tag_t tag
         return false;
     }
 
+    ++_num_send_post;
     ucs_status_ptr_t ptr_status = ucp_tag_send_nb(_ep, buffer, length,
                                                   ucp_dt_make_contig(1), tag,
-                                                  common_request_callback);
-    return process_request("ucp_tag_send_nb", ptr_status, callback);
+                                                  data_send_callback);
+    return process_request("ucp_tag_send_nb", true, ptr_status, callback);
 }
 
 void UcxConnection::request_started(ucx_request *r)
@@ -682,19 +750,30 @@ void UcxConnection::ep_close(enum ucp_ep_close_mode mode)
     _ep            = NULL;
 }
 
-bool UcxConnection::process_request(const char *what,
+void UcxConnection::count_completion(bool is_send)
+{
+    if (is_send) {
+        ++_num_send_comp;
+    } else {
+        ++_num_recv_comp;
+    }
+}
+
+bool UcxConnection::process_request(const char *what, bool is_send,
                                     ucs_status_ptr_t ptr_status,
                                     UcxCallback* callback)
 {
     ucs_status_t status;
 
     if (ptr_status == NULL) {
+        count_completion(is_send);
         (*callback)(UCS_OK);
         return true;
     } else if (UCS_PTR_IS_ERR(ptr_status)) {
         status = UCS_PTR_STATUS(ptr_status);
         UCX_CONN_LOG << what << "failed with status: "
                      << ucs_status_string(status);
+        count_completion(is_send);
         (*callback)(status);
         return false;
     } else {
@@ -702,6 +781,7 @@ bool UcxConnection::process_request(const char *what,
         ucx_request *r = reinterpret_cast<ucx_request*>(ptr_status);
         if (r->completed) {
             // already completed by callback
+            count_completion(is_send);
             status = r->status;
             (*callback)(status);
             UcxContext::request_release(r);

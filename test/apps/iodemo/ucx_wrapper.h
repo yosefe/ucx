@@ -130,6 +130,8 @@ private:
 
     void progress_failed_connections();
 
+    void progress_show_state();
+
     wait_status_t wait_completion(ucs_status_ptr_t status_ptr,
                                   double timeout = 1e6);
 
@@ -157,6 +159,8 @@ private:
     std::string                    _iomsg_buffer;
     std::deque<ucp_conn_request_h> _conn_requests;
     std::deque<UcxConnection *>    _failed_conns;
+    struct timeval                 _tv_state;
+    unsigned long                  _progress_count;
 };
 
 
@@ -181,6 +185,10 @@ public:
 
     void cancel_all();
 
+    void count_iomsg_recv();
+
+    void show_state();
+
     uint32_t id() const {
         return _conn_id;
     }
@@ -195,7 +203,12 @@ private:
     static void stream_recv_callback(void *request, ucs_status_t status,
                                      size_t recv_len);
 
-    static void common_request_callback(void *request, ucs_status_t status);
+    void count_completion(bool is_send);
+
+    static void common_request_callback(void *request, ucs_status_t status,
+                                        bool is_send);
+
+    static void data_send_callback(void *request, ucs_status_t status);
 
     static void data_recv_callback(void *request, ucs_status_t status,
                                    ucp_tag_recv_info *info);
@@ -219,8 +232,8 @@ private:
 
     void ep_close(enum ucp_ep_close_mode mode);
 
-    bool process_request(const char *what, ucs_status_ptr_t ptr_status,
-                         UcxCallback* callback);
+    bool process_request(const char *what, bool is_send,
+                         ucs_status_ptr_t ptr_status, UcxCallback* callback);
 
     static unsigned    _num_instances;
 
@@ -231,6 +244,11 @@ private:
     ucp_ep_h           _ep;
     void*              _close_request;
     ucs_list_link_t    _all_requests;
+
+    size_t             _num_send_post;
+    size_t             _num_recv_post;
+    size_t             _num_send_comp;
+    size_t             _num_recv_comp;
 };
 
 #endif
