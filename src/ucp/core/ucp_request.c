@@ -144,6 +144,7 @@ static void ucp_worker_request_init_proxy(ucs_mpool_t *mp, void *obj, void *chun
     ucp_context_h context = worker->context;
     ucp_request_t *req = obj;
 
+    req->flags = UCP_REQUEST_FLAG_FREE;
     if (context->config.request.init != NULL) {
         context->config.request.init(req + 1);
     }

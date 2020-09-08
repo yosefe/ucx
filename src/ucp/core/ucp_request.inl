@@ -53,8 +53,10 @@
         if (_req != NULL) { \
             VALGRIND_MAKE_MEM_DEFINED(_req + 1, \
                                       (_worker)->context->config.request.size); \
+            ucs_assert(_req->flags & UCP_REQUEST_FLAG_FREE); \
             ucs_trace_req("allocated request %p", _req); \
             UCS_PROFILE_REQUEST_NEW(_req, "ucp_request", 0); \
+            _req->flags &= UCP_REQUEST_FLAG_FREE; \
         } \
         _req; \
     })
@@ -82,8 +84,10 @@
 static UCS_F_ALWAYS_INLINE void
 ucp_request_put(ucp_request_t *req)
 {
+    ucs_assert(!(req->flags & UCP_REQUEST_FLAG_FREE));
     ucs_trace_req("put request %p", req);
     UCS_PROFILE_REQUEST_FREE(req);
+    req->flags |= UCP_REQUEST_FLAG_FREE;
     ucs_mpool_put_inline(req);
 }
 
