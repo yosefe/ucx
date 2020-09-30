@@ -806,9 +806,16 @@ public:
         delete conn;
 
         // Replace in _active_servers by the last element in the vector
-        std::swap(_active_servers[server_info.active_index],
-                  _active_servers.back());
+        size_t active_index = server_info.active_index;
+        std::swap(_active_servers[active_index], _active_servers.back());
         assert(_active_servers.back() == server_index);
+
+        // Update the active index of the server we swap with
+        server_info_t& replacement_server_info =
+                _server_info[_active_servers[active_index]];
+        assert(replacement_server_info.active_index == _active_servers.size() - 1);
+        replacement_server_info.active_index = active_index;
+
         _active_servers.pop_back();
         reset_server_info(server_info);
     }
