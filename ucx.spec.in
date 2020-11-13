@@ -14,6 +14,7 @@
 %bcond_with    ugni
 %bcond_with    xpmem
 %bcond_without java
+%bcond_with    vfs
 
 Name: ucx
 Version: @VERSION@
@@ -63,6 +64,9 @@ BuildRequires: xpmem-devel
 %if %{with java}
 BuildRequires: maven
 %endif
+%if %{with vfs}
+BuildRequires: fuse3-devel
+%endif
 
 %description
 UCX stands for Unified Communication X. UCX provides an optimized communication
@@ -107,6 +111,7 @@ Provides header files and examples for developing with UCX.
            %_with_arg rdmacm rdmacm \
            %_with_arg rocm rocm \
            %_with_arg xpmem xpmem \
+           %_with_arg vfs fuse3 \
            %_with_arg ugni ugni \
            %_with_arg java java \
            %{?configure_options}
@@ -122,8 +127,10 @@ rm -f %{buildroot}%{_libdir}/ucx/lib*.a
 
 %files
 %{_libdir}/lib*.so.*
-%{_bindir}/uc*
-%{_bindir}/io_demo
+%{_bindir}/ucx_info
+%{_bindir}/ucx_perftest
+%{_bindir}/ucx_read_profile
+@HAVE_GLIBCXX_NOTHROW_TRUE@%{_bindir}/io_demo
 %{_datadir}/ucx
 %exclude %{_datadir}/ucx/examples
 %doc README AUTHORS NEWS
@@ -311,7 +318,24 @@ Provides java bindings for UCX.
 %{_libdir}/jucx-*.jar
 %endif
 
+%if %{with vfs}
+%package vfs
+Requires: %{name}%{?_isa} = %{version}-%{release}
+Summary: UCX Virtual Filesystem support.
+Group: System Environment/Libraries
+
+%description vfs
+Provides a virtual filesystem over FUSE which allows real-time monitoring of UCX
+library internals, protocol objects, transports status, and more.
+
+%files vfs
+%{_libdir}/ucx/libucs_fuse.so.*
+%{_bindir}/ucx_vfs
+%endif
+
 %changelog
+* Wed Dec 16 2020 Yossi Itigin <yosefe@mellanox.com> 1.11.0-1
+- Add VFS sub-package
 * Mon Feb 10 2020 Yossi Itigin <yosefe@mellanox.com> 1.9.0-1
 - Bump version to 1.9.0
 * Sun Sep 22 2019 Yossi Itigin <yosefe@mellanox.com> 1.8.0-1
