@@ -330,6 +330,9 @@ void ucs_log_init()
          ucs_open_output_stream(ucs_global_opts.log_file, UCS_LOG_LEVEL_FATAL,
                                 &ucs_log_file, &ucs_log_file_close, &next_token);
     }
+    if (ucs_global_opts.log_component.log_level > UCS_MAX_LOG_LEVEL) {
+        ucs_warn("UCX log level DEBUG is not supported, highest supported level is INFO");
+    }
 }
 
 void ucs_log_cleanup()
