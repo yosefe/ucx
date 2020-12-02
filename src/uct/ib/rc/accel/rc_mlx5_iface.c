@@ -219,6 +219,8 @@ uct_rc_mlx5_iface_handle_failure(uct_ib_iface_t *ib_iface, void *arg,
         return;
     }
 
+    ucs_assert(ep->tx.wq.super.qp_num == qp_num);
+
     /* Create a copy of RC txwq for completion error reporting, since the QP
      * would be released by set_ep_failed()*/
     txwq_copy = ep->tx.wq;
