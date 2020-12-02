@@ -566,7 +566,9 @@ void UcxConnection::cancel_all()
 
 ucp_tag_t UcxConnection::make_data_tag(uint32_t conn_id, uint32_t sn)
 {
-    return (static_cast<uint64_t>(conn_id) << 32) | sn;
+    ucp_tag_t tag = (static_cast<uint64_t>(conn_id) << 32) | sn;
+    assert(!(tag & UcxContext::IOMSG_TAG));
+    return tag;
 }
 
 ucp_tag_t UcxConnection::make_iomsg_tag(uint32_t conn_id, uint32_t sn)
