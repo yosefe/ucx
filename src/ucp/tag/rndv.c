@@ -846,6 +846,12 @@ static void ucp_rndv_req_send_rma_get(ucp_request_t *rndv_req, ucp_request_t *rr
 
     ucp_trace_req(rndv_req, "start rma_get rreq %p", rreq);
 
+    ucs_assertv(rreq->recv.length == rndv_rts_hdr->size,
+                "req %p: posted length %zu tag 0x%lx mask 0x%lx, "
+                "matched RTS: length %zu tag 0x%lx", rreq,
+                rreq->recv.length, rreq->recv.tag.tag, rreq->recv.tag.tag_mask,
+                rndv_rts_hdr->size, rndv_rts_hdr->super.tag);
+
     rndv_req->send.uct.func                = ucp_rndv_progress_rma_get_zcopy;
     rndv_req->send.buffer                  = rreq->recv.buffer;
     rndv_req->send.mem_type                = rreq->recv.mem_type;
