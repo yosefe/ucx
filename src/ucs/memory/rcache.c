@@ -491,7 +491,11 @@ ucs_rcache_check_overlap(ucs_rcache_t *rcache, ucs_pgt_addr_t *start,
 
     ucs_rcache_check_inv_queue(rcache);
 
-    ucs_rcache_find_regions(rcache, *start, *end - 1, &region_list);
+    if (rcache->params.merge_adjacent) {
+        ucs_rcache_find_regions(rcache, *start - 1, *end + 1, &region_list);
+    } else {
+        ucs_rcache_find_regions(rcache, *start, *end - 1, &region_list);
+    }
 
     /* TODO check if any of the regions is locked */
 

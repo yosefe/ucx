@@ -48,6 +48,10 @@ ucs_config_field_t uct_md_config_rcache_table[] = {
      "Maximal total size of registration cache regions",
      ucs_offsetof(uct_md_rcache_config_t, max_size), UCS_CONFIG_TYPE_MEMUNITS},
 
+    {"RCACHE_MERGE_ADJACENT", "n", "if yes, merge adjacent regions of rcache, "
+                                   "otherwise would only merge regions with intersection",
+            ucs_offsetof(uct_md_rcache_config_t, merge_adjacent), UCS_CONFIG_TYPE_BOOL},
+
     {NULL}
 };
 
@@ -452,4 +456,5 @@ void uct_md_set_rcache_params(ucs_rcache_params_t *rcache_params,
     rcache_params->ucm_event_priority = rcache_config->event_prio;
     rcache_params->max_regions        = rcache_config->max_regions;
     rcache_params->max_size           = rcache_config->max_size;
+    rcache_params->merge_adjacent     = rcache_config->merge_adjacent;
 }
