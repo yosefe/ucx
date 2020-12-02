@@ -60,6 +60,7 @@ typedef struct {
     size_t                   chunk_size;
     long                     iter_count;
     long                     window_size;
+    long                     conn_window_size;
     std::vector<io_op_t>     operations;
     unsigned                 random_seed;
     size_t                   num_offcache_buffers;
@@ -1135,6 +1136,21 @@ public:
         _prev_connect_time = curr_time;
     }
 
+    size_t get_server_index() {
+        size_t active_index, server_index;
+
+        do {
+            /* Pick a random connected server to which the client has credits
+             * to send (its conn's window is not full) */
+            active_index = IoDemoRandom::rand(size_t(0),
+                                              _active_servers.size() - 1);
+            server_index = _active_servers[active_index];
+        } while (get_num_uncompleted(server_index) > opts().conn_window_size);
+
+        assert(_server_info[server_index].conn != NULL);
+        return server_index;
+    }
+
     static inline bool is_control_iter(long iter) {
         return (iter % 10) == 0;
     }
@@ -1158,8 +1174,9 @@ public:
 
         while ((total_iter < opts().iter_count) && (_status == OK)) {
             VERBOSE_LOG << " <<<< iteration " << total_iter << " >>>>";
-
-            wait_for_responses(opts().window_size - 1);
+            wait_for_responses(std::min(opts().window_size - 1,
+                                        opts().conn_window_size *
+                                        (long)_active_servers.size()));
             if (_status != OK) {
                 break;
             }
@@ -1177,13 +1194,8 @@ public:
                 continue;
             }
 
-            /* Pick random connected server */
-            size_t active_index = IoDemoRandom::rand(size_t(0),
-                                                     _active_servers.size() - 1);
-            size_t server_index = _active_servers[active_index];
-            assert(_server_info[server_index].conn != NULL);
-
-            io_op_t op = get_op();
+            size_t server_index = get_server_index();
+            io_op_t op          = get_op();
             size_t size;
             switch (op) {
             case IO_READ:
@@ -1455,11 +1467,12 @@ static int parse_args(int argc, char **argv, options_t *test_opts)
     test_opts->iomsg_size            = 256;
     test_opts->iter_count            = 1000;
     test_opts->window_size           = 1;
+    test_opts->conn_window_size      = 1;
     test_opts->random_seed           = std::time(NULL);
     test_opts->verbose               = false;
     test_opts->validate              = false;
 
-    while ((c = getopt(argc, argv, "p:c:r:d:b:i:w:k:o:t:n:l:s:y:vqHP:")) != -1) {
+    while ((c = getopt(argc, argv, "p:c:r:d:b:i:w:a:k:o:t:n:l:s:y:vqHP:")) != -1) {
         switch (c) {
         case 'p':
             test_opts->port_num = atoi(optarg);
@@ -1501,6 +1514,9 @@ static int parse_args(int argc, char **argv, options_t *test_opts)
             break;
         case 'w':
             test_opts->window_size = atoi(optarg);
+            break;
+        case 'a':
+            test_opts->conn_window_size = atoi(optarg);
             break;
         case 'k':
             test_opts->chunk_size = strtol(optarg, NULL, 0);
@@ -1584,6 +1600,7 @@ static int parse_args(int argc, char **argv, options_t *test_opts)
             std::cout << "  -b <number of buffers>     Number of offcache IO buffers" << std::endl;
             std::cout << "  -i <iterations-count>      Number of iterations to run communication" << std::endl;
             std::cout << "  -w <window-size>           Number of outstanding requests" << std::endl;
+            std::cout << "  -a <conn-window-size>      Number of outstanding requests per connection" << std::endl;
             std::cout << "  -k <chunk-size>            Split the data transfer to chunks of this size" << std::endl;
             std::cout << "  -r <io-request-size>       Size of IO request packet" << std::endl;
             std::cout << "  -t <client timeout>        Client timeout (or \"inf\")" << std::endl;
