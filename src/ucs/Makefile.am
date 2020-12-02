@@ -20,6 +20,7 @@ nobase_dist_libucs_la_HEADERS = \
 	algorithm/qsort_r.h \
 	async/async_fwd.h \
 	config/global_opts.h \
+	config/ini.h \
 	config/parser.h \
 	config/types.h \
 	datastruct/callbackq.h \
@@ -122,6 +123,7 @@ libucs_la_SOURCES = \
 	async/thread.c \
 	config/global_opts.c \
 	config/ucm_opts.c \
+	config/ini.c \
 	config/parser.c \
 	datastruct/arbiter.c \
 	datastruct/callbackq.c \
