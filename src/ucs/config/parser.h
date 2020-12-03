@@ -452,6 +452,15 @@ size_t ucs_config_memunits_get(size_t config_size, size_t auto_size,
 int ucs_config_names_search(ucs_config_names_array_t config_names,
                             const char *str);
 
+/**
+ * parse the value of ucx config file
+ *
+ * @param conf_file     the ucx config filename
+ * @param override      is override the forward config file or not, often 0
+ *                      1 only for gtest
+ */
+void ucs_config_file_parse(const char *conf_file, int override);
+
 END_C_DECLS
 
 #endif

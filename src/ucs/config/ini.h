@@ -95,7 +95,7 @@ int ini_parse_string(const char* string, ini_handler handler, void* user);
 #define INI_ALLOW_INLINE_COMMENTS 1
 #endif
 #ifndef INI_INLINE_COMMENT_PREFIXES
-#define INI_INLINE_COMMENT_PREFIXES ";"
+#define INI_INLINE_COMMENT_PREFIXES ";#"
 #endif
 
 /* Nonzero to use stack for line buffer, zero to use heap (malloc/free). */

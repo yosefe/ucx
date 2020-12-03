@@ -20,6 +20,10 @@ version = 0.0.1       # verison
      name    = jack        # name
 ##########
 
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <errno.h>
 #include "ini.h"
 typedef struct {
     char* version;
@@ -41,11 +45,11 @@ static int handler(void* user, const char* section, const char* name,
 int main() {
     config conf;
     if (ini_parse("test.ini", handler, &conf) < 0) {
-        printf("Can't load test.ini\n");
+        printf("Can't load test.ini %s\n", strerror(errno));
         return 1;
     }
-    printf("Config loaded from test.int: version=%d, name=%s\n",
-            conf.name, conf.email);
+    printf("Config loaded from test.int: version=%s, name=%s\n",
+            conf.name, conf.version);
     free(conf.version);
     free(conf.name);
     return 0;
