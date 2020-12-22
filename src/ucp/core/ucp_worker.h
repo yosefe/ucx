@@ -378,6 +378,9 @@ char *ucp_worker_print_used_tls(const ucp_ep_config_key_t *key,
                                 ucp_worker_cfg_index_t config_idx, char *info,
                                 size_t max);
 
+void ucp_worker_vfs_refresh(void *obj);
+
+/* must be called with async lock held */
 static UCS_F_ALWAYS_INLINE void
 ucp_worker_flush_ops_count_inc(ucp_worker_h worker)
 {

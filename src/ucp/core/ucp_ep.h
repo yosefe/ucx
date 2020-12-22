@@ -532,6 +532,8 @@ void ucp_ep_config_lane_info_str(ucp_worker_h worker,
                                  ucp_rsc_index_t aux_rsc_index,
                                  ucs_string_buffer_t *buf);
 
+void ucp_ep_vfs_init(ucp_ep_h ep);
+
 ucs_status_t ucp_ep_create_base(ucp_worker_h worker, const char *peer_name,
                                 const char *message, ucp_ep_h *ep_p);
 

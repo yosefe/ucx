@@ -208,6 +208,8 @@ ucs_status_t ucp_ep_create_base(ucp_worker_h worker, const char *peer_name,
         goto err_free_ep_control_ext;
     }
 
+    ucs_list_head_init(&ucp_ep_ext_gen(ep)->ep_list);
+
     /* Create endpoint VFS node on demand to avoid memory bloat */
     ucs_vfs_obj_set_dirty(worker, ucp_worker_vfs_refresh);
 
@@ -280,6 +282,7 @@ static void ucp_ep_destroy_base(ucp_ep_h ep)
 
     ucs_vfs_obj_remove(ep);
     ucp_ep_remove_progress_callbacks(ep);
+    ucs_vfs_obj_remove(ep);
     UCS_STATS_NODE_FREE(ep->stats);
     ucs_free(ucp_ep_ext_control(ep));
     ucs_strided_alloc_put(&ep->worker->ep_alloc, ep);
@@ -2930,6 +2933,29 @@ static void ucp_ep_vfs_show_peer_name(void *obj, ucs_string_buffer_t *strb,
     ucs_string_buffer_appendf(strb, "%s\n", ucp_ep_peer_name(ep));
 }
 
+static void ucp_ep_vfs_info_show(void *obj, ucs_string_buffer_t *strb,
+                                 void *arg_ptr, uint64_t arg_u64)
+{
+    ucp_ep_h ep = obj;
+    char buffer[8192];
+    FILE *f;
+
+    f = fmemopen(buffer, sizeof(buffer), "w");
+    ucp_ep_print_info(ep, f);
+    buffer[ftell(f)] = 0;
+    fclose(f);
+
+    ucs_string_buffer_appendf(strb, "%s", buffer);
+}
+
+static void ucp_ep_vfs_state_show(void *obj, ucs_string_buffer_t *strb,
+                                  void *arg_ptr, uint64_t arg_u64)
+{
+    ucp_ep_h ep = obj;
+
+    ucs_string_buffer_appendf(strb, "flags : 0x%x\n", ep->flags);
+}
+
 void ucp_ep_vfs_init(ucp_ep_h ep)
 {
     ucp_err_handling_mode_t err_mode;
@@ -2949,6 +2975,9 @@ void ucp_ep_vfs_init(ucp_ep_h ep)
     ucs_vfs_obj_add_ro_file(ep, ucs_vfs_show_primitive,
                             (void*)ucp_err_handling_mode_names[err_mode],
                             UCS_VFS_TYPE_STRING, "error_mode");
+
+    ucs_vfs_obj_add_ro_file(ep, ucp_ep_vfs_info_show, NULL, 0, "info");
+    ucs_vfs_obj_add_ro_file(ep, ucp_ep_vfs_state_show, NULL, 0, "state");
 }
 
 ucs_status_t ucp_ep_query(ucp_ep_h ep, ucp_ep_attr_t *attr)

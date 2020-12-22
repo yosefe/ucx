@@ -121,6 +121,11 @@ KHASH_IMPL(ucp_worker_discard_uct_ep_hash, uct_ep_h, ucp_request_t*, 1,
            ucp_worker_discard_uct_ep_hash_key, kh_int64_hash_equal);
 
 
+// TODO move functions
+static void ucp_worker_vfs_info_show(void *obj, ucs_string_buffer_t *strb,
+                                     void *arg_ptr, uint64_t arg_u64);
+
+
 static ucs_status_t ucp_worker_wakeup_ctl_fd(ucp_worker_h worker,
                                              ucp_worker_event_fd_op_t op,
                                              int event_fd)
@@ -2121,6 +2126,7 @@ void ucp_worker_create_vfs(ucp_context_h context, ucp_worker_h worker)
     ucs_vfs_obj_add_ro_file(worker, ucp_worker_vfs_show_primitive,
                             &worker->keepalive.round_count, UCS_VFS_TYPE_SIZET,
                             "keepalive/round_count");
+    ucs_vfs_obj_add_ro_file(worker, ucp_worker_vfs_info_show, NULL, 0, "info");
 }
 
 ucs_status_t ucp_worker_create(ucp_context_h context,
@@ -2850,63 +2856,82 @@ void ucp_worker_release_address(ucp_worker_h worker, ucp_address_t *address)
     ucs_free(address);
 }
 
-void ucp_worker_print_info(ucp_worker_h worker, FILE *stream)
+static void ucp_worker_info_str(ucp_worker_h worker, ucs_string_buffer_t *strb)
 {
     ucp_context_h context = worker->context;
     ucp_worker_cfg_index_t rkey_cfg_index;
     ucp_rsc_index_t rsc_index;
-    ucs_string_buffer_t strb;
     ucp_address_t *address;
     size_t address_length;
     ucs_status_t status;
     int first;
 
-    UCP_WORKER_THREAD_CS_ENTER_CONDITIONAL(worker);
-
-    fprintf(stream, "#\n");
-    fprintf(stream, "# UCP worker '%s'\n", ucp_worker_get_address_name(worker));
-    fprintf(stream, "#\n");
+    ucs_string_buffer_appendf(strb, "#\n");
+    ucs_string_buffer_appendf(strb, "# UCP worker '%s'\n",
+                              ucp_worker_get_address_name(worker));
+    ucs_string_buffer_appendf(strb, "#\n");
 
     status = ucp_worker_get_address(worker, &address, &address_length);
     if (status == UCS_OK) {
         ucp_worker_release_address(worker, address);
-        fprintf(stream, "#                 address: %zu bytes\n", address_length);
+        ucs_string_buffer_appendf(strb,
+                                  "#                 address: %zu bytes\n",
+                                  address_length);
     } else {
-        fprintf(stream, "# <failed to get address>\n");
+        ucs_string_buffer_appendf(strb, "# <failed to get address>\n");
     }
 
     if (context->config.features & UCP_FEATURE_AMO) {
-        fprintf(stream, "#                 atomics: ");
+        ucs_string_buffer_appendf(strb, "#                 atomics: ");
         first = 1;
         for (rsc_index = 0; rsc_index < worker->context->num_tls; ++rsc_index) {
             if (UCS_BITMAP_GET(worker->atomic_tls, rsc_index)) {
                 if (!first) {
-                    fprintf(stream, ", ");
+                    ucs_string_buffer_appendf(strb, ", ");
                 }
-                fprintf(stream, "%d:"UCT_TL_RESOURCE_DESC_FMT, rsc_index,
-                        UCT_TL_RESOURCE_DESC_ARG(&context->tl_rscs[rsc_index].tl_rsc));
+                ucs_string_buffer_appendf(
+                        strb, "%d:" UCT_TL_RESOURCE_DESC_FMT, rsc_index,
+                        UCT_TL_RESOURCE_DESC_ARG(
+                                &context->tl_rscs[rsc_index].tl_rsc));
                 first = 0;
             }
         }
-        fprintf(stream, "\n");
+        ucs_string_buffer_appendf(strb, "\n");
     }
 
-    fprintf(stream, "#\n");
+    ucs_string_buffer_appendf(strb, "\n");
 
     if (context->config.ext.proto_enable) {
-        ucs_string_buffer_init(&strb);
         for (rkey_cfg_index = 0; rkey_cfg_index < worker->rkey_config_count;
              ++rkey_cfg_index) {
-            ucp_rkey_proto_select_dump(worker, rkey_cfg_index, &strb);
-            ucs_string_buffer_appendf(&strb, "\n");
+            ucp_rkey_proto_select_dump(worker, rkey_cfg_index, strb);
+            ucs_string_buffer_appendf(strb, "\n");
         }
-        ucs_string_buffer_dump(&strb, "# ", stream);
-        ucs_string_buffer_cleanup(&strb);
     }
+}
+
+void ucp_worker_print_info(ucp_worker_h worker, FILE *stream)
+{
+    ucs_string_buffer_t strb;
 
     ucp_worker_mem_type_eps_print_info(worker, stream);
 
+    UCP_WORKER_THREAD_CS_ENTER_CONDITIONAL(worker);
+    ucs_string_buffer_init(&strb);
+    ucp_worker_info_str(worker, &strb);
+    ucs_string_buffer_dump(&strb, "# ", stream);
+    ucs_string_buffer_cleanup(&strb);
     UCP_WORKER_THREAD_CS_EXIT_CONDITIONAL(worker);
+}
+
+static void ucp_worker_vfs_info_show(void *obj, ucs_string_buffer_t *strb,
+                                     void *arg_ptr, uint64_t arg_u64)
+{
+    ucp_worker_h worker = obj;
+
+    UCS_ASYNC_BLOCK(&worker->async);
+    ucp_worker_info_str(worker, strb);
+    UCS_ASYNC_UNBLOCK(&worker->async);
 }
 
 static UCS_F_ALWAYS_INLINE ucp_ep_h
