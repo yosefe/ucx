@@ -20,7 +20,7 @@ ucs_config_field_t uct_cm_config_table[] = {
    "Allow using an address that is already in use.",
    ucs_offsetof(uct_cm_config_t, allow_addr_inuse), UCS_CONFIG_TYPE_BOOL},
 
-  {"TIMEOUT", "10s",
+  {"TIMEOUT", "300s",
    "Timeout for RDMA address and route resolve operations",
    ucs_offsetof(uct_cm_config_t, timeout), UCS_CONFIG_TYPE_TIME},
 
