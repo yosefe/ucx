@@ -56,15 +56,15 @@ public:
     ~UcxLog();
 
     template<typename T>
-    const UcxLog& operator<<(const T &t) const {
-        if (_enable) {
-            std::cout << t;
+    UcxLog& operator<<(const T &t) {
+        if (_ss != NULL) {
+            (*_ss) << t;
         }
         return *this;
     }
 
 private:
-    const bool               _enable;
+    std::stringstream        *_ss;
 };
 
 
@@ -166,7 +166,7 @@ private:
     conn_map_t                     _conns;
     std::deque<conn_req_t>         _conn_requests;
     std::deque<UcxConnection *>    _failed_conns;
-    ucx_request*                   _iomsg_recv_request;
+    ucx_request                    *_iomsg_recv_request;
     std::string                    _iomsg_buffer;
     double                         _connect_timeout;
 };
@@ -245,7 +245,7 @@ private:
     uint32_t           _remote_conn_id;
     char               _log_prefix[MAX_LOG_PREFIX_SIZE];
     ucp_ep_h           _ep;
-    void*              _close_request;
+    void               *_close_request;
     ucs_list_link_t    _all_requests;
     ucs_status_t       _ucx_status;
 };

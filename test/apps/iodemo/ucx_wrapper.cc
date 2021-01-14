@@ -11,7 +11,9 @@
 #include <sys/time.h>
 #include <string.h>
 #include <assert.h>
+#include <sys/types.h>
 
+#include <unistd.h>
 #include <limits>
 
 struct ucx_request {
@@ -40,9 +42,10 @@ EmptyCallback* EmptyCallback::get() {
 
 bool UcxLog::use_human_time = false;
 
-UcxLog::UcxLog(const char* prefix, bool enable) : _enable(enable)
+UcxLog::UcxLog(const char* prefix, bool enable)
 {
     if (!enable) {
+        _ss = NULL;
         return;
     }
 
@@ -52,17 +55,24 @@ UcxLog::UcxLog(const char* prefix, bool enable) : _enable(enable)
     struct tm tm;
     char str[32];
     if (use_human_time) {
-        strftime(str, sizeof(str), "[%a %b %d %T] ", localtime_r(&tv.tv_sec, &tm));
+        strftime(str, sizeof(str), "[%a %b %d %T ", localtime_r(&tv.tv_sec, &tm));
     } else {
-        snprintf(str, sizeof(str), "[%lu.%06lu] ", tv.tv_sec, tv.tv_usec);
+        snprintf(str, sizeof(str), "[%lu.%06lu ", tv.tv_sec, tv.tv_usec);
     }
-    std::cout << str << prefix << " ";
+
+    size_t str_len = strlen(str);
+    snprintf(str + str_len, sizeof(str) - str_len, "%d] ", getpid());
+
+    _ss = new std::stringstream();
+    (*_ss) << str << prefix << " ";
 }
 
 UcxLog::~UcxLog()
 {
-    if (_enable) {
-        std::cout << std::endl;
+    if (_ss != NULL) {
+        (*_ss) << std::endl;
+        std::cout << (*_ss).str();
+        delete _ss;
     }
 }
 
