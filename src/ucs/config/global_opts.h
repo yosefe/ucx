@@ -115,6 +115,9 @@ typedef struct {
     /* registration cache checks if physical page is not moved */
     int                        rcache_check_pfn;
 
+    /* Enable VFS monitoring */
+    int                        vfs_enable;
+
     /* directory for loadable modules */
     char                       *module_dir;
 

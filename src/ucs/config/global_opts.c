@@ -45,6 +45,7 @@ ucs_global_opts_t ucs_global_opts = {
     .profile_file          = "",
     .stats_filter          = { NULL, 0 },
     .stats_format          = UCS_STATS_FULL,
+    .vfs_enable            = 1,
     .rcache_check_pfn      = 0,
     .module_dir            = UCX_MODULE_DIR, /* defined in Makefile.am */
     .module_log_level      = UCS_LOG_LEVEL_TRACE,
@@ -183,6 +184,10 @@ static ucs_config_field_t ucs_global_opts_table[] = {
    ucs_offsetof(ucs_global_opts_t, stats_format), UCS_CONFIG_TYPE_ENUM(ucs_stats_formats_names)},
 
 #endif
+
+ {"VFS_ENABLE", "y",
+  "Enable virtual monitoring filesystem",
+  ucs_offsetof(ucs_global_opts_t, vfs_enable), UCS_CONFIG_TYPE_BOOL},
 
  {"MEMTRACK_DEST", "",
   "Destination to output memory tracking report to. If the value is empty,\n"
