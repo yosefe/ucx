@@ -19,6 +19,10 @@
 #include <sys/eventfd.h>
 #include <pthread.h>
 
+
+#define UCT_CUDA_IPC_DEV_NAME "cuda-ipc"
+
+
 static ucs_config_field_t uct_cuda_ipc_iface_config_table[] = {
 
     {"", "", NULL,
@@ -422,7 +426,7 @@ static UCS_CLASS_INIT_FUNC(uct_cuda_ipc_iface_t, uct_md_h md, uct_worker_h worke
                               UCS_STATS_ARG("cuda_ipc"));
 
     if (strncmp(params->mode.device.dev_name,
-                UCT_CUDA_DEV_NAME, strlen(UCT_CUDA_DEV_NAME)) != 0) {
+                UCT_CUDA_IPC_DEV_NAME, strlen(UCT_CUDA_IPC_DEV_NAME)) != 0) {
         ucs_error("No device was found: %s", params->mode.device.dev_name);
         return UCS_ERR_NO_DEVICE;
     }
@@ -481,13 +485,14 @@ static UCS_CLASS_CLEANUP_FUNC(uct_cuda_ipc_iface_t)
     }
 }
 
-ucs_status_t
-uct_cuda_ipc_query_devices(
-        uct_md_h md, uct_tl_device_resource_t **tl_devices_p,
-        unsigned *num_tl_devices_p)
+static ucs_status_t
+uct_cuda_ipc_query_devices(uct_md_h md, uct_tl_device_resource_t **tl_devices_p,
+                           unsigned *num_tl_devices_p)
 {
-    return uct_cuda_base_query_devices_common(md, UCT_DEVICE_TYPE_SHM,
-                                              tl_devices_p, num_tl_devices_p);
+    return uct_single_device_resource(md, UCT_CUDA_IPC_DEV_NAME,
+                                      UCT_DEVICE_TYPE_SHM,
+                                      UCS_SYS_DEVICE_ID_UNKNOWN, tl_devices_p,
+                                      num_tl_devices_p);
 }
 
 UCS_CLASS_DEFINE(uct_cuda_ipc_iface_t, uct_base_iface_t);
