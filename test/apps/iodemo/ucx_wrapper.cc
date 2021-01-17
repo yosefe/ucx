@@ -55,13 +55,10 @@ UcxLog::UcxLog(const char* prefix, bool enable)
     struct tm tm;
     char str[32];
     if (use_human_time) {
-        strftime(str, sizeof(str), "[%a %b %d %T ", localtime_r(&tv.tv_sec, &tm));
+        strftime(str, sizeof(str), "[%a %b %d %T] ", localtime_r(&tv.tv_sec, &tm));
     } else {
-        snprintf(str, sizeof(str), "[%lu.%06lu ", tv.tv_sec, tv.tv_usec);
+        snprintf(str, sizeof(str), "[%lu.%06lu] ", tv.tv_sec, tv.tv_usec);
     }
-
-    size_t str_len = strlen(str);
-    snprintf(str + str_len, sizeof(str) - str_len, "%d] ", getpid());
 
     _ss = new std::stringstream();
     (*_ss) << str << prefix << " ";
