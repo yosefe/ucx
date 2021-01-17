@@ -61,7 +61,7 @@ UcxLog::UcxLog(const char* prefix, bool enable)
     }
 
     size_t str_len = strlen(str);
-    snprintf(str + str_len, sizeof(str) - str_len, "%d] ", getpid());
+    snprintf(str + str_len, sizeof(str) - str_len, "%d] ", ucs_get_tid());
 
     _ss = new std::stringstream();
     (*_ss) << str << prefix << " ";

@@ -16,6 +16,7 @@
 #include <sstream>
 #include <string>
 #include <ucs/datastruct/list.h>
+#include <ucs/sys/sys.h>
 
 #define MAX_LOG_PREFIX_SIZE   64
 
