@@ -22,8 +22,6 @@
  *
  */
 
-
-
 /* Address alignment requirements */
 #define UCS_PGT_ADDR_SHIFT         4
 #define UCS_PGT_ADDR_ALIGN         (1ul << UCS_PGT_ADDR_SHIFT)

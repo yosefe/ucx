@@ -408,18 +408,10 @@ static void ucs_mem_region_destroy_internal(ucs_rcache_t *rcache,
     ucs_free(region);
 }
 
-static inline void ucs_rcache_region_put_internal(ucs_rcache_t *rcache,
-                                                  ucs_rcache_region_t *region,
-                                                  unsigned flags)
+static UCS_F_NOINLINE void
+ucs_rcache_region_put_internal_zero(ucs_rcache_t *rcache,
+                                    ucs_rcache_region_t *region, unsigned flags)
 {
-    ucs_rcache_region_trace(rcache, region, "put region, flags 0x%x", flags);
-
-    ucs_assert(region->refcount > 0);
-    if (ucs_likely(ucs_atomic_fsub32(&region->refcount, 1) != 1)) {
-        ucs_assert(!(flags & UCS_RCACHE_REGION_PUT_FLAG_MUST_DESTROY));
-        return;
-    }
-
     if (flags & UCS_RCACHE_REGION_PUT_FLAG_ADD_TO_GC) {
         /* Put the region on garbage collection list */
         ucs_spin_lock(&rcache->lock);
@@ -440,6 +432,21 @@ static inline void ucs_rcache_region_put_internal(ucs_rcache_t *rcache,
     if (flags & UCS_RCACHE_REGION_PUT_FLAG_TAKE_PGLOCK) {
         pthread_rwlock_unlock(&rcache->pgt_lock);
     }
+}
+
+static UCS_F_ALWAYS_INLINE void
+ucs_rcache_region_put_internal(ucs_rcache_t *rcache,
+                               ucs_rcache_region_t *region, unsigned flags)
+{
+    ucs_rcache_region_trace(rcache, region, "put region, flags 0x%x", flags);
+
+    ucs_assert(region->refcount > 0);
+    if (ucs_likely(ucs_atomic_fsub32(&region->refcount, 1) != 1)) {
+        ucs_assert(!(flags & UCS_RCACHE_REGION_PUT_FLAG_MUST_DESTROY));
+        return;
+    }
+
+    ucs_rcache_region_put_internal_zero(rcache, region, flags);
 }
 
 /* Lock must be held in write mode */
