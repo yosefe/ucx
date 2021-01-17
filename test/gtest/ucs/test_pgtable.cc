@@ -62,7 +62,10 @@ protected:
     }
 
     void dump() {
-        ucs_pgtable_dump(&m_pgtable, UCS_LOG_LEVEL_DEBUG);
+        ucs_string_buffer_t strb = UCS_STRING_BUFFER_INITIALIZER;
+        ucs_pgtable_dump(&m_pgtable, &strb);
+        ucs_debug("%s", ucs_string_buffer_cstr(&strb));
+        ucs_string_buffer_cleanup(&strb);
     }
 
     void purge() {

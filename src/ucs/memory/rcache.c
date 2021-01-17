@@ -1165,6 +1165,16 @@ static void ucs_rcache_vfs_show_gc_list_length(void *obj,
     ucs_string_buffer_appendf(strb, "%lu\n", rcache_gc_list_length);
 }
 
+static void
+ucs_rcache_pgtable_show(void *obj, void *arg, ucs_string_buffer_t *strb)
+{
+    ucs_rcache_t *rcache = obj;
+
+    pthread_rwlock_rdlock(&rcache->pgt_lock);
+    ucs_pgtable_dump(&rcache->pgtable, strb);
+    pthread_rwlock_unlock(&rcache->pgt_lock);
+}
+
 static void ucs_rcache_vfs_init(ucs_rcache_t *rcache)
 {
     ucs_vfs_obj_add_dir(NULL, rcache, "ucs/rcache/%s", rcache->name);
@@ -1181,6 +1191,7 @@ static void ucs_rcache_vfs_init(ucs_rcache_t *rcache)
                             "inv_q/length");
     ucs_vfs_obj_add_ro_file(rcache, ucs_rcache_vfs_show_gc_list_length, NULL, 0,
                             "gc_list/length");
+    ucs_vfs_obj_add_ro_file(rcache, ucs_rcache_pgtable_show, NULL, "pgtable");
 }
 
 static UCS_CLASS_INIT_FUNC(ucs_rcache_t, const ucs_rcache_params_t *params,

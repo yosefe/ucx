@@ -8,6 +8,7 @@
 #define UCS_PGTABLE_H_
 
 #include <ucs/config/types.h>
+#include <ucs/datastruct/string_buffer.h>
 #include <ucs/sys/compiler_def.h>
 #include <ucs/type/status.h>
 
@@ -238,12 +239,12 @@ void ucs_pgtable_purge(ucs_pgtable_t *pgtable, ucs_pgt_search_callback_t cb,
 
 
 /**
- * Dump page table to log.
+ * Dump page table to string buffer.
  *
  * @param [in]  pgtable      Page table to dump.
- * @param [in]  log_level    Which log level to use.
+ * @param [out] strb         String buffer to dump to.
  */
-void ucs_pgtable_dump(const ucs_pgtable_t *pgtable, ucs_log_level_t log_level);
+void ucs_pgtable_dump(const ucs_pgtable_t *pgtable, ucs_string_buffer_t *strb);
 
 
 /**

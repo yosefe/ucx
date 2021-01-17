@@ -96,7 +96,7 @@ static inline void ucs_pgt_address_advance(ucs_pgt_addr_t *address_p,
 static void ucs_pgt_entry_dump_recurs(const ucs_pgtable_t *pgtable, unsigned indent,
                                       const ucs_pgt_entry_t *pte, unsigned pte_index,
                                       ucs_pgt_addr_t base, ucs_pgt_addr_t mask,
-                                      unsigned shift, ucs_log_level_t log_level)
+                                      unsigned shift, ucs_string_buffer_t *strb)
 {
     ucs_pgt_region_t *region;
     ucs_pgt_dir_t *pgd;
@@ -104,22 +104,28 @@ static void ucs_pgt_entry_dump_recurs(const ucs_pgtable_t *pgtable, unsigned ind
 
     if (ucs_pgt_entry_test(pte, UCS_PGT_ENTRY_FLAG_REGION)) {
         region = ucs_pgt_entry_value(pte);
-        ucs_log(log_level, "%*s[%3u] region " UCS_PGT_REGION_FMT, indent, "",
-                pte_index, UCS_PGT_REGION_ARG(region));
+        ucs_string_buffer_appendf(strb,
+                                  "%*s[%3u] region " UCS_PGT_REGION_FMT "\n",
+                                  indent, "", pte_index,
+                                  UCS_PGT_REGION_ARG(region));
     } else if (ucs_pgt_entry_test(pte, UCS_PGT_ENTRY_FLAG_DIR)) {
         pgd = ucs_pgt_entry_get_dir(pte);
-        ucs_log(log_level, "%*s[%3u] dir %p for [0x%lx..0x%lx], count %u shift %u mask 0x%lx",
-                indent, " ", pte_index, pgd, base, (base + (1 << shift)) & mask,
-                pgd->count, shift, mask);
+        ucs_string_buffer_appendf(strb,
+                                  "%*s[%3u] dir %p for [0x%lx..0x%lx], count "
+                                  "%u shift %u mask 0x%lx\n",
+                                  indent, " ", pte_index, pgd, base,
+                                  (base + (1 << shift)) & mask, pgd->count,
+                                  shift, mask);
         shift -= UCS_PGT_ENTRY_SHIFT;
         mask  |= UCS_PGT_ENTRY_MASK << shift;
         for (i = 0; i < UCS_PGT_ENTRIES_PER_DIR; ++i) {
             ucs_pgt_entry_dump_recurs(pgtable, indent + 2, &pgd->entries[i], i,
-                                      base | (i << shift), mask, shift, log_level);
+                                      base | (i << shift), mask, shift, strb);
             ++base;
         }
     } else {
-        ucs_log(log_level, "%*s[%3u] not present", indent, " ", pte_index);
+        ucs_string_buffer_appendf(strb, "%*s[%3u] not present\n", indent, " ",
+                                  pte_index);
     }
 }
 
@@ -131,11 +137,14 @@ static void ucs_pgtable_log(const ucs_pgtable_t *pgtable,
             pgtable->num_regions);
 }
 
-void ucs_pgtable_dump(const ucs_pgtable_t *pgtable, ucs_log_level_t log_level)
+void ucs_pgtable_dump(const ucs_pgtable_t *pgtable, ucs_string_buffer_t *strb)
 {
-    ucs_pgtable_log(pgtable, log_level, "dump");
+    ucs_string_buffer_appendf(strb,
+                              "pgtable %p: base 0x%lx/0x%lx shift %u count %u",
+                              pgtable, pgtable->base, pgtable->mask,
+                              pgtable->shift, pgtable->num_regions);
     ucs_pgt_entry_dump_recurs(pgtable, 0, &pgtable->root, 0, pgtable->base,
-                              pgtable->mask, pgtable->shift, log_level);
+                              pgtable->mask, pgtable->shift, strb);
 }
 
 static void ucs_pgtable_trace(ucs_pgtable_t *pgtable, const char *message)
