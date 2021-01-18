@@ -239,29 +239,37 @@ uct_dc_mlx5_poll_tx(uct_dc_mlx5_iface_t *iface)
     return 1;
 }
 
-static unsigned uct_dc_mlx5_iface_progress(void *arg)
+static UCS_F_ALWAYS_INLINE unsigned
+uct_dc_mlx5_iface_progress_common(uct_dc_mlx5_iface_t *iface, int poll_flags)
 {
-    uct_dc_mlx5_iface_t *iface = arg;
     unsigned count;
 
-    count = uct_rc_mlx5_iface_common_poll_rx(&iface->super, 0);
+    count = uct_rc_mlx5_iface_common_poll_rx(&iface->super, poll_flags);
     if (count > 0) {
         return count;
     }
-    return uct_dc_mlx5_poll_tx(iface);
+
+    count = uct_dc_mlx5_poll_tx(iface);
+    if (count > 0) {
+        return count;
+    }
+
+    uct_ib_md_progress(uct_ib_iface_md(&iface->super.super.super));
+    return 0;
+}
+
+static unsigned uct_dc_mlx5_iface_progress(void *arg)
+{
+    uct_dc_mlx5_iface_t *iface = arg;
+
+    return uct_dc_mlx5_iface_progress_common(iface, 0);
 }
 
 static unsigned uct_dc_mlx5_iface_progress_tm(void *arg)
 {
     uct_dc_mlx5_iface_t *iface = arg;
-    unsigned count;
 
-    count = uct_rc_mlx5_iface_common_poll_rx(&iface->super,
-                                             UCT_RC_MLX5_POLL_FLAG_TM);
-    if (count > 0) {
-        return count;
-    }
-    return uct_dc_mlx5_poll_tx(iface);
+    return uct_dc_mlx5_iface_progress_common(iface, UCT_RC_MLX5_POLL_FLAG_TM);
 }
 
 static void UCS_CLASS_DELETE_FUNC_NAME(uct_dc_mlx5_iface_t)(uct_iface_t*);

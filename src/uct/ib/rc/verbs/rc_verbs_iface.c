@@ -139,7 +139,13 @@ static unsigned uct_rc_verbs_iface_progress(void *arg)
         return count;
     }
 
-    return uct_rc_verbs_iface_poll_tx(iface);
+    count = uct_rc_verbs_iface_poll_tx(iface);
+    if (count > 0) {
+        return count;
+    }
+
+    uct_ib_md_progress(uct_ib_iface_md(&iface->super.super));
+    return 0;
 }
 
 static void uct_rc_verbs_iface_init_inl_wrs(uct_rc_verbs_iface_t *iface)

@@ -15,6 +15,7 @@
 
 #include <uct/api/uct.h>
 #include <ucs/config/parser.h>
+#include <ucs/memory/rcache_int.h>
 #include <string.h>
 
 

@@ -847,6 +847,8 @@ static void uct_ud_iface_timer(int timer_id, void *arg)
     ucs_twheel_sweep(&iface->async.slow_timer, now);
     uct_ud_iface_async_progress(iface);
     uct_ud_leave(iface);
+
+    uct_ib_md_progress(uct_ib_iface_md(&iface->super));
 }
 
 void uct_ud_iface_release_desc(uct_recv_desc_t *self, void *desc)
