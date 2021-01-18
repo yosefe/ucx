@@ -392,6 +392,8 @@ ucs_status_t ucp_do_am_zcopy_multi(uct_pending_req_t *self, uint8_t am_id_first,
                 ucs_assert(status == UCS_INPROGRESS);
                 return UCS_OK;
             }
+
+            return UCS_ERR_NO_RESOURCE;
         }
 
         ucp_request_send_state_advance(req, &state,
