@@ -257,23 +257,51 @@ typedef struct {
     struct ibv_mr **mr;
 } uct_ib_md_mem_reg_thread_t;
 
-static void uct_ib_check_gpudirect_driver(uct_ib_md_t *md, uct_md_attr_t *md_attr,
-                                          const char *file,
-                                          ucs_memory_type_t mem_type)
+static int
+uct_ib_check_gpudirect_driver(ucs_memory_type_t mem_type)
 {
-    if (!access(file, F_OK)) {
-        md_attr->cap.reg_mem_types |= UCS_BIT(mem_type);
+    static const char *driver_file[UCS_MEMORY_TYPE_LAST] = {
+        [UCS_MEMORY_TYPE_CUDA] = "/sys/kernel/mm/memory_peers/nv_mem/version",
+        [UCS_MEMORY_TYPE_ROCM] = "/dev/kfd"
+    };
+    int enabled;
+
+    enabled = !access(driver_file[mem_type], F_OK);
+    ucs_debug("%s GPUDirect RDMA is %s", ucs_memory_type_names[mem_type],
+              enabled ? "enabled" : "disabled");
+    return enabled;
+}
+
+static ucs_status_t uct_ib_md_reg_mem_types()
+{
+    static uint64_t cached_reg_mem_types = 0;
+    uint64_t reg_mem_types;
+
+    /*
+     * Cache GPU-direct drivers state, to avoid checking it in every call to
+     * uct_md_query()
+     */
+    if (cached_reg_mem_types == 0) {
+        reg_mem_types = UCS_MEMORY_TYPES_CPU_ACCESSIBLE;
+
+        if (uct_ib_check_gpudirect_driver(UCS_MEMORY_TYPE_CUDA)) {
+            reg_mem_types |= UCS_BIT(UCS_MEMORY_TYPE_CUDA);
+        };
+
+        if (uct_ib_check_gpudirect_driver(UCS_MEMORY_TYPE_ROCM)) {
+            reg_mem_types |= UCS_BIT(UCS_MEMORY_TYPE_ROCM);
+        }
+
+        cached_reg_mem_types = reg_mem_types;
     }
 
-    ucs_debug("%s: %s GPUDirect RDMA is %s",
-              uct_ib_device_name(&md->dev), ucs_memory_type_names[mem_type],
-              md_attr->cap.reg_mem_types & UCS_BIT(mem_type) ?
-              "enabled" : "disabled");
+    return cached_reg_mem_types;
 }
 
 static ucs_status_t uct_ib_md_query(uct_md_h uct_md, uct_md_attr_t *md_attr)
 {
     uct_ib_md_t *md = ucs_derived_of(uct_md, uct_ib_md_t);
+    uint64_t reg_mem_types;
 
     md_attr->cap.max_alloc = ULONG_MAX; /* TODO query device */
     md_attr->cap.max_reg   = ULONG_MAX; /* TODO query device */
@@ -281,32 +309,32 @@ static ucs_status_t uct_ib_md_query(uct_md_h uct_md, uct_md_attr_t *md_attr)
                              UCT_MD_FLAG_NEED_MEMH |
                              UCT_MD_FLAG_NEED_RKEY |
                              UCT_MD_FLAG_ADVISE;
-    md_attr->cap.reg_mem_types    = UCS_MEMORY_TYPES_CPU_ACCESSIBLE;
     md_attr->cap.access_mem_type  = UCS_MEMORY_TYPE_HOST;
     md_attr->cap.detect_mem_types = 0;
 
-    if (md->config.enable_gpudirect_rdma != UCS_NO) {
-        /* check if GDR driver is loaded */
-        uct_ib_check_gpudirect_driver(md, md_attr,
-                                      "/sys/kernel/mm/memory_peers/nv_mem/version",
-                                      UCS_MEMORY_TYPE_CUDA);
-
-        /* check if ROCM KFD driver is loaded */
-        uct_ib_check_gpudirect_driver(md, md_attr, "/dev/kfd",
-                                      UCS_MEMORY_TYPE_ROCM);
-
-        if (!(md_attr->cap.reg_mem_types & ~UCS_BIT(UCS_MEMORY_TYPE_HOST)) &&
-            (md->config.enable_gpudirect_rdma == UCS_YES)) {
-                ucs_error("%s: Couldn't enable GPUDirect RDMA. Please make sure"
-                          " nv_peer_mem or amdgpu plugin installed correctly.",
-                          uct_ib_device_name(&md->dev));
-                return UCS_ERR_UNSUPPORTED;
-        }
+    reg_mem_types = uct_ib_md_reg_mem_types();
+    if (md->config.enable_gpudirect_rdma == UCS_NO) {
+        /* Disable GPU-direct mem types */
+        md_attr->cap.reg_mem_types = reg_mem_types &
+                                     UCS_MEMORY_TYPES_CPU_ACCESSIBLE;
+    } else if ((md->config.enable_gpudirect_rdma == UCS_YES) &&
+               !(md_attr->cap.reg_mem_types & ~UCS_BIT(UCS_MEMORY_TYPE_HOST))) {
+        /* GPU-direct required, but only host memory is supported */
+        ucs_error("%s: Couldn't enable GPUDirect RDMA. Please make sure"
+                  " nv_peer_mem or amdgpu plugin installed correctly.",
+                  uct_ib_device_name(&md->dev));
+        return UCS_ERR_UNSUPPORTED;
+    } else {
+        md_attr->cap.reg_mem_types = reg_mem_types;
     }
 
     md_attr->rkey_packed_size = UCT_IB_MD_PACKED_RKEY_SIZE;
     md_attr->reg_cost         = md->reg_cost;
     ucs_sys_cpuset_copy(&md_attr->local_cpus, &md->dev.local_cpus);
+
+    if (md->rcache != NULL) {
+        ucs_rcache_query(md->rcache, &md_attr->rcache_attr);
+    }
 
     return UCS_OK;
 }

@@ -50,6 +50,7 @@ struct ucs_rcache {
                                             which does not generate memory events */
     unsigned long            num_regions;/**< Total number of managed regions */
     size_t                   total_size; /**< Total size of registered memory */
+    unsigned long            num_evictions; /**< Total number of evictions */
 
     struct {
         ucs_spinlock_t       lock;     /**< Lock for this structure */

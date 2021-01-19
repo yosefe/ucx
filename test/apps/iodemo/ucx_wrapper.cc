@@ -176,6 +176,25 @@ void UcxContext::progress()
     progress_failed_connections();
 }
 
+void UcxContext::memory_pin_stats(memory_pin_stats_t *stats)
+{
+    ucp_context_attr_t ctx_attr;
+
+    ctx_attr.field_mask = UCP_ATTR_FIELD_NUM_PINNED_REGIONS |
+                          UCP_ATTR_FIELD_NUM_PINNED_EVICTIONS |
+                          UCP_ATTR_FIELD_NUM_PINNED_BYTES;
+    ucs_status_t status = ucp_context_query(_context, &ctx_attr);
+    if (status == UCS_OK) {
+        stats->regions   = ctx_attr.num_pinned_regions;
+        stats->bytes     = ctx_attr.num_pinned_bytes;
+        stats->evictions = ctx_attr.num_pinned_evictions;
+    } else {
+        stats->regions   = 0;
+        stats->bytes     = 0;
+        stats->evictions = 0;
+    }
+}
+
 uint32_t UcxContext::get_next_conn_id()
 {
     static uint32_t conn_id = 1;

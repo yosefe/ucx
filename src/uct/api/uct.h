@@ -17,6 +17,7 @@
 #include <ucs/async/async_fwd.h>
 #include <ucs/datastruct/callbackq.h>
 #include <ucs/memory/memory_type.h>
+#include <ucs/memory/rcache.h>
 #include <ucs/type/status.h>
 #include <ucs/type/thread_mode.h>
 #include <ucs/type/cpu_set.h>
@@ -1251,6 +1252,7 @@ struct uct_md_attr {
     char                     component_name[UCT_COMPONENT_NAME_MAX]; /**< Component name */
     size_t                   rkey_packed_size; /**< Size of buffer needed for packed rkey */
     ucs_cpu_set_t            local_cpus;    /**< Mask of CPUs near the resource */
+    ucs_rcache_attr_t        rcache_attr;  /**< Registration cache information */
 };
 
 

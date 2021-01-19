@@ -325,8 +325,11 @@ enum ucp_mem_advise_params_field {
  * present. It is used to enable backward compatibility support.
  */
 enum ucp_context_attr_field {
-    UCP_ATTR_FIELD_REQUEST_SIZE = UCS_BIT(0), /**< UCP request size */
-    UCP_ATTR_FIELD_THREAD_MODE  = UCS_BIT(1)  /**< UCP context thread flag */
+    UCP_ATTR_FIELD_REQUEST_SIZE         = UCS_BIT(0), /**< UCP request size */
+    UCP_ATTR_FIELD_THREAD_MODE          = UCS_BIT(1), /**< UCP context thread flag */
+    UCP_ATTR_FIELD_NUM_PINNED_REGIONS   = UCS_BIT(2), /**< Current pinned regions count */
+    UCP_ATTR_FIELD_NUM_PINNED_BYTES     = UCS_BIT(3), /**< Current pinned regions total size */
+    UCP_ATTR_FIELD_NUM_PINNED_EVICTIONS = UCS_BIT(4)  /**< Total pinned memory evictions */
 };
 
 
@@ -841,6 +844,22 @@ typedef struct ucp_context_attr {
      * see @ref ucs_thread_mode_t.
      */
     ucs_thread_mode_t     thread_mode;
+
+    /**
+     * Number of pinned regions in this context
+     */
+    unsigned long         num_pinned_regions;
+
+    /**
+     * Total size of pinned memory in this context
+     */
+    size_t                num_pinned_bytes;
+
+    /**
+     * How many pinned regions were evicted due to memory usage constraints
+     */
+    unsigned long         num_pinned_evictions;
+
 } ucp_context_attr_t;
 
 

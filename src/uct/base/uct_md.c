@@ -352,6 +352,8 @@ ucs_status_t uct_md_query(uct_md_h md, uct_md_attr_t *md_attr)
 {
     ucs_status_t status;
 
+    memset(&md_attr->rcache_attr, 0, sizeof(md_attr->rcache_attr));
+
     status = md->ops->query(md, md_attr);
     if (status != UCS_OK) {
         return status;
