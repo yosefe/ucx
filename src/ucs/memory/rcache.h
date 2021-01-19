@@ -115,6 +115,7 @@ struct ucs_rcache_params {
                                                      be passed to mem_reg/mem_dereg */
     unsigned long          max_regions;         /**< Maximal number of regions */
     size_t                 max_size;            /**< Maximal total size of regions */
+    int                    merge_adjacent;      /**< merge adjacent region */
 };
 
 
