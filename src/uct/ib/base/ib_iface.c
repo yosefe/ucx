@@ -519,6 +519,7 @@ void uct_ib_iface_fill_ah_attr_from_gid_lid(uct_ib_iface_t *iface, uint16_t lid,
                                             unsigned path_index,
                                             struct ibv_ah_attr *ah_attr)
 {
+    uint16_t udp_sport;
     uint8_t path_bits;
 
     memset(ah_attr, 0, sizeof(*ah_attr));
@@ -528,8 +529,11 @@ void uct_ib_iface_fill_ah_attr_from_gid_lid(uct_ib_iface_t *iface, uint16_t lid,
     ah_attr->grh.traffic_class = iface->config.traffic_class;
 
     if (uct_ib_iface_is_roce(iface)) {
-        ah_attr->dlid          = UCT_IB_ROCE_UDP_SRC_PORT_BASE |
-                                 (iface->config.roce_path_factor * path_index);
+        udp_sport               = iface->config.roce_path_factor * path_index;
+        /* older drivers use dlid for udp.sport, new drivers use flow_label when
+           its nonzero */
+        ah_attr->dlid           = UCT_IB_ROCE_UDP_SRC_PORT_BASE | udp_sport;
+        ah_attr->grh.flow_label = ~udp_sport;
     } else {
         /* TODO iface->path_bits should be removed and replaced by path_index */
         path_bits              = iface->path_bits[path_index %
