@@ -336,7 +336,7 @@ static void ucs_rcache_invalidate_range(ucs_rcache_t *rcache, ucs_pgt_addr_t sta
 }
 
 /* Lock must be held in write mode */
-static void ucs_rcache_check_inv_queue(ucs_rcache_t *rcache)
+static void ucs_rcache_check_inv_queue_internal(ucs_rcache_t *rcache)
 {
     ucs_rcache_inv_entry_t *entry;
 
@@ -489,7 +489,7 @@ ucs_rcache_check_overlap(ucs_rcache_t *rcache, ucs_pgt_addr_t *start,
     ucs_trace_func("rcache=%s, *start=0x%lx, *end=0x%lx", rcache->name, *start,
                    *end);
 
-    ucs_rcache_check_inv_queue(rcache);
+    ucs_rcache_check_inv_queue_internal(rcache);
 
     ucs_rcache_find_regions(rcache, *start, *end - 1, &region_list);
 
@@ -739,6 +739,13 @@ void ucs_rcache_region_put(ucs_rcache_t *rcache, ucs_rcache_region_t *region)
     UCS_STATS_UPDATE_COUNTER(rcache->stats, UCS_RCACHE_PUTS, 1);
 }
 
+void ucs_rcache_check_inv_queue_slow(ucs_rcache_t *rcache)
+{
+    pthread_rwlock_wrlock(&rcache->lock);
+    ucs_rcache_check_inv_queue_internal(rcache);
+    pthread_rwlock_unlock(&rcache->lock);
+}
+
 static UCS_CLASS_INIT_FUNC(ucs_rcache_t, const ucs_rcache_params_t *params,
                            const char *name, ucs_stats_node_t *stats_parent)
 {
@@ -839,7 +846,7 @@ static UCS_CLASS_CLEANUP_FUNC(ucs_rcache_t)
 
     ucm_unset_event_handler(self->params.ucm_events, ucs_rcache_unmapped_callback,
                             self);
-    ucs_rcache_check_inv_queue(self);
+    ucs_rcache_check_inv_queue_internal(self);
     ucs_rcache_purge(self);
 
     if (self->lru.count > 0) {

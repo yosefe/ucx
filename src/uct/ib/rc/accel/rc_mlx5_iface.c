@@ -140,16 +140,30 @@ uct_rc_mlx5_iface_poll_tx(uct_rc_mlx5_iface_common_t *iface)
     return 1;
 }
 
-unsigned uct_rc_mlx5_iface_progress(void *arg)
+static UCS_F_ALWAYS_INLINE unsigned
+uct_rc_mlx5_iface_progress_common(uct_rc_mlx5_iface_common_t *iface,
+                                  int poll_flag)
 {
-    uct_rc_mlx5_iface_common_t *iface = arg;
     unsigned count;
 
-    count = uct_rc_mlx5_iface_common_poll_rx(iface, UCT_RC_MLX5_POLL_FLAG_HAS_EP);
+    count = uct_rc_mlx5_iface_common_poll_rx(iface, poll_flag);
     if (count > 0) {
         return count;
     }
-    return uct_rc_mlx5_iface_poll_tx(iface);
+    count = uct_rc_mlx5_iface_poll_tx(iface);
+    if (count > 0) {
+        return count;
+    }
+
+    uct_ib_md_progress(uct_ib_iface_md(&iface->super.super));
+    return 0;
+}
+
+unsigned uct_rc_mlx5_iface_progress(void *arg)
+{
+    uct_rc_mlx5_iface_common_t *iface = arg;
+
+    return uct_rc_mlx5_iface_progress_common(iface, UCT_RC_MLX5_POLL_FLAG_HAS_EP);
 }
 
 static ucs_status_t uct_rc_mlx5_iface_query(uct_iface_h tl_iface, uct_iface_attr_t *iface_attr)
@@ -320,15 +334,9 @@ err:
 static UCS_F_MAYBE_UNUSED unsigned uct_rc_mlx5_iface_progress_tm(void *arg)
 {
     uct_rc_mlx5_iface_common_t *iface = arg;
-    unsigned count;
 
-    count = uct_rc_mlx5_iface_common_poll_rx(iface,
-                                             UCT_RC_MLX5_POLL_FLAG_HAS_EP |
+    return uct_rc_mlx5_iface_progress_common(iface, UCT_RC_MLX5_POLL_FLAG_HAS_EP |
                                              UCT_RC_MLX5_POLL_FLAG_TM);
-    if (count > 0) {
-        return count;
-    }
-    return uct_rc_mlx5_iface_poll_tx(iface);
 }
 
 #if IBV_HW_TM

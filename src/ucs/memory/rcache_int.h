@@ -7,7 +7,11 @@
 #ifndef UCS_REG_CACHE_INT_H_
 #define UCS_REG_CACHE_INT_H_
 
+#include "rcache.h"
+
 #include <ucs/datastruct/list.h>
+#include <ucs/datastruct/queue.h>
+#include <ucs/stats/stats.h>
 #include <ucs/type/spinlock.h>
 
 
@@ -60,5 +64,17 @@ struct ucs_rcache {
 
     UCS_STATS_NODE_DECLARE(stats)
 };
+
+
+void ucs_rcache_check_inv_queue_slow(ucs_rcache_t *rcache);
+
+
+static UCS_F_ALWAYS_INLINE void
+ucs_rcache_check_inv_queue_fast(ucs_rcache_t *rcache)
+{
+    if (ucs_unlikely(!ucs_queue_is_empty(&rcache->inv_q))) {
+        ucs_rcache_check_inv_queue_slow(rcache);
+    }
+}
 
 #endif

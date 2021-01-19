@@ -417,4 +417,13 @@ ucs_status_t
 uct_ib_md_handle_mr_list_multithreaded(uct_ib_md_t *md, void *address,
                                        size_t length, uint64_t access,
                                        size_t chunk, struct ibv_mr **mrs);
+
+static UCS_F_ALWAYS_INLINE void
+uct_ib_md_progress(uct_ib_md_t *md)
+{
+    if (ucs_likely(md->rcache != NULL)){
+        ucs_rcache_check_inv_queue_fast(md->rcache);
+    }
+}
+
 #endif
