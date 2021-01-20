@@ -132,6 +132,18 @@ struct ucs_rcache_region {
 };
 
 
+typedef struct {
+    /* Number of regions in registration cache */
+    unsigned long num_regions;
+
+    /* Total size of all regions in the cache */
+    size_t        total_size;
+
+    /* How many regions were evicted during the cache lifetime */
+    unsigned long num_evictions;
+} ucs_rcache_attr_t;
+
+
 /**
  * Create a memory registration cache.
  *
@@ -192,5 +204,13 @@ void ucs_rcache_region_hold(ucs_rcache_t *rcache, ucs_rcache_region_t *region);
  */
 void ucs_rcache_region_put(ucs_rcache_t *rcache, ucs_rcache_region_t *region);
 
+
+/**
+ * Query registration cache information.
+ *
+ * @param [in]  rcache       Memory registration cache to query.
+ * @param [out] rcache_attr  Filled with rcache attributes.
+ */
+void ucs_rcache_query(ucs_rcache_t *rcache, ucs_rcache_attr_t *rcache_attr);
 
 #endif

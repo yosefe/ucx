@@ -1169,14 +1169,7 @@ int ucs_sys_getaffinity(ucs_sys_cpuset_t *cpuset)
 
 void ucs_sys_cpuset_copy(ucs_cpu_set_t *dst, const ucs_sys_cpuset_t *src)
 {
-    int c;
-
-    UCS_CPU_ZERO(dst);
-    for (c = 0; c < UCS_CPU_SETSIZE; ++c) {
-        if (CPU_ISSET(c, src)) {
-            UCS_CPU_SET(c, dst);
-        }
-    }
+    memcpy(dst, src, sizeof(*dst));
 }
 
 ucs_sys_ns_t ucs_sys_get_ns(ucs_sys_namespace_type_t ns)

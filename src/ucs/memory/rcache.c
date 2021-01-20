@@ -464,6 +464,7 @@ static void ucs_rcache_lru_evict(ucs_rcache_t *rcache)
     ucs_spin_unlock(&rcache->lru.lock);
 
     if (num_evicted > 0) {
+        rcache->num_evictions += num_evicted;
         ucs_debug("evicted %d regions, skipped %d regions, usage: %lu (%lu)",
                   num_evicted, num_skipped, rcache->num_regions,
                   rcache->params.max_regions);
@@ -746,6 +747,13 @@ void ucs_rcache_check_inv_queue_slow(ucs_rcache_t *rcache)
     pthread_rwlock_unlock(&rcache->lock);
 }
 
+void ucs_rcache_query(ucs_rcache_t *rcache, ucs_rcache_attr_t *rcache_attr)
+{
+    rcache_attr->num_regions   = rcache->num_regions;
+    rcache_attr->total_size    = rcache->total_size;
+    rcache_attr->num_evictions = rcache->num_evictions;
+}
+
 static UCS_CLASS_INIT_FUNC(ucs_rcache_t, const ucs_rcache_params_t *params,
                            const char *name, ucs_stats_node_t *stats_parent)
 {
@@ -807,9 +815,10 @@ static UCS_CLASS_INIT_FUNC(ucs_rcache_t, const ucs_rcache_params_t *params,
     }
 
     ucs_queue_head_init(&self->inv_q);
-    self->lru.count   = 0;
-    self->num_regions = 0;
-    self->total_size  = 0;
+    self->lru.count     = 0;
+    self->num_regions   = 0;
+    self->total_size    = 0;
+    self->num_evictions = 0;
     ucs_list_head_init(&self->lru.list);
     ucs_spinlock_init(&self->lru.lock, 0);
 

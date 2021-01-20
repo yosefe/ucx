@@ -73,6 +73,12 @@ private:
  */
 class UcxContext {
 public:
+    typedef struct memory_pin_stats {
+        unsigned long regions;
+        size_t        bytes;
+        unsigned long evictions;
+    } memory_pin_stats_t;
+
     UcxContext(size_t iomsg_size, double connect_timeout);
 
     virtual ~UcxContext();
@@ -84,6 +90,8 @@ public:
     UcxConnection* connect(const struct sockaddr* saddr, size_t addrlen);
 
     void progress();
+
+    void memory_pin_stats(memory_pin_stats_t *stats);
 
     static const std::string sockaddr_str(const struct sockaddr* saddr,
                                           size_t addrlen);

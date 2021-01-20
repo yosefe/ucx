@@ -748,12 +748,18 @@ private:
     }
 
     void report_state() {
-        LOG << "read:" << _curr_state.read_count -
-                          _prev_state.read_count << " ops, "
-            << "write:" << _curr_state.write_count -
-                           _prev_state.write_count << " ops, "
+        memory_pin_stats_t pin_stats;
+        memory_pin_stats(&pin_stats);
+
+        LOG << "read:" << _curr_state.read_count - _prev_state.read_count
+            << " ops, "
+            << "write:" << _curr_state.write_count - _prev_state.write_count
+            << " ops, "
             << "active connections:" << _curr_state.active_conns
-            << ", buffers:" << _data_buffers_pool.allocated();
+            << ", buffers:" << _data_buffers_pool.allocated()
+            << ", pin bytes:" << pin_stats.bytes
+            << " regions:" << pin_stats.regions
+            << " evict:" << pin_stats.evictions;
         save_prev_state();
     }
 
@@ -839,7 +845,7 @@ public:
     };
 
     DemoClient(const options_t& test_opts) :
-        P2pDemoCommon(test_opts), 
+        P2pDemoCommon(test_opts),
         _num_active_servers_to_use(0),
         _prev_connect_time(0), _num_sent(0), _num_completed(0),
         _status(OK), _start_time(get_time()),

@@ -1626,16 +1626,46 @@ void ucp_context_uct_atomic_iface_flags(ucp_context_h context,
     }
 }
 
+#define UCP_SET_ATTR_FIELD(_attr, _field, _flag, _op_rvalue) \
+    if ((_attr)->field_mask & (_flag)) { \
+        (_attr)->_field _op_rvalue; \
+    }
+
 ucs_status_t ucp_context_query(ucp_context_h context, ucp_context_attr_t *attr)
 {
-    if (attr->field_mask & UCP_ATTR_FIELD_REQUEST_SIZE) {
-        attr->request_size = sizeof(ucp_request_t);
-    }
-    if (attr->field_mask & UCP_ATTR_FIELD_THREAD_MODE) {
-        if (UCP_THREAD_IS_REQUIRED(&context->mt_lock)) {
-            attr->thread_mode = UCS_THREAD_MODE_MULTI;
-        } else {
-            attr->thread_mode = UCS_THREAD_MODE_SINGLE;
+    ucp_md_index_t md_index;
+    uct_md_attr_t md_attr;
+
+    UCP_SET_ATTR_FIELD(attr, request_size, UCP_ATTR_FIELD_REQUEST_SIZE,
+                       = sizeof(ucp_request_t));
+
+    UCP_SET_ATTR_FIELD(attr, thread_mode, UCP_ATTR_FIELD_THREAD_MODE,
+                       = UCP_THREAD_IS_REQUIRED(&context->mt_lock) ?
+                                 UCS_THREAD_MODE_MULTI :
+                                 UCS_THREAD_MODE_SINGLE);
+
+    if (attr->field_mask &
+        (UCP_ATTR_FIELD_NUM_PINNED_REGIONS | UCP_ATTR_FIELD_NUM_PINNED_BYTES |
+         UCP_ATTR_FIELD_NUM_PINNED_EVICTIONS)) {
+
+        UCP_SET_ATTR_FIELD(attr, num_pinned_regions,
+                           UCP_ATTR_FIELD_NUM_PINNED_REGIONS, = 0);
+        UCP_SET_ATTR_FIELD(attr, num_pinned_bytes,
+                           UCP_ATTR_FIELD_NUM_PINNED_BYTES, = 0);
+        UCP_SET_ATTR_FIELD(attr, num_pinned_evictions,
+                           UCP_ATTR_FIELD_NUM_PINNED_EVICTIONS, = 0);
+
+        for (md_index = 0; md_index < context->num_mds; ++md_index) {
+            uct_md_query(context->tl_mds[md_index].md, &md_attr);
+            UCP_SET_ATTR_FIELD(attr, num_pinned_regions,
+                               UCP_ATTR_FIELD_NUM_PINNED_REGIONS,
+                               += md_attr.rcache_attr.num_regions);
+            UCP_SET_ATTR_FIELD(attr, num_pinned_bytes,
+                               UCP_ATTR_FIELD_NUM_PINNED_BYTES,
+                               += md_attr.rcache_attr.total_size);
+            UCP_SET_ATTR_FIELD(attr, num_pinned_evictions,
+                               UCP_ATTR_FIELD_NUM_PINNED_EVICTIONS,
+                               += md_attr.rcache_attr.num_evictions);
         }
     }
 
