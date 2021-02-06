@@ -320,6 +320,7 @@ static ssize_t ucp_cm_client_priv_pack_cb(void *arg,
     }
 
     cm_wireup_ep->tmp_ep->flags |= UCP_EP_FLAG_INTERNAL;
+    ucs_debug("ep %p: created tmp_ep %p", ep, cm_wireup_ep->tmp_ep);
 
     status = ucp_worker_get_ep_config(worker, &key, 0,
                                       &cm_wireup_ep->tmp_ep->cfg_index);
@@ -430,6 +431,10 @@ static unsigned ucp_cm_client_connect_progress(void *arg)
 
     UCS_ASYNC_BLOCK(&worker->async);
 
+    ucs_debug("ep %p flags 0x%x: client connect progress", ucp_ep,
+              ucp_ep->flags);
+    ucs_log_indent(1);
+
     wireup_ep = ucp_ep_get_cm_wireup_ep(ucp_ep);
     ucs_assert(wireup_ep != NULL);
     ucs_assert(wireup_ep->ep_init_flags & UCP_EP_INIT_CM_WIREUP_CLIENT);
@@ -462,16 +467,22 @@ static unsigned ucp_cm_client_connect_progress(void *arg)
                                       wireup_ep->ep_init_flags, tl_bitmap,
                                       &addr, addr_indices);
     if (status != UCS_OK) {
+        ucs_debug("ep %p: failed to initialize lanes: %s", ucp_ep,
+                  ucs_status_string(status));
         goto out_free_addr;
     }
 
     status = ucp_wireup_connect_local(wireup_ep->tmp_ep, &addr, NULL);
     if (status != UCS_OK) {
+        ucs_debug("ep %p: failed to connect lanes: %s", ucp_ep,
+                  ucs_status_string(status));
         goto out_free_addr;
     }
 
     status = uct_cm_client_ep_conn_notify(uct_cm_ep);
     if (status != UCS_OK) {
+        ucs_debug("ep %p: failed to send notify: %s", ucp_ep,
+                  ucs_status_string(status));
         /* connection can't be established by UCT, no need to disconnect */
         ucp_ep->flags &= ~UCP_EP_FLAG_LOCAL_CONNECTED;
         goto out_free_addr;
@@ -480,6 +491,8 @@ static unsigned ucp_cm_client_connect_progress(void *arg)
     if (!context->config.ext.cm_use_all_devices) {
         /* restore initial configuration from tmp_ep created for packing local
          * addresses */
+        ucs_debug("ep %p flags 0x%x: restore initial configuration", ucp_ep,
+                  ucp_ep->flags);
         ucp_cm_client_restore_ep(wireup_ep, ucp_ep);
         ucp_wireup_remote_connected(ucp_ep);
     }
@@ -499,6 +512,7 @@ out:
 
     UCS_ASYNC_UNBLOCK(&worker->async);
     ucp_cm_client_connect_prog_arg_free(progress_arg);
+    ucs_log_indent(-1);
     return 1;
 }
 
@@ -535,10 +549,12 @@ static void ucp_cm_client_connect_cb(uct_ep_h uct_cm_ep, void *arg,
     ucs_assert_always(ucs_test_all_flags(connect_args->field_mask,
                                          (UCT_CM_EP_CLIENT_CONNECT_ARGS_FIELD_REMOTE_DATA |
                                           UCT_CM_EP_CLIENT_CONNECT_ARGS_FIELD_STATUS)));
+    remote_data    = connect_args->remote_data;
+    status         = connect_args->status;
+    ucp_ep->flags |= UCP_EP_FLAG_CLIENT_CONNECT_CB;
 
-    remote_data = connect_args->remote_data;
-    status      = connect_args->status;
-
+    ucs_debug("ep %p flags 0x%x: client connected status %s", ucp_ep,
+              ucp_ep->flags, ucs_status_string(status));
 
     if (((status == UCS_ERR_NOT_CONNECTED) || (status == UCS_ERR_UNREACHABLE) ||
          (status == UCS_ERR_CONNECTION_RESET)) &&
@@ -711,8 +727,9 @@ static void ucp_cm_disconnect_cb(uct_ep_h uct_cm_ep, void *arg)
     ucp_worker_h worker        = ucp_ep->worker;
     uct_ep_h uct_ep;
 
-    ucs_trace("ep %p: CM remote disconnect callback invoked, flags 0x%x",
-              ucp_ep, ucp_ep->flags);
+    ucp_ep->flags |= UCP_EP_FLAG_DISCONNECT_CB_CALLED;
+    ucs_trace("ep %p flags 0x%x: remote disconnect callback invoked", ucp_ep,
+              ucp_ep->flags);
 
     uct_ep = ucp_ep_get_cm_uct_ep(ucp_ep);
     ucs_assertv_always(uct_cm_ep == uct_ep,
@@ -1113,9 +1130,9 @@ static unsigned ucp_cm_server_conn_notify_progress(void *arg)
 /*
  * Async callback on a server side which notifies that client is connected.
  */
-static void ucp_cm_server_conn_notify_cb(uct_ep_h ep, void *arg,
-                                         const uct_cm_ep_server_conn_notify_args_t
-                                         *notify_args)
+static void ucp_cm_server_conn_notify_cb(
+        uct_ep_h ep, void *arg,
+        const uct_cm_ep_server_conn_notify_args_t *notify_args)
 {
     ucp_ep_h ucp_ep            = arg;
     uct_worker_cb_id_t prog_id = UCS_CALLBACKQ_ID_NULL;
@@ -1125,7 +1142,10 @@ static void ucp_cm_server_conn_notify_cb(uct_ep_h ep, void *arg,
     ucs_assert_always(notify_args->field_mask &
                       UCT_CM_EP_SERVER_CONN_NOTIFY_ARGS_FIELD_STATUS);
 
-    status = notify_args->status;
+    status         = notify_args->status;
+    ucp_ep->flags |= UCP_EP_FLAG_SERVER_NOTIFY_CB;
+    ucs_trace("ep %p flags 0x%x: notify callback invoked, status %s", ucp_ep,
+              ucp_ep->flags, ucs_status_string(status));
 
     if (status == UCS_OK) {
         uct_worker_progress_register_safe(ucp_ep->worker->uct,
