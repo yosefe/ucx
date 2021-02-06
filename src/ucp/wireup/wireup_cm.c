@@ -160,6 +160,11 @@ ucp_cm_ep_client_initial_config_get(ucp_ep_h ucp_ep, const char *dev_name,
                                      tl_bitmap, &unpacked_addr, addr_indices,
                                      key);
 
+    /* Send keepalive on wireup_ep (which will send on aux_ep/tmp_ep) */
+    if (key->err_mode != UCP_ERR_HANDLING_MODE_NONE) {
+        key->ep_check_map |= UCS_BIT(key->cm_lane);
+    }
+
     ucs_free(unpacked_addr.address_list);
 free_ucp_addr:
     ucs_free(ucp_addr);
