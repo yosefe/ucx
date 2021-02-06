@@ -484,6 +484,11 @@ static unsigned ucp_cm_client_connect_progress(void *arg)
         ucp_wireup_remote_connected(ucp_ep);
     }
 
+    /* Add the client ep to worker's keeaplive, since init_lanes was called on
+     * wireup_ep->tmp_ep, which is INTERNAL, so did not add it to keepalive.
+     */
+    ucp_worker_keepalive_add_ep(ucp_ep);
+
 out_free_addr:
     ucs_free(addr.address_list);
 out:

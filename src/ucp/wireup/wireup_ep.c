@@ -628,8 +628,9 @@ int ucp_wireup_ep_is_owner(uct_ep_h uct_ep, uct_ep_h owned_ep)
         return 1;
     }
 
+    /* Check if owned_ep belongs to tmp_ep */
     if (wireup_ep->tmp_ep != NULL) {
-        return ucp_ep_lookup_lane(wireup_ep->tmp_ep, uct_ep) != UCP_NULL_LANE;
+        return ucp_ep_lookup_lane(wireup_ep->tmp_ep, owned_ep) != UCP_NULL_LANE;
     }
 
     return 0;
