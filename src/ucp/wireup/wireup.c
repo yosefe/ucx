@@ -337,10 +337,10 @@ ucp_wireup_connect_local(ucp_ep_h ep,
         }
     }
 
-    ucs_log_indent(-1);
     status = UCS_OK;
 
 out:
+    ucs_log_indent(-1);
     return status;
 }
 
