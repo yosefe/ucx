@@ -642,9 +642,9 @@ ucp_worker_iface_error_handler(void *arg, uct_ep_h uct_ep, ucs_status_t status)
         }
     }
 
-    ucs_diag("worker %p: uct_ep %p isn't associated with any ucp endpoint and "
-             "was not scheduled to be discarded",
-             worker, uct_ep);
+    ucs_error("worker %p: uct_ep %p isn't associated with any ucp endpoint and "
+              "was not scheduled to be discarded",
+              worker, uct_ep);
     ret_status = UCS_ERR_NO_ELEM;
 
 out:
@@ -2795,14 +2795,17 @@ void ucp_worker_keepalive_add_ep(ucp_ep_h ep)
     ucs_assert(ep->cfg_index != UCP_WORKER_CFG_INDEX_NULL);
 
     if ((ep->flags & UCP_EP_FLAG_INTERNAL) ||
-        (ucp_ep_config(ep)->key.err_mode == UCP_ERR_HANDLING_MODE_NONE) ||
+        (ucp_ep_config(ep)->key.ep_check_map == 0) ||
         !ucp_worker_keepalive_is_enabled(worker)) {
-        ucs_trace("ep %p flags 0x%x: not using keepalive, err_mode %d", ep,
-                  ep->flags, ucp_ep_config(ep)->key.err_mode);
+        ucs_trace("ep %p flags 0x%x: not using keepalive, err_mode %d "
+                  "ep_check_map 0x%x",
+                  ep, ep->flags, ucp_ep_config(ep)->key.err_mode,
+                  ucp_ep_config(ep)->key.ep_check_map);
         return;
     }
 
-    ucs_trace("ep %p flags 0x%x: adding to keepalive", ep, ep->flags);
+    ucs_trace("ep %p flags 0x%x: adding to keepalive lane_map 0x%x", ep,
+              ep->flags, ucp_ep_config(ep)->key.ep_check_map);
     uct_worker_progress_register_safe(worker->uct,
                                       ucp_worker_keepalive_progress, worker,
                                       UCS_CALLBACKQ_FLAG_FAST,

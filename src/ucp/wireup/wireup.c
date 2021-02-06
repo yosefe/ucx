@@ -910,14 +910,17 @@ static void ucp_wireup_print_config(ucp_worker_h worker,
     }
 
     ucs_log(log_level,
-            "%s: am_lane %s wireup_msg_lane %s cm_lane %s reachable_mds 0x%"PRIx64,
-            title, ucp_wireup_get_lane_index_str(key->am_lane, am_lane_str,
-                                                 sizeof(am_lane_str)),
-            ucp_wireup_get_lane_index_str(key->wireup_msg_lane, wireup_msg_lane_str,
+            "%s: am_lane %s wireup_msg_lane %s cm_lane %s reachable_mds "
+            "0x%" PRIx64 " ep_check_map 0x%x",
+            title,
+            ucp_wireup_get_lane_index_str(key->am_lane, am_lane_str,
+                                          sizeof(am_lane_str)),
+            ucp_wireup_get_lane_index_str(key->wireup_msg_lane,
+                                          wireup_msg_lane_str,
                                           sizeof(wireup_msg_lane_str)),
             ucp_wireup_get_lane_index_str(key->cm_lane, cm_lane_str,
                                           sizeof(cm_lane_str)),
-            key->reachable_md_map);
+            key->reachable_md_map, key->ep_check_map);
 
     for (lane = 0; lane < key->num_lanes; ++lane) {
         if (lane == key->cm_lane) {
