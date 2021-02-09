@@ -75,6 +75,21 @@ UcxLog::~UcxLog()
 
 #define UCX_LOG UcxLog("[UCX]", true)
 
+UcxContext::UcxAcceptCallback::UcxAcceptCallback(UcxContext &context,
+                                                 UcxConnection &connection) :
+    _context(context), _connection(connection)
+{
+}
+
+void UcxContext::UcxAcceptCallback::operator()(ucs_status_t status)
+{
+    if (status == UCS_OK) {
+        _context.dispatch_connection_accepted(&_connection);
+    }
+
+    delete this;
+}
+
 UcxContext::UcxContext(size_t iomsg_size, double connect_timeout) :
     _context(NULL), _worker(NULL), _listener(NULL), _iomsg_recv_request(NULL),
     _iomsg_buffer(iomsg_size, '\0'), _connect_timeout(connect_timeout)
@@ -156,22 +171,11 @@ bool UcxContext::listen(const struct sockaddr* saddr, size_t addrlen)
     return true;
 }
 
-UcxConnection* UcxContext::connect(const struct sockaddr* saddr, size_t addrlen)
-{
-    UcxConnection *conn = new UcxConnection(*this, get_next_conn_id());
-    if (!conn->connect(saddr, addrlen)) {
-        delete conn;
-        return NULL;
-    }
-
-    add_connection(conn);
-    return conn;
-}
-
 void UcxContext::progress()
 {
     ucp_worker_progress(_worker);
     progress_io_message();
+    progress_timed_out_conns();
     progress_conn_requests();
     progress_failed_connections();
 }
@@ -307,10 +311,19 @@ int UcxContext::is_timeout_elapsed(struct timeval const *tv_prior, double timeou
     return ((elapsed.tv_sec + (elapsed.tv_usec * 1e-6)) > timeout);
 }
 
+void UcxContext::progress_timed_out_conns()
+{
+    while (!_conns_in_progress.empty() &&
+           (get_time() > _conns_in_progress.begin()->first)) {
+        UcxConnection *conn = _conns_in_progress.begin()->second;
+        _conns_in_progress.erase(_conns_in_progress.begin());
+        conn->handle_connection_error(UCS_ERR_TIMED_OUT);
+    }
+}
+
 void UcxContext::progress_conn_requests()
 {
     while (!_conn_requests.empty()) {
-        UcxConnection *conn     = new UcxConnection(*this, get_next_conn_id());
         conn_req_t conn_request = _conn_requests.front();
 
         if (is_timeout_elapsed(&conn_request.arrival_time, _connect_timeout)) {
@@ -318,11 +331,12 @@ void UcxContext::progress_conn_requests()
                     << " since server's timeout (" << _connect_timeout
                     << " seconds) elapsed";
             ucp_listener_reject(_listener, conn_request.conn_request);
-        } else if (conn->accept(conn_request.conn_request)) {
-            add_connection(conn);
-            dispatch_connection_accepted(conn);
         } else {
-            delete conn;
+            UcxConnection *conn = new UcxConnection(*this);
+            // Start accepting the connection request, and call
+            // UcxAcceptCallback when connection is established
+            conn->accept(conn_request.conn_request,
+                         new UcxAcceptCallback(*this, *conn));
         }
 
         _conn_requests.pop_front();
@@ -419,6 +433,19 @@ void UcxContext::remove_connection(UcxConnection *conn)
     }
 }
 
+void UcxContext::remove_connection_inprogress(UcxConnection *conn)
+{
+    // we expect to remove connections from the list close to the same order
+    // as created, so this linear search should be pretty fast
+    timeout_conn_t::iterator i;
+    for (i = _conns_in_progress.begin(); i != _conns_in_progress.end(); ++i) {
+        if (i->second == conn) {
+            _conns_in_progress.erase(i);
+            return;
+        }
+    }
+}
+
 void UcxContext::dispatch_connection_accepted(UcxConnection* conn)
 {
 }
@@ -426,6 +453,7 @@ void UcxContext::dispatch_connection_accepted(UcxConnection* conn)
 void UcxContext::handle_connection_error(UcxConnection *conn)
 {
     remove_connection(conn);
+    remove_connection_inprogress(conn);
     _failed_conns.push_back(conn);
 }
 
@@ -438,11 +466,22 @@ void UcxContext::destroy_connections()
         _conn_requests.pop_front();
     }
 
+    while (!_conns_in_progress.empty()) {
+        delete _conns_in_progress.begin()->second;
+        _conns_in_progress.erase(_conns_in_progress.begin());
+    }
+
     UCX_LOG << "destroy_connections";
     while (!_conns.empty()) {
         // UcxConnection destructor removes itself from _conns map
         delete _conns.begin()->second;
     }
+}
+
+double UcxContext::get_time() {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return tv.tv_sec + (tv.tv_usec * 1e-6);
 }
 
 void UcxContext::destroy_listener()
@@ -471,9 +510,10 @@ void UcxContext::destroy_worker()
 
 unsigned UcxConnection::_num_instances = 0;
 
-UcxConnection::UcxConnection(UcxContext &context, uint32_t conn_id) :
-    _context(context), _conn_id(conn_id), _remote_conn_id(0),
-    _ep(NULL), _close_request(NULL), _ucx_status(UCS_OK)
+UcxConnection::UcxConnection(UcxContext &context) :
+    _context(context), _establish_cb(NULL),
+    _conn_id(UcxContext::get_next_conn_id()), _remote_conn_id(0), _ep(NULL),
+    _close_request(NULL), _ucx_status(UCS_INPROGRESS)
 {
     ++_num_instances;
     struct sockaddr_in in_addr = {0};
@@ -500,6 +540,10 @@ UcxConnection::~UcxConnection()
         _context.wait_completion(_close_request, "ep close");
     }
 
+    /* establish cb must be destroyed earlier since it accesses
+     * the connection */
+    assert(_establish_cb == NULL);
+
     // wait until all requests are completed
     if (!ucs_list_is_empty(&_all_requests)) {
         UCX_CONN_LOG << "waiting for " << ucs_list_length(&_all_requests) <<
@@ -513,21 +557,26 @@ UcxConnection::~UcxConnection()
     --_num_instances;
 }
 
-bool UcxConnection::connect(const struct sockaddr* saddr, socklen_t addrlen)
+void UcxConnection::connect(const struct sockaddr *saddr, socklen_t addrlen,
+                            UcxCallback *callback)
 {
     set_log_prefix(saddr, addrlen);
 
     ucp_ep_params_t ep_params;
-    ep_params.field_mask       = UCP_EP_PARAM_FIELD_FLAGS       |
+    ep_params.field_mask       = UCP_EP_PARAM_FIELD_FLAGS |
                                  UCP_EP_PARAM_FIELD_SOCK_ADDR;
     ep_params.flags            = UCP_EP_PARAMS_FLAGS_CLIENT_SERVER;
     ep_params.sockaddr.addr    = saddr;
     ep_params.sockaddr.addrlen = addrlen;
 
-    return connect_common(ep_params);
+    char sockaddr_str[UCS_SOCKADDR_STRING_LEN];
+    UCX_CONN_LOG << "Connecting to "
+                 << ucs_sockaddr_str(saddr, sockaddr_str,
+                                     UCS_SOCKADDR_STRING_LEN);
+    connect_common(ep_params, callback);
 }
 
-bool UcxConnection::accept(ucp_conn_request_h conn_req)
+void UcxConnection::accept(ucp_conn_request_h conn_req, UcxCallback *callback)
 {
     ucp_conn_request_attr_t conn_req_attr;
     conn_req_attr.field_mask = UCP_CONN_REQUEST_ATTR_FIELD_CLIENT_ADDR;
@@ -543,8 +592,7 @@ bool UcxConnection::accept(ucp_conn_request_h conn_req)
     ucp_ep_params_t ep_params;
     ep_params.field_mask   = UCP_EP_PARAM_FIELD_CONN_REQUEST;
     ep_params.conn_request = conn_req;
-
-    return connect_common(ep_params);
+    connect_common(ep_params, callback);
 }
 
 bool UcxConnection::send_io_message(const void *buffer, size_t length,
@@ -610,6 +658,16 @@ void UcxConnection::stream_send_callback(void *request, ucs_status_t status)
 void UcxConnection::stream_recv_callback(void *request, ucs_status_t status,
                                          size_t recv_len)
 {
+    ucx_request *r      = reinterpret_cast<ucx_request*>(request);
+    UcxConnection *conn = r->conn;
+
+    assert(conn->_establish_cb == r->callback);
+
+    // need to check connection status first since it's already can be failed or
+    // disconnecting
+    conn->established(status);
+    conn->request_completed(r);
+    UcxContext::request_release(r);
 }
 
 void UcxConnection::common_request_callback(void *request, ucs_status_t status)
@@ -654,6 +712,37 @@ void UcxConnection::set_log_prefix(const struct sockaddr* saddr,
     memcpy(_log_prefix, ss.str().c_str(), length);
 }
 
+void UcxConnection::connect_tag(UcxCallback *callback)
+{
+    const ucp_datatype_t dt_int = ucp_dt_make_contig(sizeof(uint32_t));
+    size_t recv_len;
+
+    // receive remote connection id
+    void *rreq = ucp_stream_recv_nb(_ep, &_remote_conn_id, 1, dt_int,
+                                    stream_recv_callback, &recv_len,
+                                    UCP_STREAM_RECV_FLAG_WAITALL);
+    if (UCS_PTR_IS_PTR(rreq)) {
+        process_request("conn_id receive", rreq, callback);
+        _context._conns_in_progress.push_back(std::make_pair(
+                UcxContext::get_time() + _context._connect_timeout, this));
+    } else {
+        established(UCS_PTR_STATUS(rreq));
+        if (rreq != NULL) {
+            // failed to receive
+            return;
+        }
+    }
+
+    // send local connection id
+    void *sreq = ucp_stream_send_nb(_ep, &_conn_id, 1, dt_int,
+                                    stream_send_callback, 0);
+    // we do not have to check the status here, in case if the endpoint is
+    // failed we should handle it in ep_params.err_handler.cb set above
+    if (UCS_PTR_IS_PTR(sreq)) {
+        ucp_request_free(sreq);
+    }
+}
+
 void UcxConnection::print_addresses()
 {
     if (_ep == NULL) {
@@ -679,13 +768,10 @@ void UcxConnection::print_addresses()
     }
 }
 
-bool UcxConnection::connect_common(ucp_ep_params_t& ep_params)
+void UcxConnection::connect_common(ucp_ep_params_t &ep_params,
+                                   UcxCallback *callback)
 {
-    const ucp_datatype_t dt_int = ucp_dt_make_contig(sizeof(uint32_t));
-    double connect_timeout      = _context.connect_timeout();
-    UcxContext::wait_status_t wait_status;
-    uint32_t remote_conn_id;
-    size_t recv_len;
+    _establish_cb = callback;
 
     // create endpoint
     ep_params.field_mask      |= UCP_EP_PARAM_FIELD_ERR_HANDLER |
@@ -698,60 +784,31 @@ bool UcxConnection::connect_common(ucp_ep_params_t& ep_params)
     if (status != UCS_OK) {
         assert(_ep == NULL);
         UCX_LOG << "ucp_ep_create() failed: " << ucs_status_string(status);
-        return false;
+        handle_connection_error(status);
+        return;
     }
 
-    UCX_CONN_LOG << "created endpoint " << _ep << ", exchanging connection id";
+    UCX_CONN_LOG << "created endpoint " << _ep << ", connection id "
+                 << _conn_id;
 
-    // receive remote connection id
-    void *rreq             = ucp_stream_recv_nb(_ep, &remote_conn_id, 1, dt_int,
-                                                stream_recv_callback, &recv_len,
-                                                UCP_STREAM_RECV_FLAG_WAITALL);
-    const char *rreq_title = "conn_id receive";
+    connect_tag(callback);
+}
 
-    // send local connection id
-    void *sreq             = ucp_stream_send_nb(_ep, &_conn_id, 1, dt_int,
-                                                stream_send_callback, 0);
-    const char *sreq_title = "conn_id send";
-
-    wait_status = _context.wait_completion(sreq, sreq_title, connect_timeout);
-    if (wait_status != UcxContext::WAIT_STATUS_OK) {
-        UCX_CONN_LOG << "failed to send remote connection id";
-        print_addresses();
-        ep_close(UCP_EP_CLOSE_MODE_FORCE);
-        if (wait_status == UcxContext::WAIT_STATUS_TIMED_OUT) {
-            _context.wait_completion(sreq, sreq_title);
-        }
-        // wait for receive request as well, which should be canceled by ep close
-        _context.wait_completion(rreq, rreq_title);
-        return false;
+void UcxConnection::established(ucs_status_t status)
+{
+    if (status == UCS_OK) {
+        assert(_remote_conn_id != 0);
+        UCX_CONN_LOG << "Remote id is " << _remote_conn_id;
     }
 
-    // wait to complete receiving remote connection id
-    wait_status = _context.wait_completion(rreq, rreq_title, connect_timeout);
-    if (wait_status != UcxContext::WAIT_STATUS_OK) {
-        UCX_CONN_LOG << "failed to receive remote connection id";
-        print_addresses();
-        ep_close(UCP_EP_CLOSE_MODE_FORCE);
-        if (wait_status == UcxContext::WAIT_STATUS_TIMED_OUT) {
-            _context.wait_completion(rreq, rreq_title);
-        }
-        return false;
+    _ucx_status = status;
+    _context.remove_connection_inprogress(this);
+    if (status == UCS_OK) {
+        _context.add_connection(this);
     }
 
-    print_addresses();
-
-    if (_ucx_status != UCS_OK) {
-        // close the endpoint in case the error handling callback was called
-        ep_close(UCP_EP_CLOSE_MODE_FORCE);
-        return false;
-    }
-
-    // initialize last since it's used in error handling to protect
-    // failed connections queue
-    _remote_conn_id = remote_conn_id;
-    UCX_CONN_LOG << "remote id is " << _remote_conn_id;
-    return true;
+    (*_establish_cb)(status);
+    _establish_cb = NULL;
 }
 
 bool UcxConnection::send_common(const void *buffer, size_t length, ucp_tag_t tag,
@@ -780,13 +837,20 @@ void UcxConnection::request_completed(ucx_request *r)
 
 void UcxConnection::handle_connection_error(ucs_status_t status)
 {
+    if (UCS_STATUS_IS_ERR(_ucx_status)) {
+        return;
+    }
+
     UCX_CONN_LOG << "detected error: " << ucs_status_string(status);
     print_addresses();
     _ucx_status = status;
 
-    if (_remote_conn_id != 0) {
-        /* the upper layer should close the connection */
+    /* the upper layer should close the connection */
+    if (is_established()) {
         _context.handle_connection_error(this);
+    } else {
+        (*_establish_cb)(status);
+        _establish_cb = NULL;
     }
 }
 
