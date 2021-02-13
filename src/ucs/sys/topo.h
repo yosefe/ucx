@@ -81,6 +81,9 @@ ucs_status_t ucs_topo_get_distance(ucs_sys_device_t device1,
                                    ucs_sys_dev_distance_t *distance);
 
 
+const char *ucs_topo_distance_str(const ucs_sys_dev_distance_t *distance,
+                                  char *buffer, size_t max);
+
 /**
  * Convert the distance to a human-readable string.
  *
@@ -104,6 +107,18 @@ const char *ucs_topo_distance_str(const ucs_sys_dev_distance_t *distance,
  */
 const char *
 ucs_topo_sys_device_bdf_name(ucs_sys_device_t sys_dev, char *buffer, size_t max);
+
+
+/**
+ * Return system device name in BDF format: "<domain>:<bus>:<device>.<function>"
+ *
+ * @param [in]  sys_dev  System device id, as returned from
+ *                       @ref ucs_topo_find_device_by_bus_id
+ * @param [out] buffer   String buffer, filled the device name
+ * @param [in]  max      Maximal size of @a buffer
+ */
+const char *
+ucs_topo_sys_device_bdf_name_short(ucs_sys_device_t sys_dev, char *buffer, size_t max);
 
 
 /**
@@ -131,6 +146,9 @@ unsigned ucs_topo_num_devices();
  * discovered.
  */
 void ucs_topo_print_info(FILE *stream);
+
+
+ucs_sys_device_t ucs_topo_get_num_devices();
 
 
 /**

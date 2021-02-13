@@ -110,7 +110,7 @@ ucp_eager_tagged_handler(void *arg, void *data, size_t length, unsigned am_flags
             status = ucp_tag_request_process_recv_data(req,
                                                        UCS_PTR_BYTE_OFFSET(data, hdr_len),
                                                        recv_len, 0, 0, flags);
-            ucs_assert((status == UCS_OK) || (status == UCS_INPROGRESS));
+//            ucs_assert((status == UCS_OK) || (status == UCS_INPROGRESS));
 
             ucp_tag_frag_list_process_queue(&worker->tm, req, eagerf_hdr->msg_id
                                             UCS_STATS_ARG(UCP_WORKER_STAT_TAG_RX_EAGER_CHUNK_EXP));
@@ -456,14 +456,15 @@ static void ucp_eager_dump(ucp_worker_h worker, uct_am_trace_type_t type,
         header_len = sizeof(*eager_hdr);
         break;
     case UCP_AM_ID_EAGER_FIRST:
-        snprintf(buffer, max, "EGR_F tag %"PRIx64" msgid %"PRIx64" len %zu",
+        snprintf(buffer, max, "EGR_F tag %"PRIx64" msgid %"PRIx64" len %zu/%zu",
                  eager_first_hdr->super.super.tag, eager_first_hdr->msg_id,
-                 eager_first_hdr->total_len);
+                 length - sizeof(*eager_first_hdr), eager_first_hdr->total_len);
         header_len = sizeof(*eager_first_hdr);
         break;
     case UCP_AM_ID_EAGER_MIDDLE:
-        snprintf(buffer, max, "EGR_M msgid %"PRIx64" offset %zu",
-                 eager_mid_hdr->msg_id, eager_mid_hdr->offset);
+        snprintf(buffer, max, "EGR_M msgid %"PRIx64" offset %zu len %zu",
+                 eager_mid_hdr->msg_id, eager_mid_hdr->offset,
+                 length - sizeof(*eager_mid_hdr));
         header_len = sizeof(*eager_mid_hdr);
         break;
     case UCP_AM_ID_EAGER_SYNC_ONLY:

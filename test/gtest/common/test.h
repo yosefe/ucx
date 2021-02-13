@@ -54,6 +54,8 @@ public:
     virtual void push_config();
     virtual void pop_config();
 
+    static void set_log_level(ucs_log_level_t log_level);
+
 protected:
     class scoped_log_handler {
     public:
@@ -134,6 +136,7 @@ protected:
     static std::vector<std::string> m_errors;
     static std::vector<std::string> m_warnings;
     static std::vector<std::string> m_first_warns_and_errors;
+    static ucs_log_level_t          m_test_log_level;
 
 private:
     void skipped(const test_skip_exception& e);

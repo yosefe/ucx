@@ -271,8 +271,8 @@ int ucp_request_pending_add(ucp_request_t *req, unsigned pending_flags)
     }
 
     /* Unexpected error while adding to pending */
-    ucs_fatal("invalid return status from uct_ep_pending_add(): %s",
-              ucs_status_string(status));
+    ucs_fatal("invalid return status from uct_ep_pending_add(lane=%d): %s",
+              req->send.lane, ucs_status_string(status));
 }
 
 static unsigned ucp_request_dt_invalidate_progress(void *arg)
@@ -639,4 +639,32 @@ ucs_status_t ucp_request_recv_msg_truncated(ucp_request_t *req, size_t length,
     }
 
     return UCS_ERR_MESSAGE_TRUNCATED;
+}
+
+ucs_status_t ucp_request_progress_wrapper(uct_pending_req_t *self)
+{
+    ucp_request_t *req       = ucs_container_of(self, ucp_request_t, send.uct);
+    const ucp_proto_t *proto = req->send.proto_config->proto;
+    ucs_status_t status;
+
+    if (proto->flags & UCP_PROTO_FLAG_INVALID) {
+        return proto->progress(self);
+    }
+
+    ucp_trace_req(req, "progress protocol %s ep_cfg[%d] rkey_cfg[%d] offset %zu/%zu",
+                  proto->name, req->send.proto_config->ep_cfg_index,
+                  req->send.proto_config->rkey_cfg_index,
+                  req->send.state.dt_iter.offset,
+                  req->send.state.dt_iter.length);
+
+    ucs_log_indent(1);
+    status = UCS_PROFILE_CALL(proto->progress, self);
+    if (status != UCS_OK) {
+        ucp_trace_req(req, "progress protocol %s returned: %s lane %d",
+                      proto->name, ucs_status_string(status), req->send.lane);
+    } else {
+        ucp_trace_req(req, "progress protocol %s returned OK", proto->name);
+    }
+    ucs_log_indent(-1);
+    return status;
 }

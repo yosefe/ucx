@@ -29,10 +29,12 @@
 #include <uct/tcp/tcp.h>
 #include <ucp/core/ucp_context.h>
 #include <ucp/core/ucp_ep.h>
-#include <ucp/core/ucp_mm.h>
 #include <ucp/core/ucp_request.h>
+#include <ucp/core/ucp_rkey.h>
 #include <ucp/core/ucp_worker.h>
 #include <ucp/dt/datatype_iter.h>
+#include <ucp/proto/proto_multi.h>
+#include <ucp/tag/eager.h>
 #include <ucp/wireup/wireup.h>
 
 #if HAVE_IB
@@ -272,5 +274,16 @@ void print_type_info(const char * tl_name)
     PRINT_SIZE(ucp_mem_t);
     PRINT_SIZE(ucp_rkey_t);
     PRINT_SIZE(ucp_wireup_msg_t);
+    PRINT_SIZE(ucp_mem_desc_t);
+    PRINT_SIZE(ucp_rndv_frag_t);
+    PRINT_SIZE(ucp_proto_multi_lane_priv_t);
+    PRINT_SIZE(ucp_eager_hdr_t);
+    PRINT_SIZE(ucp_eager_first_hdr_t);
+    PRINT_SIZE(ucp_eager_middle_hdr_t);
+    PRINT_SIZE(ucp_eager_sync_hdr_t);
+    PRINT_SIZE(ucp_eager_sync_first_hdr_t);
+    PRINT_SIZE(ucp_rndv_rts_hdr_t);
+    PRINT_SIZE(ucp_rndv_rtr_hdr_t);
+    PRINT_SIZE(ucp_rndv_data_hdr_t);
 
 }

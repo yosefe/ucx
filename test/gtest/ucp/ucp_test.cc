@@ -209,6 +209,7 @@ void ucp_test::disconnect(entity& e) {
     }
 }
 
+<<<<<<< HEAD
 ucp_tag_message_h ucp_test::message_wait(entity& e, ucp_tag_t tag,
                                          ucp_tag_t tag_mask,
                                          ucp_tag_recv_info_t *info, int remove,
@@ -226,6 +227,10 @@ ucp_tag_message_h ucp_test::message_wait(entity& e, ucp_tag_t tag,
 }
 
 ucs_status_t ucp_test::request_process(void *req, int worker_index, bool wait)
+=======
+ucs_status_t
+ucp_test::request_process(void *req, int worker_index, bool wait, bool release)
+>>>>>>> f1109fd70 (WIP proto v86)
 {
     if (req == NULL) {
         return UCS_OK;
@@ -258,13 +263,16 @@ ucs_status_t ucp_test::request_process(void *req, int worker_index, bool wait)
                   ucs_status_string(status));
     }
 
-    ucp_request_release(req);
+    if (release) {
+        ucp_request_release(req);
+    }
+
     return status;
 }
 
 ucs_status_t ucp_test::request_wait(void *req, int worker_index)
 {
-    return request_process(req, worker_index, true);
+    return request_process(req, worker_index, true, true);
 }
 
 ucs_status_t ucp_test::requests_wait(std::vector<void*> &reqs,
@@ -286,7 +294,7 @@ ucs_status_t ucp_test::requests_wait(std::vector<void*> &reqs,
 
 void ucp_test::request_release(void *req)
 {
-    request_process(req, 0, false);
+    request_process(req, 0, false, true);
 }
 
 int ucp_test::max_connections() {
@@ -339,7 +347,7 @@ ucp_test_variant& ucp_test::add_variant(std::vector<ucp_test_variant>& variants,
 }
 
 int ucp_test::get_variant_value(unsigned index) const {
-    if (GetParam().variant.values.empty()) {
+    if (GetParam().variant.values.size() <= index) {
         return DEFAULT_PARAM_VARIANT;
     }
     return GetParam().variant.values.at(index).value;

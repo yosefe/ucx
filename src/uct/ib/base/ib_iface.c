@@ -1680,7 +1680,7 @@ ucs_status_t uct_ib_iface_query(uct_ib_iface_t *iface, size_t xport_hdr_len,
         return status;
     }
 
-    iface_attr->latency.c += numa_latency;
+    iface_attr->latency.c += numa_latency + 350e-9;
     iface_attr->latency.m  = 0;
 
     /* Wire speed calculation: Width * SignalRate * Encoding */

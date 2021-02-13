@@ -48,6 +48,7 @@ static ucs_status_t ucp_proto_eager_tag_offload_short_init(
         .super.overhead      = 0,
         .super.cfg_thresh    = UCS_MEMUNITS_AUTO,
         .super.cfg_priority  = 0,
+        .super.min_length    = 0,
         .super.min_frag_offs = UCP_PROTO_COMMON_OFFSET_INVALID,
         .super.max_frag_offs = ucs_offsetof(uct_iface_attr_t,
                                             cap.tag.eager.max_short),
@@ -103,7 +104,7 @@ ucp_proto_eager_tag_offload_bcopy_progress(uct_pending_req_t *self)
     status     = ucs_likely(packed_len >= 0) ? UCS_OK : packed_len;
 
     return ucp_proto_single_status_handle(
-            req, ucp_proto_request_bcopy_complete_success, spriv->super.lane,
+            req, 0, ucp_proto_request_bcopy_complete_success, spriv->super.lane,
             status);
 }
 
@@ -117,6 +118,7 @@ static ucs_status_t ucp_proto_eager_tag_offload_bcopy_init(
         .super.overhead      = 5e-9,
         .super.cfg_thresh    = context->config.ext.bcopy_thresh,
         .super.cfg_priority  = 20,
+        .super.min_length    = 0,
         .super.min_frag_offs = UCP_PROTO_COMMON_OFFSET_INVALID,
         .super.max_frag_offs = ucs_offsetof(uct_iface_attr_t,
                                             cap.tag.eager.max_bcopy),
@@ -154,6 +156,7 @@ static ucs_status_t ucp_proto_eager_tag_offload_zcopy_init(
         .super.overhead      = 0,
         .super.cfg_thresh    = context->config.ext.zcopy_thresh,
         .super.cfg_priority  = 30,
+        .super.min_length    = 0,
         .super.min_frag_offs = UCP_PROTO_COMMON_OFFSET_INVALID,
         .super.max_frag_offs = ucs_offsetof(uct_iface_attr_t,
                                             cap.tag.eager.max_zcopy),

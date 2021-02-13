@@ -31,10 +31,12 @@ public:
     static void pattern_fill(void *buffer, size_t length, uint64_t seed);
 
     /* check pattern in a host-accessible buffer */
-    static void pattern_check(const void *buffer, size_t length, uint64_t seed);
+    static void pattern_check(const void *buffer, size_t length, uint64_t seed,
+                              const void *orig_ptr = NULL);
 
     /* check pattern in a host-accessible buffer, take seed from 1st word */
-    static void pattern_check(const void *buffer, size_t length);
+    static void pattern_check(const void *buffer, size_t length,
+                              const void *orig_ptr = NULL);
 
     /* fill pattern in a memtype buffer */
     static void pattern_fill(void *buffer, size_t length, uint64_t seed,
@@ -71,6 +73,7 @@ public:
     static void set_device_context();
 
     mem_buffer(size_t size, ucs_memory_type_t mem_type);
+    mem_buffer(size_t size, ucs_memory_type_t mem_type, uint64_t seed);
     virtual ~mem_buffer();
 
     ucs_memory_type_t mem_type() const;
@@ -78,6 +81,10 @@ public:
     void *ptr() const;
 
     size_t size() const;
+
+    void pattern_fill(uint64_t seed);
+
+    void pattern_check(uint64_t seed) const;
 
 private:
     static void abort_wrong_mem_type(ucs_memory_type_t mem_type);

@@ -11,6 +11,13 @@
 #include "proto_select.h"
 
 
+/* Format string to display a protocol performance function */
+#define UCP_PROTO_PERF_FUNC_FMT " %.0f+%.3f*N ns, %.2f MB/s"
+#define UCP_PROTO_PERF_FUNC_ARG(_perf_func) \
+    ((_perf_func)->c * 1e9), ((_perf_func)->m * 1e9), \
+            (1.0 / ((_perf_func)->m * UCS_MBYTE))
+
+
 /* Constant for "undefined"/"not-applicable" structure offset */
 #define UCP_PROTO_COMMON_OFFSET_INVALID          PTRDIFF_MAX
 
@@ -25,7 +32,7 @@ typedef enum {
     /* One-sided remote access (implies RECV_ZCOPY) */
     UCP_PROTO_COMMON_INIT_FLAG_REMOTE_ACCESS = UCS_BIT(2),
 
-    /* Protocol supports non-host buffers */
+    /* Even if zero-copy is not specified: protocol can pack non-host buffers */
     UCP_PROTO_COMMON_INIT_FLAG_MEM_TYPE      = UCS_BIT(3),
 
     /* Only the header is sent from initiator side to target side, the data
@@ -34,7 +41,10 @@ typedef enum {
     UCP_PROTO_COMMON_INIT_FLAG_RESPONSE      = UCS_BIT(4),
 
     /* Limit the protocol message size range by maximal fragment size */
-    UCP_PROTO_COMMON_INIT_FLAG_MAX_FRAG      = UCS_BIT(5)
+    UCP_PROTO_COMMON_INIT_FLAG_MAX_FRAG      = UCS_BIT(5),
+
+    /* Memory copy (for pack operation) happens asynchronously */
+    UCP_PROTO_COMMON_INIT_FLAG_ASYNC_COPY    = UCS_BIT(6)
 } ucp_proto_common_init_flags_t;
 
 
@@ -46,6 +56,7 @@ typedef struct {
     double                  overhead;      /* protocol overhead */
     size_t                  cfg_thresh;    /* user-configured threshold */
     unsigned                cfg_priority;  /* user configuration priority */
+    size_t                  min_length;    /* Minimal payload size */
     ptrdiff_t               min_frag_offs; /* offset in uct_iface_attr_t of the
                                               minimal size of a single fragment */
     ptrdiff_t               max_frag_offs; /* offset in uct_iface_attr_t of the
@@ -55,19 +66,28 @@ typedef struct {
 } ucp_proto_common_init_params_t;
 
 
+/*
+ * Lane performance characteristics
+ */
 typedef struct {
-    /* Which lanes are used for sending data in the protocol */
-    ucp_lane_map_t lane_map;
+    /* Operation overhead */
+    double overhead;
 
-    /* Which memory domains are used for registration */
-    ucp_md_map_t   reg_md_map;
+    /* Transport bandwidth (without protocol memory copies) */
+    double bandwidth;
 
-    /* Fragment size for performance estimation  */
-    size_t         frag_size;
+    /* Network latency */
+    double latency;
 
-    /* Total transport bandwidth on all lanes */
-    double         bandwidth;
-} ucp_proto_common_perf_params_t;
+    /* Latency of device to memory access */
+    double sys_latency;
+
+    /* Minimal single message length */
+    size_t min_frag;
+
+    /* Maximum single message length */
+    size_t max_frag;
+} ucp_proto_common_tl_perf_t;
 
 
 /* Private data per lane */
@@ -98,6 +118,19 @@ typedef void (*ucp_proto_init_cb_t)(ucp_request_t *req);
 typedef ucs_status_t (*ucp_proto_complete_cb_t)(ucp_request_t *req);
 
 
+/**
+ * Send callback for lane-map oriented protocols
+ *
+ * @param [in] req   Request to send.
+ * @param [in] lane  Endpoint lane index to send on.
+ *
+ * @return Send operation status, using same semantics as returned from UCT send
+ *         functions.
+ */
+typedef ucs_status_t
+(*ucp_proto_common_lane_send_func_t)(ucp_request_t *req, ucp_lane_index_t lane);
+
+
 void ucp_proto_common_lane_priv_init(const ucp_proto_common_init_params_t *params,
                                      ucp_md_map_t md_map, ucp_lane_index_t lane,
                                      ucp_proto_common_lane_priv_t *lane_priv);
@@ -107,9 +140,19 @@ void ucp_proto_common_lane_priv_str(const ucp_proto_common_lane_priv_t *lpriv,
                                     ucs_string_buffer_t *strb);
 
 
-ucp_rsc_index_t
+ucp_md_index_t
 ucp_proto_common_get_md_index(const ucp_proto_init_params_t *params,
                               ucp_lane_index_t lane);
+
+ucs_sys_device_t
+ucp_proto_common_get_sys_dev(const ucp_proto_init_params_t *params,
+                             ucp_lane_index_t lane);
+
+
+void ucp_proto_common_get_lane_distance(const ucp_proto_init_params_t *params,
+                                        ucp_lane_index_t lane,
+                                        ucs_sys_device_t sys_dev,
+                                        ucs_sys_dev_distance_t *distance);
 
 
 const uct_iface_attr_t *
@@ -127,9 +170,9 @@ size_t ucp_proto_common_get_iface_attr_field(const uct_iface_attr_t *iface_attr,
                                              size_t dfl_value);
 
 
-double
-ucp_proto_common_iface_bandwidth(const ucp_proto_common_init_params_t *params,
-                                 const uct_iface_attr_t *iface_attr);
+void ucp_proto_common_get_lane_perf(const ucp_proto_common_init_params_t *params,
+                                    ucp_lane_index_t lane,
+                                    ucp_proto_common_tl_perf_t *perf);
 
 
 /* @return number of lanes found */
@@ -150,11 +193,21 @@ ucp_lane_index_t
 ucp_proto_common_find_am_bcopy_lane(const ucp_proto_init_params_t *params);
 
 
-void ucp_proto_common_calc_perf(const ucp_proto_common_init_params_t *params,
-                                const ucp_proto_common_perf_params_t *perf_params);
+ucs_linear_func_t ucp_proto_common_get_pack_time(ucp_worker_h worker,
+                                                 ucs_memory_type_t mem_type,
+                                                 size_t frag_size, int is_sync,
+                                                 const char *title);
+
+
+void ucp_proto_common_init_caps(const ucp_proto_common_init_params_t *params,
+                                const ucp_proto_common_tl_perf_t *perf,
+                                ucp_md_map_t reg_md_map);
 
 
 void ucp_proto_request_zcopy_completion(uct_completion_t *self);
+
+
+void ucp_proto_trace_selected(ucp_request_t *req, size_t msg_length);
 
 
 void ucp_proto_request_select_error(ucp_request_t *req,
@@ -164,5 +217,9 @@ void ucp_proto_request_select_error(ucp_request_t *req,
                                     size_t msg_length);
 
 void ucp_proto_request_abort(ucp_request_t *req, ucs_status_t status);
+
+void ucp_proto_set_wjh(ucp_request_t *req,
+                       const ucp_proto_select_elem_t *select_elem,
+                       size_t length);
 
 #endif

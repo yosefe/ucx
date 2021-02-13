@@ -8,9 +8,9 @@
 #  include "config.h"
 #endif
 
-#include "ucp_rkey.inl"
 #include "ucp_request.h"
 #include "ucp_ep.inl"
+#include "ucp_rkey.inl"
 
 #include <ucp/rma/rma.h>
 #include <ucs/datastruct/mpool.inl>

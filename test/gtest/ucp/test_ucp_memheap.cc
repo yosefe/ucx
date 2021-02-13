@@ -96,6 +96,8 @@ void test_ucp_memheap::test_xfer(send_func_t send_func, size_t size,
         ADD_FAILURE() << "data validation failed";
     }
 
+//    ucp_rkey_print_info(sender().ep(), rkey, stdout);
+
     ucp_rkey_destroy(rkey);
 
     status = ucp_mem_unmap(receiver().ucph(), memh);

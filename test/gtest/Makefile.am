@@ -137,6 +137,7 @@ gtest_SOURCES = \
 	ucp/test_ucp_tag_mt.cc \
 	ucp/test_ucp_tag_perf.cc \
 	ucp/test_ucp_tag_probe.cc \
+	ucp/test_ucp_tag_proto.cc \
 	ucp/test_ucp_tag_xfer.cc \
 	ucp/test_ucp_tag_mem_type.cc \
 	ucp/test_ucp_tag.cc \

@@ -211,6 +211,10 @@ typedef struct ucp_context {
                                                * mode is enabled. */
     ucp_rsc_index_t               num_tls;    /* Number of resources in the array */
 
+    // TODO remove
+    ucs_sys_device_t              *dev_index_to_sys; /* Translate rcs.dev_index
+                                                        to sys_device_t */
+
     /* Mask of memory type communication resources */
     ucp_tl_bitmap_t               mem_type_access_tls[UCS_MEMORY_TYPE_LAST];
 
@@ -218,6 +222,8 @@ typedef struct ucp_context {
 
         /* Bitmap of features supported by the context */
         uint64_t                  features;
+
+        /* Which bits of UCP tag uniquely identify the sender */
         uint64_t                  tag_sender_mask;
 
         /* How many endpoints are expected to be created */
@@ -276,12 +282,14 @@ typedef struct ucp_am_handler {
     uct_am_callback_t             proxy_cb;
 } ucp_am_handler_t;
 
+
 typedef struct ucp_tl_iface_atomic_flags {
     struct {
         uint64_t                  op_flags;  /**< Attributes for atomic-post operations */
         uint64_t                  fop_flags; /**< Attributes for atomic-fetch operations */
     } atomic32, atomic64;
 } ucp_tl_iface_atomic_flags_t;
+
 
 #define UCP_ATOMIC_OP_MASK  (UCS_BIT(UCT_ATOMIC_OP_ADD)  | \
                              UCS_BIT(UCT_ATOMIC_OP_AND)  | \
@@ -361,10 +369,6 @@ typedef struct ucp_tl_iface_atomic_flags {
 
 #define UCP_PARAM_FIELD_VALUE(_params, _name, _flag, _default) \
     UCS_PARAM_VALUE(UCP_PARAM_FIELD, _params, _name, _flag, _default)
-
-
-#define ucp_assert_memtype(_context, _buffer, _length, _mem_type) \
-    ucs_assert(ucp_memory_type_detect(_context, _buffer, _length) == (_mem_type))
 
 
 extern ucp_am_handler_t ucp_am_handlers[];
@@ -464,13 +468,17 @@ ucp_memory_detect_internal(ucp_context_h context, const void *address,
                            size_t length, ucs_memory_info_t *mem_info)
 {
     ucs_status_t status;
+    char buffer[64];
 
     if (ucs_likely(context->num_mem_type_detect_mds == 0)) {
+        ucs_trace("address %p is host memory (no detect mds)", address);
         goto out_host_mem;
     }
 
     if (ucs_likely(context->memtype_cache != NULL)) {
         if (!context->memtype_cache->pgtable.num_regions) {
+            ucs_trace("address %p is host memory (memtype cache is empty)",
+                      address);
             goto out_host_mem;
         }
 
@@ -478,12 +486,14 @@ ucp_memory_detect_internal(ucp_context_h context, const void *address,
                                           length, mem_info);
         if (ucs_likely(status != UCS_OK)) {
             ucs_assert(status == UCS_ERR_NO_ELEM);
+            ucs_trace("address %p is host memory (not found in memtype cache)",
+                      address);
             goto out_host_mem;
         }
 
         if ((mem_info->type != UCS_MEMORY_TYPE_UNKNOWN) &&
             ((mem_info->sys_dev != UCS_SYS_DEVICE_ID_UNKNOWN))) {
-            return;
+            goto detected;
         }
 
         /* Fall thru to slow-path memory type and system device detection by UCT
@@ -494,6 +504,14 @@ ucp_memory_detect_internal(ucp_context_h context, const void *address,
     }
 
     ucp_memory_detect_slowpath(context, address, length, mem_info);
+detected:
+    if (mem_info->type != UCS_MEMORY_TYPE_HOST) {
+        ucs_trace_req("address %p detected type %s device %s", address,
+                      ucs_memory_type_names[mem_info->type],
+                      ucs_topo_sys_device_bdf_name_short(mem_info->sys_dev,
+                                                         buffer,
+                                                         sizeof(buffer)));
+    }
     return;
 
 out_host_mem:
@@ -529,5 +547,7 @@ void ucp_tl_bitmap_validate(const ucp_tl_bitmap_t *tl_bitmap,
 
 
 const char* ucp_context_cm_name(ucp_context_h context, ucp_rsc_index_t cm_idx);
+
+ucs_string_buffer_t *ucp_wjh_buffer();
 
 #endif

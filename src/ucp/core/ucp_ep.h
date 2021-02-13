@@ -151,29 +151,36 @@ struct ucp_ep_config_key {
     ucp_lane_index_t         num_lanes;       /* Number of active lanes */
     ucp_ep_config_key_lane_t lanes[UCP_MAX_LANES]; /* Active lanes */
 
+    // TODO move from key to proto config
     ucp_lane_index_t         am_lane;         /* Lane for AM (can be NULL) */
     ucp_lane_index_t         tag_lane;        /* Lane for tag matching offload (can be NULL) */
     ucp_lane_index_t         wireup_msg_lane; /* Lane for wireup messages (can be NULL) */
     ucp_lane_index_t         cm_lane;         /* Lane for holding a CM connection (can be NULL) */
 
     /* Lanes for remote memory access, sorted by priority, highest first */
+    // TODO move from key to proto config
     ucp_lane_index_t         rma_lanes[UCP_MAX_LANES];
 
     /* Lanes for high-bw memory access, sorted by priority, highest first */
+    // TODO move from key to proto config
     ucp_lane_index_t         rma_bw_lanes[UCP_MAX_LANES];
 
     /* Lane for obtaining remote memory pointer */
+    // TODO move from key to proto config
     ucp_lane_index_t         rkey_ptr_lane;
 
     /* Lanes for atomic operations, sorted by priority, highest first */
+    // TODO move from key to proto config
     ucp_lane_index_t         amo_lanes[UCP_MAX_LANES];
 
     /* Lanes for high-bw active messages, sorted by priority, highest first */
+    // TODO move from key to proto config
     ucp_lane_index_t         am_bw_lanes[UCP_MAX_LANES];
 
     /* Local memory domains to send remote keys for in high-bw rma protocols
      * NOTE: potentially it can be different than what is imposed by rma_bw_lanes,
      * since these are the MDs used by remote side for accessing our memory. */
+    // TODO move from key to proto config
     ucp_md_map_t             rma_bw_md_map;
 
     /* Bitmap of remote mds which are reachable from this endpoint (with any set

@@ -48,6 +48,7 @@ ucp_proto_eager_multi_init_common(ucp_proto_multi_init_params_t *params,
     params->middle.lane_type = UCP_LANE_TYPE_AM_BW;
     params->max_lanes        =
             params->super.super.worker->context->config.ext.max_eager_lanes;
+    params->max_frag         = SIZE_MAX;
 
     return ucp_proto_multi_init(params);
 }
@@ -61,6 +62,7 @@ static ucs_status_t ucp_proto_eager_bcopy_multi_common_init(
         .super.super         = *init_params,
         .super.cfg_thresh    = context->config.ext.bcopy_thresh,
         .super.cfg_priority  = 20,
+        .super.min_length    = 0,
         .super.min_frag_offs = UCP_PROTO_COMMON_OFFSET_INVALID,
         .super.max_frag_offs = ucs_offsetof(uct_iface_attr_t, cap.am.max_bcopy),
         .super.hdr_size      = hdr_size,
@@ -258,6 +260,7 @@ ucp_proto_eager_zcopy_multi_init(const ucp_proto_init_params_t *init_params)
         .super.super         = *init_params,
         .super.cfg_thresh    = context->config.ext.zcopy_thresh,
         .super.cfg_priority  = 30,
+        .super.min_length    = 0,
         .super.min_frag_offs = ucs_offsetof(uct_iface_attr_t, cap.am.min_zcopy),
         .super.max_frag_offs = ucs_offsetof(uct_iface_attr_t, cap.am.max_zcopy),
         .super.hdr_size      = sizeof(ucp_eager_first_hdr_t),

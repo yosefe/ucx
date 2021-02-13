@@ -44,21 +44,23 @@ static const char * ucp_device_type_names[] = {
     [UCT_DEVICE_TYPE_SELF] = "loopback",
 };
 
-static const char *ucp_rndv_modes[] = {
-    [UCP_RNDV_MODE_AUTO]      = "auto",
-    [UCP_RNDV_MODE_GET_ZCOPY] = "get_zcopy",
-    [UCP_RNDV_MODE_PUT_ZCOPY] = "put_zcopy",
-    [UCP_RNDV_MODE_AM]        = "am",
-    [UCP_RNDV_MODE_LAST]      = NULL,
+static const char * ucp_rndv_modes[] = {
+    [UCP_RNDV_MODE_AUTO]         = "auto",
+    [UCP_RNDV_MODE_GET_ZCOPY]    = "get_zcopy",
+    [UCP_RNDV_MODE_PUT_ZCOPY]    = "put_zcopy",
+    [UCP_RNDV_MODE_GET_PIPELINE] = "get_ppln",
+    [UCP_RNDV_MODE_PUT_PIPELINE] = "put_ppln",
+    [UCP_RNDV_MODE_AM]           = "am",
+    [UCP_RNDV_MODE_LAST]         = NULL,
 };
 
 const char *ucp_operation_names[] = {
-    [UCP_OP_ID_TAG_SEND]      = "tag_send",
-    [UCP_OP_ID_TAG_SEND_SYNC] = "tag_send_sync",
+    [UCP_OP_ID_TAG_SEND]      = "tag",
+    [UCP_OP_ID_TAG_SEND_SYNC] = "tag_s",
     [UCP_OP_ID_PUT]           = "put",
     [UCP_OP_ID_GET]           = "get",
-    [UCP_OP_ID_RNDV_SEND]     = "rndv_send",
-    [UCP_OP_ID_RNDV_RECV]     = "rndv_recv",
+    [UCP_OP_ID_RNDV_SEND]     = "rv_snd",
+    [UCP_OP_ID_RNDV_RECV]     = "rv_rcv",
     [UCP_OP_ID_LAST]          = NULL
 };
 
@@ -135,7 +137,7 @@ static ucs_config_field_t ucp_config_table[] = {
    "Issue a warning in case of invalid device and/or transport configuration.",
    ucs_offsetof(ucp_config_t, warn_invalid_config), UCS_CONFIG_TYPE_BOOL},
 
-  {"BCOPY_THRESH", "0",
+  {"BCOPY_THRESH", UCS_VALUE_AUTO_STR,
    "Threshold for switching from short to bcopy protocol",
    ucs_offsetof(ucp_config_t, ctx.bcopy_thresh), UCS_CONFIG_TYPE_MEMUNITS},
 
@@ -192,7 +194,7 @@ static ucs_config_field_t ucp_config_table[] = {
    "Threshold for switching from buffer copy to zero copy protocol",
    ucs_offsetof(ucp_config_t, ctx.zcopy_thresh), UCS_CONFIG_TYPE_MEMUNITS},
 
-  {"BCOPY_BW", "auto",
+  {"BCOPY_BW", "11.5GBs",
    "Estimation of buffer copy bandwidth",
    ucs_offsetof(ucp_config_t, ctx.bcopy_bw), UCS_CONFIG_TYPE_BW},
 
@@ -639,48 +641,47 @@ static int ucp_is_resource_enabled(const uct_tl_resource_desc_t *resource,
     return device_enabled && tl_enabled;
 }
 
-static void ucp_add_tl_resource_if_enabled(ucp_context_h context, ucp_tl_md_t *md,
-                                           ucp_md_index_t md_index,
-                                           const ucp_config_t *config,
-                                           const uct_tl_resource_desc_t *resource,
-                                           uint8_t rsc_flags, unsigned *num_resources_p,
-                                           uint64_t dev_cfg_masks[],
-                                           uint64_t *tl_cfg_mask)
+static void ucp_add_tl_resource_if_enabled(
+        ucp_context_h context, ucp_tl_md_t *md, ucp_md_index_t md_index,
+        const ucp_config_t *config, const uct_tl_resource_desc_t *resource,
+        uint8_t rsc_flags, unsigned *num_resources_p, uint64_t dev_cfg_masks[],
+        uint64_t *tl_cfg_mask, ucp_rsc_index_t *num_devices_p)
 {
-    ucp_rsc_index_t dev_index, i;
+    ucp_tl_resource_desc_t *rsc;
+    ucp_rsc_index_t i;
 
-    if (ucp_is_resource_enabled(resource, config, &rsc_flags, dev_cfg_masks,
-                                tl_cfg_mask)) {
-        context->tl_rscs[context->num_tls].tl_rsc       = *resource;
-        context->tl_rscs[context->num_tls].md_index     = md_index;
-        context->tl_rscs[context->num_tls].tl_name_csum =
-                                  ucs_crc16_string(resource->tl_name);
-        context->tl_rscs[context->num_tls].flags        = rsc_flags;
-
-        dev_index = 0;
-        for (i = 0; i < context->num_tls; ++i) {
-            if (!strcmp(context->tl_rscs[i].tl_rsc.dev_name, resource->dev_name)) {
-                dev_index = context->tl_rscs[i].dev_index;
-                break;
-            } else {
-                dev_index = ucs_max(context->tl_rscs[i].dev_index + 1, dev_index);
-            }
-        }
-        context->tl_rscs[context->num_tls].dev_index = dev_index;
-
-        ++context->num_tls;
-        ++(*num_resources_p);
+    if (!ucp_is_resource_enabled(resource, config, &rsc_flags, dev_cfg_masks,
+                                 tl_cfg_mask)) {
+        return;
     }
+
+    rsc               = &context->tl_rscs[context->num_tls++];
+    rsc->tl_rsc       = *resource;
+    rsc->md_index     = md_index;
+    rsc->tl_name_csum = ucs_crc16_string(resource->tl_name);
+    rsc->flags        = rsc_flags;
+    rsc->dev_index    = UCP_WORKER_CFG_INDEX_NULL;
+
+    /* Find a resource with same device name, or allocate a new device index */
+    for (i = 0; i < context->num_tls; ++i) {
+        if (!strcmp(context->tl_rscs[i].tl_rsc.dev_name, resource->dev_name)) {
+            rsc->dev_index = context->tl_rscs[i].dev_index;
+            break;
+        }
+    }
+    if (rsc->dev_index == UCP_WORKER_CFG_INDEX_NULL) {
+        rsc->dev_index = (*num_devices_p)++;
+    }
+
+    ++(*num_resources_p);
 }
 
-static ucs_status_t ucp_add_tl_resources(ucp_context_h context,
-                                         ucp_md_index_t md_index,
-                                         const ucp_config_t *config,
-                                         unsigned *num_resources_p,
-                                         ucs_string_set_t avail_devices[],
-                                         ucs_string_set_t *avail_tls,
-                                         uint64_t dev_cfg_masks[],
-                                         uint64_t *tl_cfg_mask)
+static ucs_status_t
+ucp_add_tl_resources(ucp_context_h context, ucp_md_index_t md_index,
+                     const ucp_config_t *config, unsigned *num_resources_p,
+                     ucs_string_set_t avail_devices[],
+                     ucs_string_set_t *avail_tls, uint64_t dev_cfg_masks[],
+                     uint64_t *tl_cfg_mask, ucp_rsc_index_t *num_devices_p)
 {
     ucp_tl_md_t *md = &context->tl_mds[md_index];
     uct_tl_resource_desc_t *tl_resources;
@@ -727,7 +728,8 @@ static ucs_status_t ucp_add_tl_resources(ucp_context_h context,
         ucs_string_set_add(avail_tls, tl_resources[i].tl_name);
         ucp_add_tl_resource_if_enabled(context, md, md_index, config,
                                        &tl_resources[i], 0, num_resources_p,
-                                       dev_cfg_masks, tl_cfg_mask);
+                                       dev_cfg_masks, tl_cfg_mask,
+                                       num_devices_p);
     }
 
 out_free_resources:
@@ -839,10 +841,6 @@ const char *ucp_tl_bitmap_str(ucp_context_h context,
 static void ucp_free_resources(ucp_context_t *context)
 {
     ucp_rsc_index_t i;
-
-    if (context->memtype_cache != NULL) {
-        ucs_memtype_cache_destroy(context->memtype_cache);
-    }
 
     ucs_free(context->tl_rscs);
     for (i = 0; i < context->num_mds; ++i) {
@@ -1060,13 +1058,13 @@ static ucs_status_t ucp_check_resources(ucp_context_h context,
     return ucp_check_tl_names(context);
 }
 
-static ucs_status_t ucp_add_component_resources(ucp_context_h context,
-                                                ucp_rsc_index_t cmpt_index,
-                                                ucs_string_set_t avail_devices[],
-                                                ucs_string_set_t *avail_tls,
-                                                uint64_t dev_cfg_masks[],
-                                                uint64_t *tl_cfg_mask,
-                                                const ucp_config_t *config)
+static ucs_status_t
+ucp_add_component_resources(ucp_context_h context, ucp_rsc_index_t cmpt_index,
+                            ucs_string_set_t avail_devices[],
+                            ucs_string_set_t *avail_tls,
+                            uint64_t dev_cfg_masks[], uint64_t *tl_cfg_mask,
+                            ucp_rsc_index_t *num_devices_p,
+                            const ucp_config_t *config)
 {
     const ucp_tl_cmpt_t *tl_cmpt = &context->tl_cmpts[cmpt_index];
     uct_component_attr_t uct_component_attr;
@@ -1102,7 +1100,8 @@ static ucs_status_t ucp_add_component_resources(ucp_context_h context,
         /* Add communication resources of each MD */
         status = ucp_add_tl_resources(context, md_index, config,
                                       &num_tl_resources, avail_devices,
-                                      avail_tls, dev_cfg_masks, tl_cfg_mask);
+                                      avail_tls, dev_cfg_masks, tl_cfg_mask,
+                                      num_devices_p);
         if (status != UCS_OK) {
             uct_md_close(context->tl_mds[md_index].md);
             goto out;
@@ -1133,11 +1132,45 @@ out:
     return status;
 }
 
+static ucs_status_t
+ucp_init_sys_device_lookup(ucp_context_h context, ucp_rsc_index_t num_devices)
+{
+    ucp_rsc_index_t dev_index;
+    ucs_sys_device_t sys_dev;
+    unsigned i;
+
+    context->dev_index_to_sys = ucs_malloc(
+            num_devices * sizeof(*context->dev_index_to_sys), "ucp_dev");
+    if (context->tl_mds == NULL) {
+        ucs_debug("could not allocate system device lookup array");
+        return UCS_ERR_NO_MEMORY;
+    }
+
+    for (i = 0; i < num_devices; ++i) {
+        context->dev_index_to_sys[i] = UCS_SYS_DEVICE_ID_UNKNOWN;
+    }
+
+    for (i = 0; i < context->num_tls; ++i) {
+        dev_index = context->tl_rscs[i].dev_index;
+        sys_dev   = context->tl_rscs[i].tl_rsc.sys_device;
+        ucs_assert(dev_index < num_devices);
+
+        if (context->dev_index_to_sys[dev_index] == UCS_SYS_DEVICE_ID_UNKNOWN) {
+            context->dev_index_to_sys[dev_index] = sys_dev;
+        } else {
+            ucs_assert(context->dev_index_to_sys[dev_index] == sys_dev);
+        }
+    }
+
+    return UCS_OK;
+}
+
 static ucs_status_t ucp_fill_resources(ucp_context_h context,
                                        const ucp_config_t *config)
 {
     uint64_t dev_cfg_masks[UCT_DEVICE_TYPE_LAST] = {};
     uint64_t tl_cfg_mask                         = 0;
+    ucp_rsc_index_t num_devices                  = 0;
     ucs_string_set_t avail_devices[UCT_DEVICE_TYPE_LAST];
     ucs_string_set_t avail_tls;
     uct_component_h *uct_components;
@@ -1233,10 +1266,17 @@ static ucs_status_t ucp_fill_resources(ucp_context_h context,
     for (i = 0; i < context->num_cmpts; ++i) {
         status = ucp_add_component_resources(context, i, avail_devices,
                                              &avail_tls, dev_cfg_masks,
-                                             &tl_cfg_mask, config);
+                                             &tl_cfg_mask, &num_devices,
+                                             config);
         if (status != UCS_OK) {
             goto err_free_resources;
         }
+    }
+
+    /* Create dev_index to system device lookup array */
+    status = ucp_init_sys_device_lookup(context, num_devices);
+    if (status != UCS_OK) {
+        goto err_free_resources;
     }
 
     /* Create memtype cache if we have memory type MDs, and it's enabled by
@@ -1246,7 +1286,7 @@ static ucs_status_t ucp_fill_resources(ucp_context_h context,
         status = ucs_memtype_cache_create(&context->memtype_cache);
         if (status != UCS_OK) {
             ucs_debug("could not create memtype cache for mem_type allocations");
-            goto err_free_resources;
+            goto err_free_dev_index;
         }
     }
 
@@ -1277,16 +1317,22 @@ static ucs_status_t ucp_fill_resources(ucp_context_h context,
     /* Validate context resources */
     status = ucp_check_resources(context, config);
     if (status != UCS_OK) {
-        goto err_free_resources;
+        goto err_free_memtype_cache;
     }
 
     status = ucp_fill_sockaddr_prio_list(context, config);
     if (status != UCS_OK) {
-        goto err_free_resources;
+        goto err_free_memtype_cache;
     }
 
     goto out_release_components;
 
+err_free_memtype_cache:
+    if (context->memtype_cache != NULL) {
+        ucs_memtype_cache_destroy(context->memtype_cache);
+    }
+err_free_dev_index:
+    ucs_free(context->dev_index_to_sys);
 err_free_resources:
     ucp_free_resources(context);
 out_release_components:
@@ -1582,6 +1628,10 @@ err:
 void ucp_cleanup(ucp_context_h context)
 {
     ucs_vfs_obj_remove(context);
+    if (context->memtype_cache != NULL) {
+        ucs_memtype_cache_destroy(context->memtype_cache);
+    }
+    ucs_free(context->dev_index_to_sys);
     ucp_free_resources(context);
     ucp_free_config(context);
     UCP_THREAD_LOCK_FINALIZE(&context->mt_lock);
@@ -1732,6 +1782,9 @@ void ucp_memory_detect_slowpath(ucp_context_h context, const void *address,
                           UCT_MD_MEM_ATTR_FIELD_ALLOC_LENGTH |
                           UCT_MD_MEM_ATTR_FIELD_SYS_DEV;
 
+    mem_attr.field_mask = UCT_MD_MEM_ATTR_FIELD_MEM_TYPE |
+                          UCT_MD_MEM_ATTR_FIELD_SYS_DEV;
+
     for (i = 0; i < context->num_mem_type_detect_mds; ++i) {
         md     = context->tl_mds[context->mem_type_detect_mds[i]].md;
         status = uct_md_mem_query(md, address, length, &mem_attr);
@@ -1795,4 +1848,18 @@ const char* ucp_context_cm_name(ucp_context_h context, ucp_rsc_index_t cm_idx)
 {
     ucs_assert(cm_idx != UCP_NULL_RESOURCE);
     return context->tl_cmpts[context->config.cm_cmpt_idxs[cm_idx]].attr.name;
+}
+
+static ucs_string_buffer_t wjh_buffer = UCS_STRING_BUFFER_INITIALIZER;
+
+ucs_string_buffer_t *ucp_wjh_buffer()
+{
+    ucs_string_buffer_reset(&wjh_buffer);
+    return &wjh_buffer;
+}
+
+const char *ucp_get_wjh(char *buffer, size_t max)
+{
+    ucs_strncpy_safe(buffer, ucs_string_buffer_cstr(&wjh_buffer), max);
+    return buffer;
 }

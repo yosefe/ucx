@@ -105,7 +105,7 @@ static void *ucs_async_thread_func(void *arg)
     cb_arg.thread    = thread;
     cb_arg.is_missed = &is_missed;
 
-    ucs_log_set_thread_name("async");
+    ucs_log_set_thread_name("a");
 
     while (!thread->stop) {
         num_events = ucs_min(UCS_ASYNC_EPOLL_MAX_EVENTS,

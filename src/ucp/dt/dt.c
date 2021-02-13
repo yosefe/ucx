@@ -18,11 +18,21 @@
 
 
 const char * ucp_datatype_class_names[] = {
-    [UCP_DATATYPE_CONTIG]   = "contiguous",
-    [UCP_DATATYPE_STRIDED]  = "strided",
-    [UCP_DATATYPE_IOV]      = "iov",
-    [UCP_DATATYPE_GENERIC]  = "generic"
+    [UCP_DATATYPE_CONTIG]         = "contiguous",
+    [UCP_DATATYPE_STRIDED]        = "strided",
+    [UCP_DATATYPE_IOV]            = "iov",
+    [UCP_DATATYPE_GENERIC]        = "generic",
+    [UCS_BIT(UCP_DATATYPE_SHIFT)] = NULL
 };
+
+const char * ucp_datatype_class_short_names[] = {
+    [UCP_DATATYPE_CONTIG]         = "cntg",
+    [UCP_DATATYPE_STRIDED]        = "strd",
+    [UCP_DATATYPE_IOV]            = "iov",
+    [UCP_DATATYPE_GENERIC]        = "gen",
+    [UCS_BIT(UCP_DATATYPE_SHIFT)] = NULL
+};
+
 
 UCS_PROFILE_FUNC(ucs_status_t, ucp_mem_type_unpack,
                  (worker, buffer, recv_data, recv_length, mem_type),

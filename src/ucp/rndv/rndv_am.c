@@ -20,6 +20,11 @@ ucp_proto_rdnv_am_init_common(ucp_proto_multi_init_params_t *params)
         return UCS_ERR_UNSUPPORTED;
     }
 
+    if (params->super.super.rkey_cfg_index != UCP_WORKER_CFG_INDEX_NULL) {
+        /* FIXME disable rdnv_am for pipelined RTR */
+        return UCS_ERR_UNSUPPORTED;
+    }
+
     params->super.cfg_thresh =
             ucp_proto_rndv_cfg_thresh(context, UCS_BIT(UCP_RNDV_MODE_AM));
     params->super.overhead   = 10e-9; /* for multiple lanes management */
@@ -28,6 +33,7 @@ ucp_proto_rdnv_am_init_common(ucp_proto_multi_init_params_t *params)
     params->middle.lane_type = UCP_LANE_TYPE_AM_BW;
     params->super.hdr_size   = sizeof(ucp_rndv_data_hdr_t);
     params->max_lanes        = context->config.ext.max_rndv_lanes;
+    params->max_frag         = SIZE_MAX;
 
     return ucp_proto_multi_init(params);
 }

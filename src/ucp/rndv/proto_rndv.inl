@@ -45,6 +45,7 @@ ucp_proto_rndv_rts_request_init(ucp_request_t *req)
         return status;
     }
 
+    /* Should not fail when UCT_MD_MEM_FLAG_HIDE_ERRORS is used */
     status = ucp_datatype_iter_mem_reg(ep->worker->context,
                                        &req->send.state.dt_iter, rpriv->md_map,
                                        UCT_MD_MEM_ACCESS_RMA |
@@ -54,7 +55,8 @@ ucp_proto_rndv_rts_request_init(ucp_request_t *req)
     }
 
     ucp_send_request_id_alloc(req);
-    req->flags |= UCP_REQUEST_FLAG_PROTO_INITIALIZED;
+    req->flags                    |= UCP_REQUEST_FLAG_PROTO_INITIALIZED;
+    req->send.state.completed_size = 0;
 
     return UCS_OK;
 }
@@ -76,6 +78,7 @@ static UCS_F_ALWAYS_INLINE size_t ucp_proto_rndv_rts_pack(
         ucp_request_t *req, ucp_rndv_rts_hdr_t *rts, size_t hdr_len)
 {
     void *rkey_buffer = UCS_PTR_BYTE_OFFSET(rts, hdr_len);
+    const ucp_proto_rndv_ctrl_priv_t *rpriv;
     size_t rkey_size;
 
     rts->sreq.req_id = ucp_send_request_get_id(req);
@@ -86,8 +89,11 @@ static UCS_F_ALWAYS_INLINE size_t ucp_proto_rndv_rts_pack(
         rts->address = 0;
         rkey_size    = 0;
     } else {
+        rpriv        = req->send.proto_config->priv;
         rts->address = (uintptr_t)req->send.state.dt_iter.type.contig.buffer;
-        rkey_size    = ucp_proto_request_pack_rkey(req, rkey_buffer);
+        rkey_size    = UCS_PROFILE_CALL(ucp_proto_request_pack_rkey, req,
+                                        rpriv->sys_dev_map,
+                                        rpriv->sys_dev_distance, rkey_buffer);
     }
 
     return hdr_len + rkey_size;

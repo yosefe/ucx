@@ -612,4 +612,59 @@ UCS_TEST_P(test_ucp_mmap, fixed) {
     }
 }
 
+UCS_TEST_SKIP_COND_P(test_ucp_mmap, reg_perf, RUNNING_ON_VALGRIND)
+{
+    static const ucs_time_t test_time  = ucs_time_from_sec(1);
+    ucs_status_t status;
+
+    size_t alloc_size = UCS_MBYTE;
+    void *ptr         = NULL;
+    status = ucs_mmap_alloc(&alloc_size, &ptr, 0 UCS_MEMTRACK_NAME("test"));
+    ASSERT_UCS_OK(status);
+
+    for (size_t size = 2; size < alloc_size; size *= 2) {
+        unsigned count            = 0;
+        ucs_time_t reg_time       = 0;
+        ucs_time_t dereg_time     = 0;
+        ucs_time_t reg_start_time = ucs_get_time();
+
+        do {
+            ucp_mem_map_params_t params;
+            ucs_time_t reg_end_time;
+            ucp_mem_h memh;
+
+            /* Measure memory registration time */
+            params.field_mask = UCP_MEM_MAP_PARAM_FIELD_ADDRESS |
+                                UCP_MEM_MAP_PARAM_FIELD_LENGTH;
+            params.address    = ptr;
+            params.length     = size;
+
+            status = ucp_mem_map(sender().ucph(), &params, &memh);
+            ASSERT_UCS_OK(status);
+            EXPECT_EQ(memh->address, ptr);
+            EXPECT_GE(memh->length, size);
+
+            reg_end_time = ucs_get_time();
+            reg_time    += reg_end_time - reg_start_time;
+
+            /* Measure memory deregistration time */
+            status = ucp_mem_unmap(sender().ucph(), memh);
+            ASSERT_UCS_OK(status);
+
+            reg_start_time = ucs_get_time();
+            dereg_time    += reg_start_time - reg_end_time;
+
+            ++count;
+        } while ((reg_time + dereg_time) < test_time);
+
+        double avg_reg_time   = ucs_time_to_nsec(reg_time) / count;
+        double avg_dereg_time = ucs_time_to_nsec(dereg_time) / count;
+        UCS_TEST_MESSAGE << size << "   reg: " << avg_reg_time << " ns,"
+                         << " dereg: " << avg_dereg_time << " ns";
+    }
+
+    status = ucs_mmap_free(ptr, alloc_size);
+    ASSERT_UCS_OK(status);
+}
+
 UCP_INSTANTIATE_TEST_CASE_GPU_AWARE(test_ucp_mmap)

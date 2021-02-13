@@ -202,8 +202,9 @@ test_ucp_tag::send(entity &sender, send_type_t type, const void *buffer,
                    void *user_data, int buf_index)
 {
     int worker_index = get_worker_index(buf_index);
-    request *req;
     ucp_request_param_t param;
+    ucs_status_t status;
+    request *req;
 
     param.op_attr_mask = UCP_OP_ATTR_FIELD_DATATYPE;
     param.datatype     = datatype;
@@ -221,15 +222,17 @@ test_ucp_tag::send(entity &sender, send_type_t type, const void *buffer,
                                                          buffer, count,
                                                          tag, &param);
         if ((req != NULL) && (type == SEND_B)) {
-            wait(req, user_data, get_worker_index(buf_index));
+            wait(req, user_data, buf_index);
+            status = req->status;
             request_free(req);
-            return NULL;
+            return (request*)UCS_STATUS_PTR(status);
         }
 
         if (UCS_PTR_IS_ERR(req)) {
             ASSERT_UCS_OK(UCS_PTR_STATUS(req));
         }
         break;
+    case SEND_BR:
     case SEND_NBR:
         param.op_attr_mask |= UCP_OP_ATTR_FIELD_REQUEST;
         param.request       = request_alloc();
@@ -239,6 +242,14 @@ test_ucp_tag::send(entity &sender, send_type_t type, const void *buffer,
         if (req == NULL) {
             request_free((request*)param.request);
             return (request*)UCS_STATUS_PTR(UCS_OK);
+        }
+
+        if (UCS_PTR_IS_PTR(req) && (type == SEND_BR)) {
+            // TODO code duplication with SEND_B
+            wait(req, user_data, buf_index);
+            status = req->status;
+            request_free(req);
+            return (request*)UCS_STATUS_PTR(status);
         }
 
         if (user_data) {
@@ -280,6 +291,12 @@ void test_ucp_tag::send_b(const void *buffer, size_t count, ucp_datatype_t datat
                           ucp_tag_t tag, void *user_data, int buf_index)
 {
     send(sender(), SEND_B, buffer, count, datatype, tag, user_data, buf_index);
+}
+
+void test_ucp_tag::send_br(const void *buffer, size_t count, ucp_datatype_t datatype,
+                           ucp_tag_t tag, void *user_data, int buf_index)
+{
+    send(sender(), SEND_BR, buffer, count, datatype, tag, user_data, buf_index);
 }
 
 test_ucp_tag::request *

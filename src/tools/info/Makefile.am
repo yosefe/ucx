@@ -18,11 +18,23 @@ build_config.h: $(top_builddir)/config.h Makefile
 
 ucx_info_CPPFLAGS  = $(BASE_CPPFLAGS)
 ucx_info_CFLAGS    = $(BASE_CFLAGS)
+ucx_info_LDFLAGS   =
+ucx_info_LDADD     = \
+	$(abs_top_builddir)/src/uct/libuct.la \
+	$(abs_top_builddir)/src/ucp/libucp.la \
+	$(abs_top_builddir)/src/ucs/libucs.la \
+	$(abs_top_builddir)/src/ucm/libucm.la
+
 if HAVE_IB
 ucx_info_CPPFLAGS += $(IBVERBS_CPPFLAGS)
 endif
 if HAVE_CRAY_UGNI
 ucx_info_CFLAGS   += $(CRAY_UGNI_CFLAGS)
+endif
+if HAVE_CUDA
+ucx_info_CPPFLAGS += $(CUDA_CPPFLAGS)
+ucx_info_LDFLAGS  += $(CUDA_LDFLAGS)
+ucx_info_LDADD    += $(CUDA_LIBS)
 endif
 
 ucx_info_SOURCES  = \
@@ -38,9 +50,3 @@ noinst_HEADERS = \
 
 nodist_ucx_info_SOURCES = \
 	build_config.h
-
-ucx_info_LDADD    = \
-    $(abs_top_builddir)/src/uct/libuct.la \
-    $(abs_top_builddir)/src/ucp/libucp.la \
-    $(abs_top_builddir)/src/ucs/libucs.la \
-    $(abs_top_builddir)/src/ucm/libucm.la

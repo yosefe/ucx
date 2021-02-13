@@ -31,7 +31,7 @@ static UCS_F_ALWAYS_INLINE size_t
 ucs_proto_multi_calc_weight(double lane_weight, double total_weight)
 {
     return (size_t)(
-            lane_weight * UCS_BIT(UCP_PROTO_MULTI_WEIGHT_SHIFT) / total_weight +
+            lane_weight * UCP_PROTO_MULTI_WEIGHT_MAX / total_weight +
             0.5);
 }
 
@@ -39,7 +39,7 @@ static UCS_F_ALWAYS_INLINE size_t
 ucp_proto_multi_scaled_length(const ucp_proto_multi_lane_priv_t *lpriv,
                               size_t length)
 {
-    return (lpriv->weight * length + UCS_MASK(UCP_PROTO_MULTI_WEIGHT_SHIFT)) >>
+    return (lpriv->weight * length + UCP_PROTO_MULTI_WEIGHT_MAX - 1) >>
            UCP_PROTO_MULTI_WEIGHT_SHIFT;
 }
 
@@ -137,6 +137,7 @@ ucp_proto_multi_progress(ucp_request_t *req,
     }
 
     /* advance position in send buffer */
+    // TODO ucp_datatype_iter_is_next_end instead, no need to advance last one
     ucp_datatype_iter_copy_from_next(&req->send.state.dt_iter, &next_iter,
                                      dt_mask);
     if (ucp_datatype_iter_is_end(&req->send.state.dt_iter)) {
@@ -184,6 +185,7 @@ static UCS_F_ALWAYS_INLINE ucs_status_t ucp_proto_multi_zcopy_progress(
         status = ucp_proto_request_zcopy_init(req, mpriv->reg_md_map, comp_func,
                                               uct_mem_flags);
         if (status != UCS_OK) {
+            // TODO fallback to other protocol
             ucp_proto_request_abort(req, status);
             return UCS_OK; /* remove from pending after request is completed */
         }

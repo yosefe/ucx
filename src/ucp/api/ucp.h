@@ -4536,6 +4536,14 @@ ucs_status_t ucp_ep_query(ucp_ep_h ep, ucp_ep_attr_t *attr);
 
 
 /**
+ * @ingroup UCP_ENDPOINT
+ * @brief TODO replace by ucp_request_query
+ *
+ */
+const char *ucp_get_wjh(char *buffer, size_t max);
+
+
+/**
  * @example ucp_hello_world.c
  * UCP hello world client / server example utility.
  *

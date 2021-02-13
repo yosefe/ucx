@@ -205,6 +205,9 @@ void ucs_string_buffer_dump(const ucs_string_buffer_t *strb,
  */
 char *ucs_string_buffer_extract_mem(ucs_string_buffer_t *strb);
 
+
+void ucs_string_buffer_reset(ucs_string_buffer_t *strb);
+
 END_C_DECLS
 
 #endif

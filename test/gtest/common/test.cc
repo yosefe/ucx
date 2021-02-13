@@ -20,6 +20,23 @@ unsigned test_base::m_total_errors   = 0;
 std::vector<std::string> test_base::m_errors;
 std::vector<std::string> test_base::m_warnings;
 std::vector<std::string> test_base::m_first_warns_and_errors;
+ucs_log_level_t test_base::m_test_log_level = UCS_LOG_LEVEL_FATAL;
+
+class scoped_raise_log_level {
+public:
+    scoped_raise_log_level(ucs_log_level_t level) :
+        m_prev_level(ucs_global_opts.log_component.log_level) {
+        ucs_global_opts.log_component.log_level = std::max(
+                level, ucs_global_opts.log_component.log_level);
+    }
+
+    ~scoped_raise_log_level() {
+        ucs_global_opts.log_component.log_level = m_prev_level;
+    }
+
+private:
+    const ucs_log_level_t m_prev_level;
+};
 
 test_base::test_base() :
                 m_state(NEW),
@@ -158,6 +175,11 @@ void test_base::pop_config()
     ucs_global_opts_release();
     ucs_global_opts = m_config_stack.back();
     m_config_stack.pop_back();
+}
+
+void test_base::set_log_level(ucs_log_level_t log_level)
+{
+    m_test_log_level = log_level;
 }
 
 ucs_log_func_rc_t
@@ -386,30 +408,33 @@ void *test_base::thread_func(void *arg)
 }
 
 void test_base::TestBodyProxy() {
-    if (m_state == RUNNING) {
-        try {
-            run();
-            m_state = FINISHED;
-        } catch (test_skip_exception& e) {
-            skipped(e);
-        } catch (test_abort_exception&) {
-            m_state = ABORTED;
-        } catch (exit_exception& e) {
-            if (RUNNING_ON_VALGRIND) {
-                /* When running with valgrind, exec true/false instead of just
-                 * exiting, to avoid warnings about memory leaks of objects
-                 * allocated inside gtest run loop.
-                 */
-                const char *program = e.failed() ? "false" : "true";
-                execlp(program, program, NULL);
-            }
+    if (m_state != RUNNING) {
+        return;
+    }
 
-            /* If not running on valgrind / execp failed, use exit() */
-            exit(e.failed() ? 1 : 0);
-        } catch (...) {
-            m_state = ABORTED;
-            throw;
+    try {
+        scoped_raise_log_level scope(m_test_log_level);
+        run();
+        m_state = FINISHED;
+    } catch (test_skip_exception& e) {
+        skipped(e);
+    } catch (test_abort_exception&) {
+        m_state = ABORTED;
+    } catch (exit_exception& e) {
+        if (RUNNING_ON_VALGRIND) {
+            /* When running with valgrind, exec true/false instead of just
+                * exiting, to avoid warnings about memory leaks of objects
+                * allocated inside gtest run loop.
+                */
+            const char *program = e.failed() ? "false" : "true";
+            execlp(program, program, NULL);
         }
+
+        /* If not running on valgrind / execp failed, use exit() */
+        exit(e.failed() ? 1 : 0);
+    } catch (...) {
+        m_state = ABORTED;
+        throw;
     }
 }
 

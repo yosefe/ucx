@@ -23,6 +23,12 @@ typedef struct {
     /* Memory domains to send remote keys */
     ucp_md_map_t            md_map;
 
+    /* System devices used for communication, used to pack distance in rkey */
+    uint64_t                sys_dev_map;
+
+    /* Cached system distance from each system device */
+    ucs_sys_dev_distance_t  sys_dev_distance[UCP_MAX_LANES];
+
     /* Total size of packed rkeys */
     size_t                  packed_rkey_size;
 
@@ -78,6 +84,9 @@ typedef struct {
 
     /* Minimal data length */
     size_t                         min_length;
+
+    /* Whether pipelining is used (for performace estimation) */
+    int                            is_pipeline;
 } ucp_proto_rndv_ctrl_init_params_t;
 
 
@@ -126,6 +135,9 @@ void ucp_proto_rndv_receive(ucp_worker_h worker, ucp_request_t *recv_req,
 ucs_status_t
 ucp_proto_rndv_handle_rtr(void *arg, void *data, size_t length, unsigned flags);
 
+
+ucs_status_t ucp_proto_rndv_rtr_handle_atp(void *arg, void *data, size_t length,
+                                           unsigned flags);
 
 ucs_status_t ucp_proto_rndv_handle_data(void *arg, void *data, size_t length,
                                         unsigned flags);

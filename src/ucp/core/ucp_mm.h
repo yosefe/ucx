@@ -50,9 +50,11 @@ void ucp_reg_mpool_free(ucs_mpool_t *mp, void *chunk);
 
 void ucp_mpool_obj_init(ucs_mpool_t *mp, void *obj, void *chunk);
 
-ucs_status_t ucp_frag_mpool_malloc(ucs_mpool_t *mp, size_t *size_p, void **chunk_p);
+ucs_status_t ucp_rndv_mpool_malloc(ucs_mpool_t *mp, size_t *size_p, void **chunk_p);
 
-void ucp_frag_mpool_free(ucs_mpool_t *mp, void *chunk);
+void ucp_rndv_mpool_free(ucs_mpool_t *mp, void *chunk);
+
+void ucp_rndv_mpool_obj_init(ucs_mpool_t *mp, void *obj, void *chunk);
 
 /**
  * Update memory registration to a specified set of memory domains.
@@ -111,7 +113,7 @@ static UCS_F_ALWAYS_INLINE uct_mem_h
 ucp_memh_map2uct(const uct_mem_h *uct, ucp_md_map_t md_map, ucp_md_index_t md_idx)
 {
     if (!(md_map & UCS_BIT(md_idx))) {
-        return NULL;
+        return UCT_MEM_HANDLE_NULL;
     }
 
     return uct[ucs_bitmap2idx(md_map, md_idx)];

@@ -23,6 +23,8 @@ typedef enum ucp_dt_type          ucp_dt_class_t;
  * Memory registration state of a buffer/operation
  */
 typedef struct ucp_dt_reg {
+    // TODO we can reduce the size of md_map by using the index of ep lanes/mds
+    // and also need to add memtype eps
     ucp_md_map_t                  md_map;    /* Map of used memory domains */
     uct_mem_h                     memh[UCP_MAX_OP_MDS];
 } ucp_dt_reg_t;
@@ -58,6 +60,7 @@ typedef struct {
 
 
 extern const char *ucp_datatype_class_names[];
+extern const char *ucp_datatype_class_short_names[];
 
 size_t ucp_dt_pack(ucp_worker_h worker, ucp_datatype_t datatype,
                    ucs_memory_type_t mem_type, void *dest, const void *src,

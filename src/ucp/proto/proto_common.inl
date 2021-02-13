@@ -68,7 +68,7 @@ ucp_proto_request_zcopy_init(ucp_request_t *req, ucp_md_map_t md_map,
      * key lookups during protocol progress.
      */
     ucs_assertv((req->send.state.dt_iter.type.contig.reg.md_map == md_map) ||
-                        (req->send.state.dt_iter.length == 0),
+                (req->send.state.dt_iter.length == 0),
                 "md_map=0x%" PRIx64 " reg.md_map=0x%" PRIx64, md_map,
                 req->send.state.dt_iter.type.contig.reg.md_map);
 
@@ -107,8 +107,6 @@ ucp_proto_request_set_proto(ucp_worker_h worker, ucp_ep_h ep,
                             size_t msg_length)
 {
     const ucp_proto_threshold_elem_t *thresh_elem;
-    const ucp_proto_t *proto;
-    ucs_string_buffer_t strb;
 
     thresh_elem = ucp_proto_select_lookup(worker, proto_select, ep->cfg_index,
                                           rkey_cfg_index, sel_param, msg_length);
@@ -124,16 +122,14 @@ ucp_proto_request_set_proto(ucp_worker_h worker, ucp_ep_h ep,
     ucs_assert(thresh_elem->proto_config.ep_cfg_index == ep->cfg_index);
     ucs_assert(thresh_elem->proto_config.rkey_cfg_index == rkey_cfg_index);
 
-    proto                  = thresh_elem->proto_config.proto;
     req->send.proto_config = &thresh_elem->proto_config;
-    req->send.uct.func     = proto->progress;
 
+    /* Set pointer to progress function */
     if (ucs_log_is_enabled(UCS_LOG_LEVEL_TRACE_REQ)) {
-        ucs_string_buffer_init(&strb);
-        ucp_proto_select_param_str(sel_param, &strb);
-        ucp_trace_req(req, "selected protocol %s for %s length %zu",
-                      proto->name, ucs_string_buffer_cstr(&strb), msg_length);
-        ucs_string_buffer_cleanup(&strb);
+        ucp_proto_trace_selected(req, msg_length);
+        req->send.uct.func = ucp_request_progress_wrapper;
+    } else {
+        req->send.uct.func = thresh_elem->proto_config.proto->progress;
     }
 
     return UCS_OK;
@@ -146,7 +142,8 @@ ucp_proto_request_send_op(ucp_ep_h ep, ucp_proto_select_t *proto_select,
                           const void *buffer, size_t count, ucp_datatype_t datatype,
                           size_t contig_length, const ucp_request_param_t *param)
 {
-    ucp_worker_h worker = ep->worker;
+    static int counter      = 0;
+    ucp_worker_h worker     = ep->worker;
     ucp_proto_select_param_t sel_param;
     ucs_status_t status;
     uint8_t sg_count;
@@ -154,21 +151,30 @@ ucp_proto_request_send_op(ucp_ep_h ep, ucp_proto_select_t *proto_select,
     req->flags   = 0;
     req->send.ep = ep;
 
-    ucp_datatype_iter_init(worker->context, (void*)buffer, count, datatype,
-                           contig_length, &req->send.state.dt_iter, &sg_count);
+    UCS_PROFILE_CALL_VOID(ucp_datatype_iter_init, worker->context,
+                          (void*)buffer, count, datatype, contig_length,
+                          &req->send.state.dt_iter, &sg_count);
 
     ucp_proto_select_param_init(&sel_param, op_id, param->op_attr_mask,
                                 req->send.state.dt_iter.dt_class,
                                 &req->send.state.dt_iter.mem_info, sg_count);
 
-    status = ucp_proto_request_set_proto(worker, ep, req, proto_select,
-                                         rkey_cfg_index, &sel_param,
-                                         contig_length);
+    status = UCS_PROFILE_CALL(ucp_proto_request_set_proto, worker, ep, req,
+                              proto_select, rkey_cfg_index, &sel_param,
+                              contig_length);
     if (status != UCS_OK) {
         goto out_put_request;
     }
 
-    ucp_request_send(req, 0);
+    if ((counter++) % 128 == 0) {
+        const ucp_proto_select_elem_t *select_elem =
+        ucp_proto_select_lookup_slow(worker, proto_select, ep->cfg_index,
+                                     rkey_cfg_index, &sel_param);
+
+        ucp_proto_set_wjh(req, select_elem, contig_length);
+    }
+
+    UCS_PROFILE_CALL_VOID(ucp_request_send, req, 0);
     if (req->flags & UCP_REQUEST_FLAG_COMPLETED) {
         goto out_put_request;
     }
@@ -189,8 +195,9 @@ out_put_request:
     return UCS_STATUS_PTR(status);
 }
 
-static UCS_F_ALWAYS_INLINE size_t
-ucp_proto_request_pack_rkey(ucp_request_t *req, void *rkey_buffer)
+static UCS_F_ALWAYS_INLINE size_t ucp_proto_request_pack_rkey(
+        ucp_request_t *req, uint64_t distance_dev_map,
+        const ucs_sys_dev_distance_t *dev_distance, void *rkey_buffer)
 {
     ssize_t packed_rkey_size;
 
@@ -211,6 +218,47 @@ ucp_proto_request_pack_rkey(ucp_request_t *req, void *rkey_buffer)
     }
 
     return packed_rkey_size;
+}
+
+static UCS_F_ALWAYS_INLINE ucs_status_t ucp_proto_common_handle_send_error(
+        ucp_request_t *req, ucp_lane_index_t lane, ucs_status_t status)
+{
+    ucs_assert(UCS_STATUS_IS_ERR(status));
+    if (ucs_likely(status == UCS_ERR_NO_RESOURCE)) {
+        /* keep on pending queue */
+        req->send.lane = lane;
+        return UCS_ERR_NO_RESOURCE;
+    }
+
+    ucp_proto_request_abort(req, status);
+    return UCS_OK;
+}
+
+static UCS_F_ALWAYS_INLINE ucs_status_t
+ucp_proto_common_lane_map_progress(ucp_request_t *req, ucp_lane_map_t *lane_map,
+                                   ucp_proto_common_lane_send_func_t send_func)
+{
+    ucp_lane_index_t lane = ucs_ffs32(*lane_map);
+    ucs_status_t status;
+
+    ucs_assert(*lane_map != 0);
+
+    status = send_func(req, lane);
+    if (ucs_likely(status == UCS_OK)) {
+        /* fast path is OK */
+    } else if (status == UCS_INPROGRESS) {
+        ++req->send.state.uct_comp.count;
+    } else {
+        return ucp_proto_common_handle_send_error(req, lane, status);
+    }
+
+    *lane_map &= ~UCS_BIT(lane);
+    if (*lane_map != 0) {
+        return UCS_INPROGRESS; /* Not finished all lanes yet */
+    }
+
+    ucp_request_invoke_uct_completion_success(req);
+    return UCS_OK;
 }
 
 #endif

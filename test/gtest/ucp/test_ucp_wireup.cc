@@ -16,6 +16,7 @@
 extern "C" {
 #include <ucp/wireup/address.h>
 #include <ucp/core/ucp_ep.inl>
+#include <ucs/datastruct/bitmap.h>
 #include <ucs/sys/math.h>
 }
 

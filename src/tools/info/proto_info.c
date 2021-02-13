@@ -5,7 +5,7 @@
  */
 
 #ifdef HAVE_CONFIG_H
-#  include "config.h"
+#include "config.h"
 #endif
 
 #include "ucx_info.h"
@@ -20,11 +20,15 @@
 #include <errno.h>
 #include <stdio.h>
 
+// TODO print ep by some API
+#include <ucp/core/ucp_ep.inl>
+#include <ucp/proto/proto_select.inl>
+
 
 typedef struct {
-    ucs_time_t       time;
-    long             memory;
-    int              num_fds;
+    ucs_time_t time;
+    long       memory;
+    int        num_fds;
 } resource_usage_t;
 
 
@@ -76,16 +80,15 @@ static void get_resource_usage(resource_usage_t *usage)
     usage->num_fds = get_num_fds();
 }
 
-static void print_resource_usage(const resource_usage_t *usage_before,
-                                 const char *title)
+static void
+print_resource_usage(const resource_usage_t *usage_before, const char *title)
 {
     resource_usage_t usage_after;
 
     get_resource_usage(&usage_after);
 
     if ((usage_after.memory != -1) && (usage_before->memory != -1) &&
-        (usage_after.num_fds != -1) && (usage_before->num_fds != -1))
-    {
+        (usage_after.num_fds != -1) && (usage_before->num_fds != -1)) {
         printf("# memory: %.2fMB, file descriptors: %d\n",
                (usage_after.memory - usage_before->memory) / (1024.0 * 1024.0),
                (usage_after.num_fds - usage_before->num_fds));
@@ -109,9 +112,9 @@ set_saddr(const char *addr_str, uint16_t port, struct sockaddr_in *saddr)
     saddr->sin_port        = htons(port);
 }
 
-static ucs_status_t
-wait_completion(ucp_worker_h worker, ucp_worker_h peer_worker,
-                ucs_status_ptr_t status_ptr)
+static ucs_status_t wait_completion(ucp_worker_h worker,
+                                    ucp_worker_h peer_worker,
+                                    ucs_status_ptr_t status_ptr)
 {
     ucs_status_t status;
 
@@ -131,9 +134,8 @@ wait_completion(ucp_worker_h worker, ucp_worker_h peer_worker,
     return status;
 }
 
-static void
-ep_close(ucp_worker_h worker, ucp_worker_h peer_worker, ucp_ep_h ep,
-         ucp_ep_close_flags_t flags, const char *ep_type)
+static void ep_close(ucp_worker_h worker, ucp_worker_h peer_worker, ucp_ep_h ep,
+                     ucp_ep_close_flags_t flags, const char *ep_type)
 {
     ucp_request_param_t request_param;
     ucs_status_ptr_t status_ptr;
@@ -195,14 +197,16 @@ out_destroy_listener:
 }
 
 static ucs_status_t
-print_ucp_ep_info(ucp_worker_h worker, ucp_worker_h peer_worker,
+print_ucp_ep_info(int print_opts, ucp_worker_h worker, ucp_worker_h peer_worker,
                   const ucp_ep_params_t *base_ep_params, const char *ip_addr,
-                  process_placement_t proc_placement)
+                  process_placement_t proc_placement,
+                  const ucs_array_t(select_param) *select_params)
 {
-    ucp_listener_h listener        = NULL;
-    ucp_ep_h server_ep             = NULL;
-    ucp_ep_params_t ep_params      = *base_ep_params;
-    ucp_worker_attr_t worker_attrs = {};
+    ucp_listener_h listener    = NULL;
+    ucp_ep_h server_ep         = NULL;
+    ucp_ep_params_t ep_params  = *base_ep_params;
+    const ucp_proto_select_param_t *select_param;
+    ucp_worker_attr_t worker_attrs;
     ucs_status_t status;
     ucs_status_ptr_t status_ptr;
     struct sockaddr_in connect_saddr;
@@ -212,7 +216,8 @@ print_ucp_ep_info(ucp_worker_h worker, ucp_worker_h peer_worker,
     ucp_request_param_t request_param;
 
     if (ip_addr != NULL) {
-        status = create_listener(peer_worker, &listener, &listen_port, &server_ep);
+        status = create_listener(peer_worker, &listener, &listen_port,
+                                 &server_ep);
         if (status != UCS_OK) {
             return status;
         }
@@ -229,9 +234,10 @@ print_ucp_ep_info(ucp_worker_h worker, ucp_worker_h peer_worker,
     } else {
         worker_attrs.field_mask    = UCP_WORKER_ATTR_FIELD_ADDRESS |
                                      UCP_WORKER_ATTR_FIELD_ADDRESS_FLAGS;
-        worker_attrs.address_flags =
-                (proc_placement == PROCESS_PLACEMENT_INTER) ?
-                UCP_WORKER_ADDRESS_FLAG_NET_ONLY : 0;
+        worker_attrs.address_flags = (proc_placement ==
+                                      PROCESS_PLACEMENT_INTER) ?
+                                             UCP_WORKER_ADDRESS_FLAG_NET_ONLY :
+                                             0;
 
         status = ucp_worker_query(peer_worker, &worker_attrs);
         if (status != UCS_OK) {
@@ -254,14 +260,26 @@ print_ucp_ep_info(ucp_worker_h worker, ucp_worker_h peer_worker,
     request_param.op_attr_mask = 0;
     /* do EP flush to make sure that fully completed to a peer and final
      * configuration is applied */
-    status_ptr = ucp_ep_flush_nbx(ep, &request_param);
-    status     = wait_completion(worker, peer_worker, status_ptr);
+    status_ptr                 = ucp_ep_flush_nbx(ep, &request_param);
+    status = wait_completion(worker, peer_worker, status_ptr);
     if (status != UCS_OK) {
         printf("<Failed to flush UCP endpoint>\n");
         goto out_close_eps;
     }
 
+    if (worker->context->config.ext.proto_enable) {
+        ucs_array_for_each(select_param, select_params) {
+            ucp_proto_select_lookup(worker, &ucp_ep_config(ep)->proto_select,
+                                    ep->cfg_index, UCP_WORKER_CFG_INDEX_NULL,
+                                    select_param, 0);
+        }
+    }
+
     ucp_ep_print_info(ep, stdout);
+
+    if (print_opts & PRINT_WAIT) {
+        sleep(10000);
+    }
 
 out_close_eps:
     ep_close(worker, peer_worker, ep, 0, ep_name);
@@ -290,7 +308,8 @@ print_ucp_info(int print_opts, ucs_config_print_flags_t print_flags,
                uint64_t ctx_features, const ucp_ep_params_t *base_ep_params,
                size_t estimated_num_eps, size_t estimated_num_ppn,
                unsigned dev_type_bitmap, process_placement_t proc_placement,
-               const char *mem_size, const char *ip_addr)
+               const char *mem_size, const char *ip_addr,
+               const ucs_array_t(select_param) *select_params)
 {
     ucp_worker_h peer_worker = NULL;
     ucp_config_t *config;
@@ -341,7 +360,7 @@ print_ucp_info(int print_opts, ucs_config_print_flags_t print_flags,
         print_resource_usage(&usage, "UCP context");
     }
 
-    if (!(print_opts & (PRINT_UCP_WORKER|PRINT_UCP_EP))) {
+    if (!(print_opts & (PRINT_UCP_WORKER | PRINT_UCP_EP))) {
         goto out_cleanup_context;
     }
 
@@ -354,6 +373,12 @@ print_ucp_info(int print_opts, ucs_config_print_flags_t print_flags,
     if (status != UCS_OK) {
         printf("<Failed to create UCP worker>\n");
         goto out_cleanup_context;
+    }
+
+    if (print_opts & PRINT_UCP_EP) {
+        status = print_ucp_ep_info(print_opts, worker, peer_worker,
+                                   base_ep_params, ip_addr, proc_placement,
+                                   select_params);
     }
 
     if (print_opts & PRINT_UCP_WORKER) {
@@ -372,8 +397,9 @@ print_ucp_info(int print_opts, ucs_config_print_flags_t print_flags,
             peer_worker = worker;
         }
 
-        status = print_ucp_ep_info(worker, peer_worker, base_ep_params, ip_addr,
-                                   proc_placement);
+        status = print_ucp_ep_info(print_opts, worker, peer_worker,
+                                   base_ep_params, ip_addr, proc_placement,
+                                   select_params);
         if (peer_worker != worker) {
             ucp_worker_destroy(peer_worker);
         }

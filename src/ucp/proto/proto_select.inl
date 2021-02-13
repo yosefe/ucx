@@ -47,7 +47,8 @@ ucp_proto_select_op_attr_to_flags(uint32_t op_attr_mask)
 {
     UCS_STATIC_ASSERT(UCP_PROTO_SELECT_OP_ATTR_MASK /
                       UCP_PROTO_SELECT_OP_ATTR_BASE <= UINT8_MAX);
-    return op_attr_mask / UCP_PROTO_SELECT_OP_ATTR_BASE;
+    return 0;
+    //op_attr_mask / UCP_PROTO_SELECT_OP_ATTR_BASE;
 }
 
 static UCS_F_ALWAYS_INLINE uint32_t

@@ -90,6 +90,7 @@ ucp_tag_recv_common(ucp_worker_h worker, void *buffer, size_t count,
         req->flags         |= UCP_REQUEST_FLAG_BLOCK_OFFLOAD;
     }
 
+    req->recv.count         = count;
     req->recv.length        = ucp_dt_length(datatype, count, buffer,
                                             &req->recv.state);
     req->recv.mem_type      = ucp_request_get_memory_type(worker->context, buffer,

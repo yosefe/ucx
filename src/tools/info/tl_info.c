@@ -52,7 +52,7 @@
         if ((_func)->m * 1e9 > 1e-3) { \
             printf(" + %.3f * N", (_func)->m * 1e9); \
         } \
-        printf(" nsec\n"); \
+        printf(" nsec"); \
     }
 
 
@@ -172,6 +172,7 @@ static void print_iface_info(uct_worker_h worker, uct_md_h md,
                iface_attr.bandwidth.dedicated / UCS_MBYTE);
         printf("#              latency: ");
         PRINT_LINEAR_FUNC_NS(&iface_attr.latency);
+        printf("\n");
         printf("#             overhead: %-.0f nsec\n", iface_attr.overhead * 1e9);
 
         PRINT_CAP(PUT_SHORT, iface_attr.cap.flags, iface_attr.cap.put.max_short);
@@ -380,6 +381,15 @@ out:
     return status;
 }
 
+static void print_mem_types(uint64_t mem_types_mask)
+{
+    ucs_memory_type_t mem_type;
+
+    ucs_for_each_bit(mem_type, mem_types_mask) {
+        printf(" %s", ucs_memory_type_names[mem_type]);
+    }
+}
+
 static void print_md_info(uct_component_h component,
                           const uct_component_attr_t *component_attr,
                           const char *md_name, int print_opts,
@@ -435,13 +445,23 @@ static void print_md_info(uct_component_h component,
         printf("# Memory domain: %s\n", md_name);
         printf("#     Component: %s\n", component_attr->name);
         if (md_attr.cap.flags & UCT_MD_FLAG_ALLOC) {
-            printf("#             allocate: %s\n",
+            printf("#             allocate: %s",
                    size_limit_to_str(0, md_attr.cap.max_alloc));
+            print_mem_types(md_attr.cap.alloc_mem_types);
+            printf("\n");
         }
         if (md_attr.cap.flags & UCT_MD_FLAG_REG) {
             printf("#             register: %s, cost: ",
                    size_limit_to_str(0, md_attr.cap.max_reg));
             PRINT_LINEAR_FUNC_NS(&md_attr.reg_cost);
+            printf(", types:");
+            print_mem_types(md_attr.cap.reg_mem_types);
+            printf("\n");
+        }
+        if (md_attr.cap.detect_mem_types != 0) {
+            printf("#               detect:");
+            print_mem_types(md_attr.cap.detect_mem_types);
+            printf("\n");
         }
         if (md_attr.cap.flags & UCT_MD_FLAG_NEED_RKEY) {
             printf("#           remote key: %zu bytes\n", md_attr.rkey_packed_size);

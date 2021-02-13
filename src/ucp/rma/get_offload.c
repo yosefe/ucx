@@ -62,6 +62,8 @@ static ucs_status_t ucp_proto_get_offload_bcopy_progress(uct_pending_req_t *self
     }
 
     return ucp_proto_multi_progress(req, req->send.proto_config->priv,
+                                    // TODO we know the completion func here,
+                                    // can call it directly if count == 0
                                     ucp_proto_get_offload_bcopy_send_func,
                                     ucp_request_invoke_uct_completion_success,
                                     UCS_BIT(UCP_DATATYPE_CONTIG));
@@ -77,13 +79,16 @@ ucp_proto_get_offload_bcopy_init(const ucp_proto_init_params_t *init_params)
         .super.overhead      = 0,
         .super.cfg_thresh    = context->config.ext.bcopy_thresh,
         .super.cfg_priority  = 20,
+        .super.min_length    = 0,
         .super.min_frag_offs = UCP_PROTO_COMMON_OFFSET_INVALID,
-        .super.max_frag_offs = ucs_offsetof(uct_iface_attr_t, cap.get.max_bcopy),
+        .super.max_frag_offs = ucs_offsetof(uct_iface_attr_t,
+                                            cap.get.max_bcopy),
         .super.hdr_size      = 0,
         .super.flags         = UCP_PROTO_COMMON_INIT_FLAG_RECV_ZCOPY |
                                UCP_PROTO_COMMON_INIT_FLAG_REMOTE_ACCESS |
                                UCP_PROTO_COMMON_INIT_FLAG_RESPONSE,
         .max_lanes           = 1,
+        .max_frag            = SIZE_MAX,
         .first.tl_cap_flags  = UCT_IFACE_FLAG_GET_BCOPY,
         .first.lane_type     = UCP_LANE_TYPE_RMA,
         .middle.tl_cap_flags = UCT_IFACE_FLAG_GET_BCOPY,
@@ -143,14 +148,18 @@ ucp_proto_get_offload_zcopy_init(const ucp_proto_init_params_t *init_params)
         .super.overhead      = 0,
         .super.cfg_thresh    = context->config.ext.zcopy_thresh,
         .super.cfg_priority  = 30,
-        .super.min_frag_offs = ucs_offsetof(uct_iface_attr_t, cap.get.min_zcopy),
-        .super.max_frag_offs = ucs_offsetof(uct_iface_attr_t, cap.get.max_zcopy),
+        .super.min_length    = 0,
+        .super.min_frag_offs = ucs_offsetof(uct_iface_attr_t,
+                                            cap.get.min_zcopy),
+        .super.max_frag_offs = ucs_offsetof(uct_iface_attr_t,
+                                            cap.get.max_zcopy),
         .super.hdr_size      = 0,
         .super.flags         = UCP_PROTO_COMMON_INIT_FLAG_SEND_ZCOPY |
                                UCP_PROTO_COMMON_INIT_FLAG_RECV_ZCOPY |
                                UCP_PROTO_COMMON_INIT_FLAG_REMOTE_ACCESS |
                                UCP_PROTO_COMMON_INIT_FLAG_RESPONSE,
         .max_lanes           = 1,
+        .max_frag            = SIZE_MAX,
         .first.tl_cap_flags  = UCT_IFACE_FLAG_GET_ZCOPY,
         .first.lane_type     = UCP_LANE_TYPE_RMA,
         .middle.tl_cap_flags = UCT_IFACE_FLAG_GET_ZCOPY,

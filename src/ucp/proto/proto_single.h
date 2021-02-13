@@ -14,6 +14,7 @@
 typedef struct {
     ucp_proto_common_lane_priv_t   super;
     ucp_md_index_t                 reg_md; /* memory domain to register on, or NULL */
+    /* TODO zcopy single to check if this value is !=NULL and register only on this MD*/
 } ucp_proto_single_priv_t;
 
 

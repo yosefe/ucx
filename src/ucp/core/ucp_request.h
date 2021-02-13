@@ -20,6 +20,7 @@
 #include <ucs/datastruct/queue_types.h>
 #include <ucs/debug/assert.h>
 #include <ucp/dt/dt.h>
+#include <ucp/proto/proto_common.h> /* for complete_cb */
 #include <ucp/rma/rma.h>
 #include <ucp/wireup/wireup.h>
 #include <ucp/core/ucp_am.h>
@@ -153,7 +154,10 @@ struct ucp_request {
                     ucp_datatype_iter_t  dt_iter;  /* Send buffer state */
                     ucp_dt_state_t       dt;       /* Position in the send buffer */
                 };
-                uct_completion_t         uct_comp; /* UCT completion used by flush */
+                union {
+                    uct_completion_t     uct_comp; /* UCT completion used by flush */
+                    size_t               completed_size; /* Number of bytes completed */
+                };
             } state;
 
             union {
@@ -216,7 +220,20 @@ struct ucp_request {
                             uint8_t        rkey_index[UCP_MAX_LANES];
                         };
                         struct {
-                            ucs_ptr_map_key_t rreq_id; /* id of receive request */
+                            size_t         offset;
+                        } ppln;
+                        struct {
+                            /* fence mode: which lanes sent ATP
+                               flush mode: which lanes completed flush
+                             */
+                            ucp_lane_map_t flush_map;
+
+                            /* which lanes need to send atp */
+                            ucp_lane_map_t atp_map;
+                        } put;
+
+                        struct {
+                            uint8_t atp_count;
                         } rtr;
                     };
                 } rndv;
@@ -302,7 +319,7 @@ struct ucp_request {
             ucp_lane_index_t      lane;            /* Lane on which this request is being sent */
             ucp_lane_index_t      multi_lane_idx;  /* Index of the lane with multi-send */
             uct_pending_req_t     uct;             /* UCT pending request */
-            ucp_mem_desc_t        *mdesc;
+            ucp_rndv_frag_t       *frag;           /* Rendezvous fragment */
         } send;
 
         /* "receive" part - used for tag_recv, am_recv and stream_recv operations */
@@ -310,6 +327,7 @@ struct ucp_request {
             ucs_queue_elem_t      queue;    /* Expected queue element */
             void                  *buffer;  /* Buffer to receive data to */
             ucp_datatype_t        datatype; /* Receive type */
+            size_t                count;
             size_t                length;   /* Total length, in bytes */
             ucs_memory_type_t     mem_type; /* Memory type */
             ucp_dt_state_t        state;
@@ -371,6 +389,13 @@ struct ucp_request {
 };
 
 
+typedef struct ucp_rndv_rtr_recv_desc {
+    ucs_queue_elem_t    queue;       /* Queue of RTRs per RNDV req */
+    ucp_rkey_h          rkey;        /* Unpacked rkey. TODO: reuse buffer */
+    uct_completion_t    comp;
+} ucp_rndv_rtr_recv_desc_t;
+
+
 /**
  * Unexpected receive descriptor. If it is initialized in the headroom of UCT
  * descriptor, the layout looks like the following:
@@ -394,6 +419,7 @@ struct ucp_recv_desc {
         ucp_am_first_desc_t am_first;        /* AM first fragment data needed
                                                 for assembling the message */
         ucs_queue_elem_t    am_mid_queue;    /* AM middle fragments queue */
+        ucp_rndv_rtr_recv_desc_t rndv_rtr;   /* RTR message */
     };
     uint32_t                length;          /* Received length */
     union {
@@ -455,5 +481,8 @@ void ucp_request_send_state_ff(ucp_request_t *req, ucs_status_t status);
 
 ucs_status_t ucp_request_recv_msg_truncated(ucp_request_t *req, size_t length,
                                             size_t offset);
+
+
+ucs_status_t ucp_request_progress_wrapper(uct_pending_req_t *self);
 
 #endif

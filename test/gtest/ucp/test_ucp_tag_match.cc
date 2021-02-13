@@ -119,7 +119,7 @@ UCS_TEST_SKIP_COND_P(test_ucp_tag_match, send_recv_unexp_rqfree,
 }
 
 UCS_TEST_P(test_ucp_tag_match, send_recv_exp_medium) {
-    static const size_t size = 50000;
+    static const size_t size = 9000;
     request *my_recv_req;
 
     std::vector<char> sendbuf(size, 0);
@@ -131,7 +131,7 @@ UCS_TEST_P(test_ucp_tag_match, send_recv_exp_medium) {
     ASSERT_TRUE(!UCS_PTR_IS_ERR(my_recv_req));
     ASSERT_TRUE(my_recv_req != NULL); /* Couldn't be completed because didn't send yet */
 
-    send_b(&sendbuf[0], sendbuf.size(), DATATYPE, 0x111337);
+    send_br(&sendbuf[0], sendbuf.size(), DATATYPE, 0x111337);
 
     wait(my_recv_req);
 
@@ -330,6 +330,8 @@ UCS_TEST_P(test_ucp_tag_match, send_nb_recv_unexp) {
     EXPECT_EQ((ucp_tag_t)0x111337, info.sender_tag);
     EXPECT_EQ(send_data, recv_data);
 
+    short_progress_loop();
+
     if (my_send_req != NULL) {
         EXPECT_TRUE(my_send_req->completed);
         EXPECT_EQ(UCS_OK, my_send_req->status);
@@ -431,8 +433,11 @@ UCS_TEST_P(test_ucp_tag_match, send_nb_multiple_recv_unexp) {
         EXPECT_EQ(send_data, recv_data);
     }
 
+    short_progress_loop();
+
     for (unsigned i = 0; i < num_requests; ++i) {
         if (send_reqs[i] != NULL) {
+            progress();
             EXPECT_TRUE(send_reqs[i]->completed);
             EXPECT_EQ(UCS_OK, send_reqs[i]->status);
             request_free(send_reqs[i]);
@@ -492,16 +497,11 @@ public:
     static void get_test_variants(std::vector<ucp_test_variant>& variants) {
         for (int rndv_scheme = 0; rndv_scheme < RNDV_SCHEME_LAST; ++rndv_scheme) {
             add_variant_with_value(variants, get_ctx_params(), rndv_scheme,
-                                   "rndv_" + rndv_schemes[rndv_scheme]);
+                                   rndv_schemes[rndv_scheme]);
+            add_variant_with_value(variants, get_ctx_params(),
+                                   rndv_scheme | ENABLE_PROTO,
+                                   rndv_schemes[rndv_scheme] + ",proto");
         }
-
-        // Generate variants with and new protocols
-        add_variant_with_value(variants, get_ctx_params(),
-                               RNDV_SCHEME_AUTO | ENABLE_PROTO,
-                               "rndv_auto,proto");
-        add_variant_with_value(variants, get_ctx_params(),
-                               RNDV_SCHEME_GET_ZCOPY | ENABLE_PROTO,
-                               "rndv_get_zcopy,proto");
     }
 
 protected:

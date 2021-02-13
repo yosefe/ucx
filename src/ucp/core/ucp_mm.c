@@ -14,6 +14,7 @@
 
 #include <ucs/debug/log.h>
 #include <ucs/debug/memtrack.h>
+#include <ucs/profile/profile.h>
 #include <ucs/sys/math.h>
 #include <ucs/sys/string.h>
 #include <ucs/sys/sys.h>
@@ -29,12 +30,13 @@ static ucp_mem_t ucp_mem_dummy_handle = {
     .md_map       = 0
 };
 
-
-ucs_status_t ucp_mem_rereg_mds(ucp_context_h context, ucp_md_map_t reg_md_map,
-                               void *address, size_t length, unsigned uct_flags,
-                               uct_md_h alloc_md, ucs_memory_type_t mem_type,
-                               uct_mem_h *alloc_md_memh_p, uct_mem_h *uct_memh,
-                               ucp_md_map_t *md_map_p)
+UCS_PROFILE_FUNC(ucs_status_t, ucp_mem_rereg_mds,
+                 (context, reg_md_map, address, length, uct_flags, alloc_md,
+                  mem_type, alloc_md_memh_p, uct_memh, md_map_p),
+                 ucp_context_h context, ucp_md_map_t reg_md_map, void *address,
+                 size_t length, unsigned uct_flags, uct_md_h alloc_md,
+                 ucs_memory_type_t mem_type, uct_mem_h *alloc_md_memh_p,
+                 uct_mem_h *uct_memh, ucp_md_map_t *md_map_p)
 {
     unsigned memh_index, prev_memh_index;
     uct_mem_h *prev_uct_memh;
@@ -163,7 +165,6 @@ err_dereg:
     ucp_mem_rereg_mds(context, 0, NULL, 0, 0, alloc_md, mem_type,
                       alloc_md_memh_p, uct_memh, md_map_p);
     return status;
-
 }
 
 /**
@@ -648,7 +649,8 @@ ucp_mem_advise(ucp_context_h context, ucp_mem_h memh,
 }
 
 static inline ucs_status_t
-ucp_mpool_malloc(ucp_worker_h worker, ucs_mpool_t *mp, size_t *size_p, void **chunk_p)
+ucp_mpool_malloc(ucp_worker_h worker, ucs_mpool_t *mp, size_t *size_p,
+                 void **chunk_p)
 {
     ucp_mem_desc_t *chunk_hdr;
     ucp_mem_h memh;
@@ -703,18 +705,26 @@ void ucp_reg_mpool_free(ucs_mpool_t *mp, void *chunk)
     ucp_mpool_free(worker, mp, chunk);
 }
 
-ucs_status_t ucp_frag_mpool_malloc(ucs_mpool_t *mp, size_t *size_p, void **chunk_p)
+ucs_status_t ucp_rndv_mpool_malloc(ucs_mpool_t *mp, size_t *size_p,
+                                   void **chunk_p)
 {
     ucp_worker_h worker = ucs_container_of(mp, ucp_worker_t, rndv_frag_mp);
 
     return ucp_mpool_malloc(worker, mp, size_p, chunk_p);
 }
 
-void ucp_frag_mpool_free(ucs_mpool_t *mp, void *chunk)
+void ucp_rndv_mpool_free(ucs_mpool_t *mp, void *chunk)
 {
     ucp_worker_h worker = ucs_container_of(mp, ucp_worker_t, rndv_frag_mp);
 
     ucp_mpool_free(worker, mp, chunk);
+}
+
+void ucp_rndv_mpool_obj_init(ucs_mpool_t *mp, void *obj, void *chunk)
+{
+    ucp_rndv_frag_t *frag = obj;
+
+    ucp_mpool_obj_init(mp, &frag->super, chunk);
 }
 
 void ucp_mem_print_info(const char *mem_size, ucp_context_h context, FILE *stream)

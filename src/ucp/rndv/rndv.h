@@ -7,6 +7,7 @@
 #ifndef UCP_RNDV_H_
 #define UCP_RNDV_H_
 
+#include <ucp/core/ucp_mm.h>
 #include <ucp/core/ucp_types.h>
 #include <ucp/proto/proto_am.h>
 #include <ucs/datastruct/ptr_map.h>
@@ -49,12 +50,20 @@ typedef struct {
  * Rendezvous RTR
  */
 typedef struct {
-    uint64_t                  sreq_id;  /* request ID on the rndv initiator side - sender */
-    uint64_t                  rreq_id;  /* request ID on the rndv receiver side */
-    uint64_t                  address;  /* holds the address of the data buffer on the receiver's side */
-    size_t                    size;     /* size of the data to receive */
-    size_t                    offset;   /* offset of the data in the recv buffer */
-    /* packed rkeys follow */
+    /* Request ID on the rndv initiator side - sender */
+    uint64_t sreq_id;
+
+    /* Request ID on the rndv receiver side */
+    uint64_t rreq_id;
+
+    /* Holds the address of the data buffer on the receiver's side */
+    uint64_t address;
+
+    /* Size of the data to receive */
+    size_t   size;
+
+    /* Offset of the data in the recv buffer */
+    size_t   offset;
 } UCS_S_PACKED ucp_rndv_rtr_hdr_t;
 
 
@@ -67,8 +76,30 @@ typedef struct {
 } UCS_S_PACKED ucp_rndv_data_hdr_t;
 
 
-ucs_status_t ucp_rndv_send_rts(ucp_request_t *sreq, uct_pack_callback_t pack_cb,
-                               size_t rts_body_size);
+/*
+ * RNDV_ATP
+ */
+typedef struct {
+    ucp_reply_hdr_t super;
+
+    /* The receive is considered complete when this number of ATP packets
+       has arrived */
+    uint8_t         count;
+} UCS_S_PACKED ucp_rndv_atp_hdr_t;
+
+
+/**
+ * Rendezvous fragment
+ */
+typedef struct ucp_rndv_frag {
+    ucp_mem_desc_t                super;
+    ucp_request_t                 *req;
+    uct_completion_t              comp;   /* Wait for fragment completions */
+    size_t                        offset;
+    size_t                        length; // TODO remove this
+    // ucs_ptr_map_key_t             frag_id;
+} ucp_rndv_frag_t;
+
 
 void ucp_rndv_req_send_ack(ucp_request_t *ack_req, ucp_request_t *req,
                            ucs_ptr_map_key_t remote_req_id, ucs_status_t status,
@@ -82,6 +113,9 @@ size_t ucp_rndv_rts_pack(ucp_request_t *sreq, ucp_rndv_rts_hdr_t *rndv_rts_hdr,
                          ucp_rndv_rts_opcode_t opcode);
 
 ucs_status_t ucp_proto_progress_rndv_rtr(uct_pending_req_t *self);
+
+ucs_status_t ucp_rndv_send_rts(ucp_request_t *sreq, uct_pack_callback_t pack_cb,
+                               size_t rts_body_size);
 
 ucs_status_t ucp_rndv_reg_send_buffer(ucp_request_t *sreq);
 

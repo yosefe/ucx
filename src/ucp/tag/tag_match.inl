@@ -45,8 +45,7 @@ static UCS_F_ALWAYS_INLINE size_t
 ucp_tag_match_calc_hash(ucp_tag_t tag)
 {
     /* Compute two 32-bit modulo and combine their result */
-    return ((uint32_t)tag % UCP_TAG_MATCH_HASH_SIZE) ^
-           ((uint32_t)(tag >> 32) % UCP_TAG_MATCH_HASH_SIZE);
+    return ((uint32_t)tag ^ (uint32_t)(tag >> 32)) % UCP_TAG_MATCH_HASH_SIZE;
 }
 
 static UCS_F_ALWAYS_INLINE ucp_request_queue_t*

@@ -370,8 +370,8 @@ static void ucs_mem_region_destroy_internal(ucs_rcache_t *rcache,
 
     ucs_rcache_region_trace(rcache, region, "destroy");
 
-    ucs_assertv(region->refcount == 0, "region 0x%lx..0x%lx of %s",
-                region->super.start, region->super.end, rcache->name);
+    ucs_assertv(region->refcount == 0, "region %p 0x%lx..0x%lx of %s",
+                region, region->super.start, region->super.end, rcache->name);
     ucs_assert(!(region->flags & UCS_RCACHE_REGION_FLAG_PGTABLE));
 
     if (region->flags & UCS_RCACHE_REGION_FLAG_REGISTERED) {

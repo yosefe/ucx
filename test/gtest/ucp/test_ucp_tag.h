@@ -19,6 +19,7 @@ public:
         SEND_NB,
         SEND_NBR,
         SEND_B,
+        SEND_BR,
         SEND_SYNC_NB
     };
 
@@ -79,6 +80,9 @@ protected:
 
     void send_b(const void *buffer, size_t count, ucp_datatype_t datatype,
                 ucp_tag_t tag, void *user_data = NULL, int buf_index = 0);
+
+    void send_br(const void *buffer, size_t count, ucp_datatype_t datatype,
+                 ucp_tag_t tag, void *user_data = NULL, int buf_index = 0);
 
     request* send_sync_nb(const void *buffer, size_t count, ucp_datatype_t datatype,
                           ucp_tag_t tag, void *user_data = NULL, int buf_index = 0);

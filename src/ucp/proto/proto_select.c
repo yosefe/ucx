@@ -365,10 +365,11 @@ ucp_proto_select_init_protocols(ucp_worker_h worker,
 
     ucs_assert(ep_cfg_index != UCP_WORKER_CFG_INDEX_NULL);
 
-    init_params.worker        = worker;
-    init_params.select_param  = select_param;
-    init_params.ep_cfg_index  = ep_cfg_index;
-    init_params.ep_config_key = &worker->ep_config[ep_cfg_index].key;
+    init_params.worker         = worker;
+    init_params.select_param   = select_param;
+    init_params.ep_cfg_index   = ep_cfg_index;
+    init_params.rkey_cfg_index = rkey_cfg_index;
+    init_params.ep_config_key  = &worker->ep_config[ep_cfg_index].key;
 
     if (rkey_cfg_index == UCP_WORKER_CFG_INDEX_NULL) {
         init_params.rkey_config_key = NULL;
@@ -397,15 +398,15 @@ ucp_proto_select_init_protocols(ucp_worker_h worker,
     for (proto_id = 0; proto_id < ucp_protocols_count; ++proto_id) {
         proto_caps            = &proto_init->caps[proto_id];
         init_params.priv      = UCS_PTR_BYTE_OFFSET(proto_init->priv_buf,
-                                                          offset);
+                                                    offset);
         init_params.priv_size  = &priv_size;
         init_params.caps       = proto_caps;
         init_params.proto_name = ucp_proto_id_field(proto_id, name);
 
         ucs_trace("trying %s", ucp_proto_id_field(proto_id, name));
         ucs_log_indent(1);
-
         status = ucp_proto_id_call(proto_id, init, &init_params);
+
         if (status != UCS_OK) {
             if (status != UCS_ERR_UNSUPPORTED) {
                 ucs_trace("protocol %s failed to initialize: %s",
@@ -426,6 +427,19 @@ ucp_proto_select_init_protocols(ucp_worker_h worker,
                   ucs_memunits_to_str(proto_caps->cfg_thresh, thresh_str,
                                       sizeof(thresh_str)),
                   ucs_string_buffer_cstr(&strb));
+        {
+            int i;
+            size_t s = 0;
+
+            ucs_log_indent(1);
+            for (i = 0; i < proto_caps->num_ranges; ++i) {
+                ucs_trace("%zu..%zu " UCP_PROTO_PERF_FUNC_FMT, s,
+                          proto_caps->ranges[i].max_length,
+                          UCP_PROTO_PERF_FUNC_ARG(&proto_caps->ranges[i].perf));
+                s = proto_caps->ranges[i].max_length + 1;
+            }
+            ucs_log_indent(-1);
+        }
         ucs_string_buffer_cleanup(&strb);
 
         ucs_log_indent(-1);
@@ -647,7 +661,7 @@ static void  ucp_proto_select_cache_reset(ucp_proto_select_t *proto_select)
     proto_select->cache.value = NULL;
 }
 
-ucp_proto_select_elem_t *
+const ucp_proto_select_elem_t *
 ucp_proto_select_lookup_slow(ucp_worker_h worker,
                              ucp_proto_select_t *proto_select,
                              ucp_worker_cfg_index_t ep_cfg_index,
@@ -961,28 +975,30 @@ void ucp_proto_select_param_str(const ucp_proto_select_param_t *select_param,
     ucs_string_buffer_appendf(strb, "%s(",
                               ucp_operation_names[select_param->op_id]);
 
-    ucs_string_buffer_appendf(strb, "%s",
-                              ucp_datatype_class_names[select_param->dt_class]);
-
-    if (select_param->sg_count > 1) {
-        ucs_string_buffer_appendf(strb, "[%d]", select_param->sg_count);
+    if (select_param->dt_class != UCP_DATATYPE_CONTIG) {
+        ucs_string_buffer_appendf(strb, "%s,",
+                                  ucp_datatype_class_short_names[select_param->dt_class]);
+        if (select_param->sg_count > 1) {
+            ucs_string_buffer_appendf(strb, "%u,", select_param->sg_count);
+        }
     }
 
     if (select_param->mem_type != UCS_MEMORY_TYPE_HOST) {
         ucs_string_buffer_appendf(
-                strb, ", %s", ucs_memory_type_names[select_param->mem_type]);
+                strb, "%s,", ucs_memory_type_names[select_param->mem_type]);
     }
 
     if (select_param->sys_dev != UCS_SYS_DEVICE_ID_UNKNOWN) {
-        ucs_topo_sys_device_bdf_name(select_param->sys_dev, sys_dev_name,
-                                     sizeof(sys_dev_name));
-        ucs_string_buffer_appendf(strb, ", %s", sys_dev_name);
+        ucs_topo_sys_device_bdf_name_short(select_param->sys_dev, sys_dev_name,
+                                           sizeof(sys_dev_name));
+        ucs_string_buffer_appendf(strb, "%s,", sys_dev_name);
     }
 
     if (op_attr_mask & UCP_OP_ATTR_FLAG_FAST_CMPL) {
-        ucs_string_buffer_appendf(strb, ", fast-completion");
+        ucs_string_buffer_appendf(strb, "fc,");
     }
 
+    ucs_string_buffer_rtrim(strb, ",");
     ucs_string_buffer_appendf(strb, ")");
 }
 
@@ -1008,6 +1024,7 @@ ucp_proto_select_short_init(ucp_worker_h worker, ucp_proto_select_t *proto_selec
     ucp_proto_select_param_t select_param;
     const ucp_proto_single_priv_t *spriv;
     ucp_memory_info_t mem_info;
+    ssize_t max_short_signed;
     uint32_t op_attr;
 
     ucp_memory_info_set_host(&mem_info);
@@ -1034,12 +1051,14 @@ ucp_proto_select_short_init(ucp_worker_h worker, ucp_proto_select_t *proto_selec
             goto out_disable;
         }
 
+        max_short_signed = ucs_min(thresh->max_msg_length, SSIZE_MAX);
+
         /* Assume short protocol uses 'ucp_proto_single_priv_t' */
         spriv = thresh->proto_config.priv;
 
         if (proto == NULL) {
             proto                            = thresh->proto_config.proto;
-            proto_short->max_length_host_mem = thresh->max_msg_length;
+            proto_short->max_length_host_mem = max_short_signed;
             proto_short->lane                = spriv->super.lane;
             proto_short->rkey_index          = spriv->super.rkey_index;
         } else {
@@ -1052,7 +1071,7 @@ ucp_proto_select_short_init(ucp_worker_h worker, ucp_proto_select_t *proto_selec
 
             /* Fast-path threshold is the minimal of all op_attr options */
             proto_short->max_length_host_mem = ucs_min(
-                    proto_short->max_length_host_mem, thresh->max_msg_length);
+                    proto_short->max_length_host_mem, max_short_signed);
         }
     }
 
@@ -1067,4 +1086,30 @@ ucp_proto_select_short_init(ucp_worker_h worker, ucp_proto_select_t *proto_selec
 
 out_disable:
     ucp_proto_select_short_disable(proto_short);
+}
+
+void
+ucp_proto_select_get_valid_range(const ucp_proto_threshold_elem_t *thresholds,
+                                 size_t *min_length_p, size_t *max_length_p)
+{
+    const ucp_proto_threshold_elem_t *elem;
+    size_t max_msg_length;
+
+    *min_length_p = 0;
+    *max_length_p = 0;
+    elem          = thresholds;
+    do {
+        max_msg_length = elem->max_msg_length;
+        if (elem->proto_config.proto->flags & UCP_PROTO_FLAG_INVALID) {
+            /* Protocol is invalid, so set range start after it */
+            if (max_msg_length < SIZE_MAX) {
+                *min_length_p = max_msg_length + 1;
+            }
+        } else {
+            /* Protocol is valid, so extend range end */
+            *max_length_p = max_msg_length;
+        }
+
+        ++elem;
+    } while (max_msg_length < SIZE_MAX);
 }

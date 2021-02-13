@@ -188,3 +188,8 @@ char *ucs_string_buffer_extract_mem(ucs_string_buffer_t *strb)
 
     return c_str;
 }
+
+void ucs_string_buffer_reset(ucs_string_buffer_t *strb)
+{
+     ucs_array_set_length(&strb->str, 0);
+}

@@ -87,7 +87,6 @@
                       _req, #_cb, _cb_value, _user_data); \
     }
 
-
 #define ucp_request_get_param(_worker, _param, _failed) \
     ({ \
         ucp_request_t *__req; \
@@ -319,7 +318,7 @@ ucp_request_try_send(ucp_request_t *req, unsigned pending_flags)
  * @param [in]  req             Request to start.
  * @param [in]  pending_flags   flags to be passed to UCT if request will be
  *                              added to pending queue.
- * */
+ */
 static UCS_F_ALWAYS_INLINE void
 ucp_request_send(ucp_request_t *req, unsigned pending_flags)
 {
@@ -980,6 +979,7 @@ static UCS_F_ALWAYS_INLINE void
 ucp_invoke_uct_completion(uct_completion_t *comp, ucs_status_t status)
 {
     uct_completion_update_status(comp, status);
+    ucs_assert(comp->count > 0);
     if (--comp->count == 0) {
         comp->func(comp);
     }

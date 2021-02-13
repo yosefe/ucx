@@ -82,7 +82,9 @@ protected:
         uint8_t sg_count;
         ucp_datatype_iter_init(m_ucph.get(), dt_desc.buf(), dt_desc.count(),
                                dt_desc.dt(), dt_buffer.size(), &dt_iter, &sg_count);
-        EXPECT_EQ(iovcnt, sg_count);
+        if (!UCP_DT_IS_GENERIC(GetParam())) {
+            EXPECT_EQ(iovcnt, sg_count);
+        }
 
         size_t offset = 0;
         ucs::fill_random(packed_buffer);
@@ -157,7 +159,7 @@ INSTANTIATE_TEST_CASE_P(contig, test_ucp_dt_iter,
                                         ucp_dt_make_contig(39)));
 
 INSTANTIATE_TEST_CASE_P(iov, test_ucp_dt_iter,
-                        testing::Values((ucp_datatype_t)ucp_dt_make_iov()));
+                        testing::Values(ucp_dt_make_iov()));
 
 INSTANTIATE_TEST_CASE_P(generic, test_ucp_dt_iter,
                         testing::ValuesIn(test_ucp_dt_iter::enum_dt_generic_params()));

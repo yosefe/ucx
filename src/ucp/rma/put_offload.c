@@ -11,6 +11,8 @@
 #include "rma.h"
 #include "rma.inl"
 
+#include <ucp/proto/proto_single.h>
+
 #include <ucp/core/ucp_request.inl>
 #include <ucp/dt/datatype_iter.inl>
 #include <ucp/proto/proto_multi.inl>
@@ -54,8 +56,10 @@ ucp_proto_put_offload_short_init(const ucp_proto_init_params_t *init_params)
         .super.overhead      = 0,
         .super.cfg_thresh    = UCS_MEMUNITS_AUTO,
         .super.cfg_priority  = 0,
+        .super.min_length    = 0,
         .super.min_frag_offs = UCP_PROTO_COMMON_OFFSET_INVALID,
-        .super.max_frag_offs = ucs_offsetof(uct_iface_attr_t, cap.put.max_short),
+        .super.max_frag_offs = ucs_offsetof(uct_iface_attr_t,
+                                            cap.put.max_short),
         .super.flags         = UCP_PROTO_COMMON_INIT_FLAG_RECV_ZCOPY |
                                UCP_PROTO_COMMON_INIT_FLAG_REMOTE_ACCESS,
         .lane_type           = UCP_LANE_TYPE_RMA,
@@ -136,12 +140,15 @@ ucp_proto_put_offload_bcopy_init(const ucp_proto_init_params_t *init_params)
         .super.overhead      = 10e-9,
         .super.cfg_thresh    = context->config.ext.bcopy_thresh,
         .super.cfg_priority  = 20,
+        .super.min_length    = 0,
         .super.min_frag_offs = UCP_PROTO_COMMON_OFFSET_INVALID,
-        .super.max_frag_offs = ucs_offsetof(uct_iface_attr_t, cap.put.max_bcopy),
+        .super.max_frag_offs = ucs_offsetof(uct_iface_attr_t,
+                                            cap.put.max_bcopy),
         .super.hdr_size      = 0,
         .super.flags         = UCP_PROTO_COMMON_INIT_FLAG_RECV_ZCOPY |
                                UCP_PROTO_COMMON_INIT_FLAG_REMOTE_ACCESS,
         .max_lanes           = 1,
+        .max_frag            = SIZE_MAX,
         .first.tl_cap_flags  = UCT_IFACE_FLAG_PUT_BCOPY,
         .first.lane_type     = UCP_LANE_TYPE_RMA,
         .middle.tl_cap_flags = UCT_IFACE_FLAG_PUT_BCOPY,
@@ -201,13 +208,17 @@ ucp_proto_put_offload_zcopy_init(const ucp_proto_init_params_t *init_params)
         .super.overhead      = 10e-9,
         .super.cfg_thresh    = context->config.ext.zcopy_thresh,
         .super.cfg_priority  = 30,
-        .super.min_frag_offs = ucs_offsetof(uct_iface_attr_t, cap.put.min_zcopy),
-        .super.max_frag_offs = ucs_offsetof(uct_iface_attr_t, cap.put.max_zcopy),
+        .super.min_length    = 0,
+        .super.min_frag_offs = ucs_offsetof(uct_iface_attr_t,
+                                            cap.put.min_zcopy),
+        .super.max_frag_offs = ucs_offsetof(uct_iface_attr_t,
+                                            cap.put.max_zcopy),
         .super.hdr_size      = 0,
         .super.flags         = UCP_PROTO_COMMON_INIT_FLAG_SEND_ZCOPY |
                                UCP_PROTO_COMMON_INIT_FLAG_RECV_ZCOPY |
                                UCP_PROTO_COMMON_INIT_FLAG_REMOTE_ACCESS,
         .max_lanes           = 1,
+        .max_frag            = SIZE_MAX,
         .first.tl_cap_flags  = UCT_IFACE_FLAG_PUT_ZCOPY,
         .first.lane_type     = UCP_LANE_TYPE_RMA,
         .middle.tl_cap_flags = UCT_IFACE_FLAG_PUT_ZCOPY,

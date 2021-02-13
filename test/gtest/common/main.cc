@@ -11,7 +11,9 @@
 #include <ucs/config/global_opts.h>
 #include <ucs/sys/sys.h>
 #include <ucm/api/ucm.h>
+
 #include "test_helpers.h"
+#include "test.h"
 #include "tap.h"
 
 
@@ -71,6 +73,17 @@ int main(int argc, char **argv) {
                 delete listeners.Release(listeners.default_result_printer());
             }
             listeners.Append(new tap::TapListener());
+        }
+    }
+
+    str = getenv("GTEST_LOG_LEVEL");
+    if (str) {
+        unsigned log_level;
+        if (ucs_config_sscanf_enum(str, &log_level, ucs_log_level_names) == 1) {
+            ucs::test_base::set_log_level(
+                    static_cast<ucs_log_level_t>(log_level));
+        } else {
+            UCS_TEST_MESSAGE << "Invalid log level value '" << str << "'";
         }
     }
 

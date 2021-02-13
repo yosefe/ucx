@@ -175,6 +175,26 @@ void ucp_rkey_dump_packed(const void *buffer, size_t length,
                           ucs_string_buffer_t *strb);
 
 
+ucs_status_t ucp_ep_rkey_unpack_internal(ucp_ep_h ep, const void *rkey_buffer,
+                                         size_t rkey_length,
+                                         ucp_rkey_h *rkey_p);
+
+
+/**
+ * Resolve remote key configuration key to a remote key configuration index
+ *
+ * @param [in]  worker          UCP worker to resolve configuration on
+ * @param [in]  key             Rkey configuration key
+ * @param [in]  lanes_distance  Distance of each lane to the remote memory
+ *                              buffer on the peer.
+ * @param [out] cfg_index_p     Filled with configuration index in the worker.
+ */
+ucs_status_t ucp_rkey_config_get(ucp_worker_h worker,
+                                 const ucp_rkey_config_key_t *key,
+                                 const ucs_sys_dev_distance_t *lanes_distance,
+                                 ucp_worker_cfg_index_t *cfg_index_p);
+
+
 void ucp_rkey_config_dump_brief(const ucp_rkey_config_key_t *rkey_config_key,
                                 ucs_string_buffer_t *strb);
 

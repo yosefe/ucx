@@ -13,6 +13,7 @@
 #include <ucp/dt/datatype_iter.inl>
 
 
+//TODO pass ep
 static UCS_F_ALWAYS_INLINE ucs_status_t
 ucp_proto_am_bcopy_single_send(ucp_request_t *req, ucp_am_id_t am_id,
                                ucp_lane_index_t lane,
@@ -44,23 +45,20 @@ ucp_proto_am_bcopy_single_send(ucp_request_t *req, ucp_am_id_t am_id,
     }
 }
 
-static UCS_F_ALWAYS_INLINE ucs_status_t
-ucp_proto_single_status_handle(ucp_request_t *req,
-                               ucp_proto_complete_cb_t complete_func,
-                               ucp_lane_index_t lane, ucs_status_t status)
+static UCS_F_ALWAYS_INLINE ucs_status_t ucp_proto_single_status_handle(
+        ucp_request_t *req, int is_zcopy, ucp_proto_complete_cb_t complete_func,
+        ucp_lane_index_t lane, ucs_status_t status)
 {
     if (ucs_likely(status == UCS_OK)) {
         if (complete_func != NULL) {
             complete_func(req);
         }
-    } else if (status == UCS_ERR_NO_RESOURCE) {
-        /* keep on pending queue */
-        req->send.lane = lane;
-        return UCS_ERR_NO_RESOURCE;
-    } else if (status != UCS_INPROGRESS) {
-        ucp_proto_request_abort(req, status);
+        return UCS_OK;
+    } else if (is_zcopy && (status == UCS_INPROGRESS)) {
+        return UCS_OK;
+    } else {
+        return ucp_proto_common_handle_send_error(req, lane, status);
     }
-    return UCS_OK;
 }
 
 static UCS_F_ALWAYS_INLINE ucs_status_t
@@ -74,7 +72,7 @@ ucp_proto_am_bcopy_single_progress(ucp_request_t *req, ucp_am_id_t am_id,
 
     status = ucp_proto_am_bcopy_single_send(req, am_id, lane, pack_func,
                                             pack_arg, max_packed_size);
-    return ucp_proto_single_status_handle(req, complete_func, lane, status);
+    return ucp_proto_single_status_handle(req, 0, complete_func, lane, status);
 }
 
 static UCS_F_ALWAYS_INLINE ucs_status_t
@@ -109,7 +107,7 @@ ucp_proto_zcopy_single_progress(ucp_request_t *req, unsigned uct_mem_flags,
     UCS_PROFILE_REQUEST_EVENT_CHECK_STATUS(req, name, iov.length, status);
 
     return ucp_proto_single_status_handle(
-            req, ucp_proto_request_zcopy_complete_success, spriv->super.lane,
+            req, 1, ucp_proto_request_zcopy_complete_success, spriv->super.lane,
             status);
 }
 

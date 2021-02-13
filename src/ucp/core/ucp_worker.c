@@ -11,7 +11,7 @@
 
 #include "ucp_am.h"
 #include "ucp_worker.h"
-#include "ucp_rkey.h"
+#include "ucp_rkey.inl"
 #include "ucp_request.inl"
 
 #include <ucp/wireup/address.h>
@@ -99,10 +99,10 @@ ucs_mpool_ops_t ucp_reg_mpool_ops = {
     .obj_cleanup   = ucs_empty_function
 };
 
-ucs_mpool_ops_t ucp_frag_mpool_ops = {
-    .chunk_alloc   = ucp_frag_mpool_malloc,
-    .chunk_release = ucp_frag_mpool_free,
-    .obj_init      = ucp_mpool_obj_init,
+ucs_mpool_ops_t ucp_rndv_mpool_ops = {
+    .chunk_alloc   = ucp_rndv_mpool_malloc,
+    .chunk_release = ucp_rndv_mpool_free,
+    .obj_init      = ucp_rndv_mpool_obj_init,
     .obj_cleanup   = ucs_empty_function
 };
 
@@ -119,11 +119,6 @@ static ucs_mpool_ops_t ucp_rkey_mpool_ops = {
 
 KHASH_IMPL(ucp_worker_discard_uct_ep_hash, uct_ep_h, ucp_request_t*, 1,
            ucp_worker_discard_uct_ep_hash_key, kh_int64_hash_equal);
-
-
-// TODO move functions
-static void ucp_worker_vfs_info_show(void *obj, ucs_string_buffer_t *strb,
-                                     void *arg_ptr, uint64_t arg_u64);
 
 
 static ucs_status_t ucp_worker_wakeup_ctl_fd(ucp_worker_h worker,
@@ -1225,6 +1220,10 @@ ucp_worker_get_sys_device_distance(ucp_context_h context,
     ucs_sys_device_t cmp_device = UCS_SYS_DEVICE_ID_UNKNOWN;
     ucp_rsc_index_t md_index, i;
 
+    if (context->config.ext.proto_enable) {
+        return UCS_ERR_UNSUPPORTED;
+    }
+
     for (i = 0; i < context->num_tls; i++) {
         md_index = context->tl_rscs[i].md_index;
         if (strcmp(context->tl_mds[md_index].rsc.md_name,
@@ -1858,9 +1857,9 @@ static ucs_status_t ucp_worker_init_mpools(ucp_worker_h worker)
 
     /* Create memory pool for pipelined rndv fragments */
     status = ucs_mpool_init(&worker->rndv_frag_mp, 0,
-                            context->config.ext.rndv_frag_size + sizeof(ucp_mem_desc_t),
-                            sizeof(ucp_mem_desc_t), UCS_SYS_PCI_MAX_PAYLOAD, 128,
-                            UINT_MAX, &ucp_frag_mpool_ops, "ucp_rndv_frags");
+                            context->config.ext.rndv_frag_size + sizeof(ucp_rndv_frag_t),
+                            sizeof(ucp_rndv_frag_t), UCS_SYS_PCI_MAX_PAYLOAD, 128,
+                            UINT_MAX, &ucp_rndv_mpool_ops, "ucp_rndv_frags");
     if (status != UCS_OK) {
         goto err_reg_mp_cleanup;
     }
@@ -2078,6 +2077,70 @@ static void ucp_worker_destroy_configs(ucp_worker_h worker)
         ucp_proto_select_cleanup(&worker->rkey_config[i].proto_select);
     }
     worker->rkey_config_count = 0;
+}
+
+static void ucp_worker_info_str(ucp_worker_h worker, ucs_string_buffer_t *strb)
+{
+    ucp_context_h context = worker->context;
+    ucp_worker_cfg_index_t rkey_cfg_index;
+    ucp_rsc_index_t rsc_index;
+    ucp_address_t *address;
+    size_t address_length;
+    ucs_status_t status;
+    int first;
+
+    ucs_string_buffer_appendf(strb, "#\n");
+    ucs_string_buffer_appendf(strb, "# UCP worker '%s'\n",
+                              ucp_worker_get_address_name(worker));
+    ucs_string_buffer_appendf(strb, "#\n");
+
+    status = ucp_worker_get_address(worker, &address, &address_length);
+    if (status == UCS_OK) {
+        ucp_worker_release_address(worker, address);
+        ucs_string_buffer_appendf(strb,
+                                  "#                 address: %zu bytes\n",
+                                  address_length);
+    } else {
+        ucs_string_buffer_appendf(strb, "# <failed to get address>\n");
+    }
+
+    if (context->config.features & UCP_FEATURE_AMO) {
+        ucs_string_buffer_appendf(strb, "#                 atomics: ");
+        first = 1;
+        for (rsc_index = 0; rsc_index < worker->context->num_tls; ++rsc_index) {
+            if (UCS_BITMAP_GET(worker->atomic_tls, rsc_index)) {
+                if (!first) {
+                    ucs_string_buffer_appendf(strb, ", ");
+                }
+                ucs_string_buffer_appendf(
+                        strb, "%d:" UCT_TL_RESOURCE_DESC_FMT, rsc_index,
+                        UCT_TL_RESOURCE_DESC_ARG(
+                                &context->tl_rscs[rsc_index].tl_rsc));
+                first = 0;
+            }
+        }
+        ucs_string_buffer_appendf(strb, "\n");
+    }
+
+    ucs_string_buffer_appendf(strb, "\n");
+
+    if (context->config.ext.proto_enable) {
+        for (rkey_cfg_index = 0; rkey_cfg_index < worker->rkey_config_count;
+             ++rkey_cfg_index) {
+            ucp_rkey_proto_select_dump(worker, rkey_cfg_index, strb);
+            ucs_string_buffer_appendf(strb, "\n");
+        }
+    }
+}
+
+static void ucp_worker_vfs_info_show(void *obj, ucs_string_buffer_t *strb,
+                                     void *arg_ptr, uint64_t arg_u64)
+{
+    ucp_worker_h worker = obj;
+
+    UCS_ASYNC_BLOCK(&worker->async);
+    ucp_worker_info_str(worker, strb);
+    UCS_ASYNC_UNBLOCK(&worker->async);
 }
 
 ucs_thread_mode_t ucp_worker_get_thread_mode(uint64_t worker_flags)
@@ -2856,60 +2919,6 @@ void ucp_worker_release_address(ucp_worker_h worker, ucp_address_t *address)
     ucs_free(address);
 }
 
-static void ucp_worker_info_str(ucp_worker_h worker, ucs_string_buffer_t *strb)
-{
-    ucp_context_h context = worker->context;
-    ucp_worker_cfg_index_t rkey_cfg_index;
-    ucp_rsc_index_t rsc_index;
-    ucp_address_t *address;
-    size_t address_length;
-    ucs_status_t status;
-    int first;
-
-    ucs_string_buffer_appendf(strb, "#\n");
-    ucs_string_buffer_appendf(strb, "# UCP worker '%s'\n",
-                              ucp_worker_get_address_name(worker));
-    ucs_string_buffer_appendf(strb, "#\n");
-
-    status = ucp_worker_get_address(worker, &address, &address_length);
-    if (status == UCS_OK) {
-        ucp_worker_release_address(worker, address);
-        ucs_string_buffer_appendf(strb,
-                                  "#                 address: %zu bytes\n",
-                                  address_length);
-    } else {
-        ucs_string_buffer_appendf(strb, "# <failed to get address>\n");
-    }
-
-    if (context->config.features & UCP_FEATURE_AMO) {
-        ucs_string_buffer_appendf(strb, "#                 atomics: ");
-        first = 1;
-        for (rsc_index = 0; rsc_index < worker->context->num_tls; ++rsc_index) {
-            if (UCS_BITMAP_GET(worker->atomic_tls, rsc_index)) {
-                if (!first) {
-                    ucs_string_buffer_appendf(strb, ", ");
-                }
-                ucs_string_buffer_appendf(
-                        strb, "%d:" UCT_TL_RESOURCE_DESC_FMT, rsc_index,
-                        UCT_TL_RESOURCE_DESC_ARG(
-                                &context->tl_rscs[rsc_index].tl_rsc));
-                first = 0;
-            }
-        }
-        ucs_string_buffer_appendf(strb, "\n");
-    }
-
-    ucs_string_buffer_appendf(strb, "\n");
-
-    if (context->config.ext.proto_enable) {
-        for (rkey_cfg_index = 0; rkey_cfg_index < worker->rkey_config_count;
-             ++rkey_cfg_index) {
-            ucp_rkey_proto_select_dump(worker, rkey_cfg_index, strb);
-            ucs_string_buffer_appendf(strb, "\n");
-        }
-    }
-}
-
 void ucp_worker_print_info(ucp_worker_h worker, FILE *stream)
 {
     ucs_string_buffer_t strb;
@@ -2922,16 +2931,6 @@ void ucp_worker_print_info(ucp_worker_h worker, FILE *stream)
     ucs_string_buffer_dump(&strb, "# ", stream);
     ucs_string_buffer_cleanup(&strb);
     UCP_WORKER_THREAD_CS_EXIT_CONDITIONAL(worker);
-}
-
-static void ucp_worker_vfs_info_show(void *obj, ucs_string_buffer_t *strb,
-                                     void *arg_ptr, uint64_t arg_u64)
-{
-    ucp_worker_h worker = obj;
-
-    UCS_ASYNC_BLOCK(&worker->async);
-    ucp_worker_info_str(worker, strb);
-    UCS_ASYNC_UNBLOCK(&worker->async);
 }
 
 static UCS_F_ALWAYS_INLINE ucp_ep_h
