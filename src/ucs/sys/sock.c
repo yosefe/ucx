@@ -293,6 +293,7 @@ ucs_status_t ucs_socket_server_init(const struct sockaddr *saddr, socklen_t sock
     uint16_t port;
 
     /* Create the server socket for accepting incoming connections */
+    fd     = -1; /* Suppress compiler warning */
     status = ucs_socket_create(saddr->sa_family, SOCK_STREAM, &fd);
     if (status != UCS_OK) {
         goto err;
