@@ -33,17 +33,18 @@ typedef struct {
 
 /**
  * Function to fill buffer @a strb with the information about @a obj.
- * 
+ *
  * @param [in]    obj  Pointer to the object to be described.
  * @param [inout] strb String buffer to be filled by the description of the
  *                     object @a obj.
  */
-typedef void (*ucs_vfs_file_show_cb_t)(void *obj, ucs_string_buffer_t *strb);
+typedef void (*ucs_vfs_file_show_cb_t)(void *obj, ucs_string_buffer_t *strb,
+                                       void *arg);
 
 
 /**
  * Function to update representation of object in VFS.
- * 
+ *
  * @param [in] obj Pointer to the object to be updated.
  */
 typedef void (*ucs_vfs_refresh_cb_t)(void *obj);
@@ -51,7 +52,7 @@ typedef void (*ucs_vfs_refresh_cb_t)(void *obj);
 
 /**
  * Function to process VFS nodes during reading of the parent directory.
- * 
+ *
  * @param [in] name Path to directory.
  * @param [in] arg  Pointer to the arguments.
  */
@@ -81,14 +82,14 @@ void ucs_vfs_obj_add_dir(void *parent_obj, void *obj, const char *rel_path, ...)
  * @param [in] text_cb  Callback method that generates the content of the file.
  * @param [in] rel_path Format string which specifies relative path to the file.
  */
-void ucs_vfs_obj_add_ro_file(void *obj, ucs_vfs_file_show_cb_t text_cb,
-                             const char *rel_path, ...) UCS_F_PRINTF(3, 4);
+void ucs_vfs_obj_add_ro_file(void *obj, ucs_vfs_file_show_cb_t text_cb, void *arg,
+                             const char *rel_path, ...) UCS_F_PRINTF(4, 5);
 
 
 /**
  * Recursively remove directories and files associated with the object and its
  * children from VFS. The method removes all empty parent sub-directories.
- * 
+ *
  * @param [in] obj Pointer to the object to be deleted with its children from
  *                 VFS.
  */
@@ -97,7 +98,7 @@ void ucs_vfs_obj_remove(void *obj);
 
 /**
  * Invalidate VFS node and set method to update the node.
- * 
+ *
  * @param [in] obj        Pointer to the object to be invalidate.
  * @param [in] refresh_cb Method to update the node associated with the object.
  */
@@ -112,7 +113,7 @@ void ucs_vfs_obj_set_dirty(void *obj, ucs_vfs_refresh_cb_t refresh_cb);
  *
  * @return UCS_OK          VFS node corresponding to specified path exists.
  *         UCS_ERR_NO_ELEM Otherwise.
- * 
+ *
  * @note The content of the file defined by ucs_vfs_file_show_cb_t of the node.
  *       The method initiates refresh of the node defined by
  *       ucs_vfs_refresh_cb_t of the node.
@@ -139,21 +140,31 @@ ucs_vfs_path_read_file(const char *path, ucs_string_buffer_t *strb);
 /**
  * Invoke callback @a dir_cb for children of VFS node corresponding to the
  * specified path.
- * 
+ *
  * @param [in] path        String wich specifies path to find the node in VFS.
  * @param [in] dir_cb      Callback method to be invoked for each child of the
  *                         VFS node.
  * @param [in] arg         Arguments to be passed to the callback method.
- * 
+ *
  * @return UCS_OK          VFS node corresponding to specified path exists and
  *                         the node is a directory.
  *         UCS_ERR_NO_ELEM Otherwise.
- * 
+ *
  * @note The method initiates refresh of the node defined by
  *       ucs_vfs_refresh_cb_t of the node.
  */
 ucs_status_t ucs_vfs_path_list_dir(const char *path,
                                    ucs_vfs_list_dir_cb_t dir_cb, void *arg);
+
+/**
+ * Show a 'uint64_t' counter
+ */
+void ucs_vfs_uint64_show(void *obj, ucs_string_buffer_t *strb, void *arg);
+
+/**
+ * Show an 'unsigned' counter
+ */
+void ucs_vfs_uint_show(void *obj, ucs_string_buffer_t *strb, void *arg);
 
 END_C_DECLS
 

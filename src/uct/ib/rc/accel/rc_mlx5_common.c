@@ -107,26 +107,28 @@ uct_rc_mlx5_iface_srq_set_seg(uct_rc_mlx5_iface_common_t *iface,
 
 /* Update resources and write doorbell record */
 static UCS_F_ALWAYS_INLINE void
-uct_rc_mlx5_iface_update_srq_res(uct_rc_iface_t *iface, uct_ib_mlx5_srq_t *srq,
-                                 uint16_t wqe_index, uint16_t count)
+uct_rc_mlx5_iface_update_srq_res(uct_rc_mlx5_iface_common_t *iface,
+                                 uct_ib_mlx5_srq_t *srq, uint16_t wqe_index,
+                                 uint16_t count)
 {
-    ucs_assert(iface->rx.srq.available >= count);
+    ucs_assert(iface->super.rx.srq.available >= count);
 
     if (count == 0) {
         return;
     }
 
-    srq->ready_idx              = wqe_index;
-    srq->sw_pi                 += count;
-    iface->rx.srq.available    -= count;
+
+    iface->counters.rx_post       += count;
+    srq->ready_idx                 = wqe_index;
+    srq->sw_pi                    += count;
+    iface->super.rx.srq.available -= count;
     ucs_memory_cpu_store_fence();
-    *srq->db                    = htonl(srq->sw_pi);
+    *srq->db = htonl(srq->sw_pi);
 }
 
 unsigned uct_rc_mlx5_iface_srq_post_recv(uct_rc_mlx5_iface_common_t *iface)
 {
     uct_ib_mlx5_srq_t *srq   = &iface->rx.srq;
-    uct_rc_iface_t *rc_iface = &iface->super;
     uct_ib_mlx5_srq_seg_t *seg;
     uint16_t count, wqe_index, next_index;
 
@@ -137,7 +139,7 @@ unsigned uct_rc_mlx5_iface_srq_post_recv(uct_rc_mlx5_iface_common_t *iface)
                       sizeof(struct mlx5_wqe_srq_next_seg));
 
     ucs_assert(UCS_CIRCULAR_COMPARE16(srq->ready_idx, <=, srq->free_idx));
-    ucs_assert(rc_iface->rx.srq.available > 0);
+    ucs_assert(iface->super.rx.srq.available > 0);
 
     wqe_index = srq->ready_idx;
     for (;;) {
@@ -161,7 +163,7 @@ unsigned uct_rc_mlx5_iface_srq_post_recv(uct_rc_mlx5_iface_common_t *iface)
     }
 
     count = wqe_index - srq->sw_pi;
-    uct_rc_mlx5_iface_update_srq_res(rc_iface, srq, wqe_index, count);
+    uct_rc_mlx5_iface_update_srq_res(iface, srq, wqe_index, count);
     ucs_assert(uct_ib_mlx5_srq_get_wqe(srq, srq->mask)->srq.next_wqe_index == 0);
     return count;
 }
@@ -169,12 +171,11 @@ unsigned uct_rc_mlx5_iface_srq_post_recv(uct_rc_mlx5_iface_common_t *iface)
 unsigned uct_rc_mlx5_iface_srq_post_recv_ll(uct_rc_mlx5_iface_common_t *iface)
 {
     uct_ib_mlx5_srq_t *srq     = &iface->rx.srq;
-    uct_rc_iface_t *rc_iface   = &iface->super;
     uct_ib_mlx5_srq_seg_t *seg = NULL;
     uint16_t count             = 0;
     uint16_t wqe_index, next_index;
 
-    ucs_assert(rc_iface->rx.srq.available > 0);
+    ucs_assert(iface->super.rx.srq.available > 0);
 
     wqe_index = srq->ready_idx;
     seg       = uct_ib_mlx5_srq_get_wqe(srq, wqe_index);
@@ -194,14 +195,14 @@ unsigned uct_rc_mlx5_iface_srq_post_recv_ll(uct_rc_mlx5_iface_common_t *iface)
         count++;
     }
 
-    uct_rc_mlx5_iface_update_srq_res(rc_iface, srq, wqe_index, count);
+    uct_rc_mlx5_iface_update_srq_res(iface, srq, wqe_index, count);
     return count;
 }
 
 void uct_rc_mlx5_iface_common_prepost_recvs(uct_rc_mlx5_iface_common_t *iface)
 {
     /* prepost recvs only if quota available (recvs were not preposted
-     * before) */ 
+     * before) */
     if (iface->super.rx.srq.quota == 0) {
         return;
     }
@@ -209,6 +210,10 @@ void uct_rc_mlx5_iface_common_prepost_recvs(uct_rc_mlx5_iface_common_t *iface)
     iface->super.rx.srq.available = iface->super.rx.srq.quota;
     iface->super.rx.srq.quota     = 0;
     uct_rc_mlx5_iface_srq_post_recv(iface);
+
+    if (iface->super.rx.srq.limit > 0) {
+        uct_rc_mlx5_devx_arm_rmp(&iface->rx.srq, iface->super.rx.srq.limit);
+    }
 }
 
 #define UCT_RC_MLX5_DEFINE_ATOMIC_LE_HANDLER(_bits) \

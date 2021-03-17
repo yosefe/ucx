@@ -214,6 +214,10 @@ uct_ib_device_async_event_dispatch(uct_ib_device_t *dev,
                     entry->wait_ctx->cbq, entry->wait_ctx->cb,
                     entry->wait_ctx, 0);
         }
+
+        if (entry->cb != NULL) {
+            entry->cb(entry->arg);
+        }
     }
     ucs_spin_unlock(&dev->async_event_lock);
 }
@@ -221,7 +225,9 @@ uct_ib_device_async_event_dispatch(uct_ib_device_t *dev,
 ucs_status_t
 uct_ib_device_async_event_register(uct_ib_device_t *dev,
                                    enum ibv_event_type event_type,
-                                   uint32_t resource_id)
+                                   uint32_t resource_id,
+                                   uct_ib_async_event_cb_t cb,
+                                   void *arg)
 {
     uct_ib_async_event_val_t *entry;
     uct_ib_async_event_t event;
@@ -243,6 +249,8 @@ uct_ib_device_async_event_register(uct_ib_device_t *dev,
     entry           = &kh_value(&dev->async_events_hash, iter);
     entry->wait_ctx = NULL;
     entry->flag     = 0;
+    entry->cb       = cb;
+    entry->arg      = arg;
     status          = UCS_OK;
 
 out:
@@ -418,6 +426,7 @@ void uct_ib_handle_async_event(uct_ib_device_t *dev, uct_ib_async_event_t *event
         snprintf(event_info, sizeof(event_info), "%s on SRQ %p",
                  ibv_event_type_str(event->event_type), event->cookie);
         level = UCS_LOG_LEVEL_DEBUG;
+        uct_ib_device_async_event_dispatch(dev, event);
         break;
     case IBV_EVENT_DEVICE_FATAL:
         snprintf(event_info, sizeof(event_info), "%s on port %d",

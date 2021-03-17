@@ -161,6 +161,10 @@ typedef struct uct_rc_iface_common_config {
     } tx;
 
     struct {
+        unsigned             srq_low_watermark;
+    } rx;
+
+    struct {
         int                  enable;
         double               hard_thresh;
         unsigned             wnd_size;
@@ -197,6 +201,7 @@ typedef struct uct_rc_iface_ops {
 typedef struct uct_rc_srq {
     unsigned                 available;
     unsigned                 quota;
+    unsigned                 limit;
 } uct_rc_srq_t;
 
 

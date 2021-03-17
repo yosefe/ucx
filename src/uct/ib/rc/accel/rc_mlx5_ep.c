@@ -548,7 +548,7 @@ ucs_status_t uct_rc_mlx5_ep_fence(uct_ep_h tl_ep, unsigned flags)
 void uct_rc_mlx5_ep_post_check(uct_ep_h tl_ep)
 {
     UCT_RC_MLX5_EP_DECL(tl_ep, iface, ep);
-    /* use this variable as dummy buffer to suppress compiler warning */ 
+    /* use this variable as dummy buffer to suppress compiler warning */
     uint64_t dummy = 0;
 
     uct_rc_mlx5_txqp_inline_post(iface, IBV_QPT_RC,
@@ -947,7 +947,8 @@ UCS_CLASS_INIT_FUNC(uct_rc_mlx5_ep_t, const uct_ep_params_t *params)
 
     status = uct_ib_device_async_event_register(&md->super.dev,
                                                 IBV_EVENT_QP_LAST_WQE_REACHED,
-                                                self->tx.wq.super.qp_num);
+                                                self->tx.wq.super.qp_num, NULL,
+                                                NULL);
     if (status != UCS_OK) {
         goto err;
     }

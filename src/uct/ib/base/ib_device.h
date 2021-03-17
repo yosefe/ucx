@@ -161,6 +161,8 @@ typedef struct uct_ib_device_spec {
 KHASH_TYPE(uct_ib_ah, struct ibv_ah_attr, struct ibv_ah*);
 
 
+typedef void (*uct_ib_async_event_cb_t)(void *arg);
+
 /**
  * IB async event descriptor.
  */
@@ -192,6 +194,8 @@ typedef struct uct_ib_async_event_wait {
 typedef struct {
     unsigned                  flag;             /* Event happened */
     uct_ib_async_event_wait_t *wait_ctx;        /* Waiting context */
+    uct_ib_async_event_cb_t   cb;
+    void                      *arg;
 } uct_ib_async_event_val_t;
 
 
@@ -407,7 +411,9 @@ int uct_ib_device_test_roce_gid_index(uct_ib_device_t *dev, uint8_t port_num,
 ucs_status_t
 uct_ib_device_async_event_register(uct_ib_device_t *dev,
                                    enum ibv_event_type event_type,
-                                   uint32_t resource_id);
+                                   uint32_t resource_id,
+                                   uct_ib_async_event_cb_t cb,
+                                   void *arg);
 
 ucs_status_t
 uct_ib_device_async_event_wait(uct_ib_device_t *dev,

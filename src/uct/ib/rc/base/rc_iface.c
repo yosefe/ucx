@@ -95,6 +95,10 @@ ucs_config_field_t uct_rc_iface_common_config_table[] = {
    "Otherwise poll TX completions only if no RX completions found.",
    ucs_offsetof(uct_rc_iface_common_config_t, tx.poll_always), UCS_CONFIG_TYPE_BOOL},
 
+  {"SRQ_LOW_WATERMARK", "0",
+   "Print a warning if SRQ has less than this number of posted receives",
+   ucs_offsetof(uct_rc_iface_common_config_t, rx.srq_low_watermark), UCS_CONFIG_TYPE_ULUNITS},
+
   {NULL}
 };
 
@@ -531,6 +535,7 @@ UCS_CLASS_INIT_FUNC(uct_rc_iface_t, uct_rc_iface_ops_t *ops, uct_md_h md,
     self->tx.cq_available       = init_attr->cq_len[UCT_IB_DIR_TX] - 1;
     self->rx.srq.available      = 0;
     self->rx.srq.quota          = 0;
+    self->rx.srq.limit          = config->rx.srq_low_watermark;
     self->config.tx_qp_len      = config->super.tx.queue_len;
     self->config.tx_min_sge     = config->super.tx.min_sge;
     self->config.tx_min_inline  = config->super.tx.min_inline;

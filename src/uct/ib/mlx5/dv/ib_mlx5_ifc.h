@@ -71,6 +71,7 @@ enum {
     UCT_IB_MLX5_CMD_OP_2ERR_QP                 = 0x507,
     UCT_IB_MLX5_CMD_OP_2RST_QP                 = 0x50a,
     UCT_IB_MLX5_CMD_OP_CREATE_RMP              = 0x90c,
+    UCT_IB_MLX5_CMD_OP_MODIFY_RMP              = 0x90d,
     UCT_IB_MLX5_CMD_OP_CREATE_DCT              = 0x710,
     UCT_IB_MLX5_CMD_OP_DRAIN_DCT               = 0x712,
     UCT_IB_MLX5_CMD_OP_CREATE_XRQ              = 0x717,
@@ -1068,6 +1069,42 @@ struct uct_ib_mlx5_create_rmp_in_bits {
     struct uct_ib_mlx5_rmpc_bits rmp_context;
 };
 
+struct uct_ib_mlx5_modify_rmp_out_bits {
+    uint8_t status[0x8];
+    uint8_t reserved_at_8[0x18];
+
+    uint8_t syndrome[0x20];
+
+    uint8_t reserved_at_40[0x40];
+};
+
+struct uct_ib_mlx5_rmp_bitmask_bits {
+    uint8_t reserved_at_0[0x20];
+
+    uint8_t reserved_at_20[0x1f];
+    uint8_t lwm[0x1];
+};
+
+struct uct_ib_mlx5_modify_rmp_in_bits {
+    uint8_t                             opcode[0x10];
+    uint8_t                             uid[0x10];
+
+    uint8_t                             reserved_at_20[0x10];
+    uint8_t                             op_mod[0x10];
+
+    uint8_t                             rmp_state[0x4];
+    uint8_t                             reserved_at_44[0x4];
+    uint8_t                             rmpn[0x18];
+
+    uint8_t                             reserved_at_60[0x20];
+
+    struct uct_ib_mlx5_rmp_bitmask_bits bitmask;
+
+    uint8_t                             reserved_at_c0[0x40];
+
+    struct uct_ib_mlx5_rmpc_bits        rmp_context;
+};
+
 enum {
     UCT_IB_MLX5_ADS_STAT_RATE_NO_LIMIT  = 0x0,
     UCT_IB_MLX5_ADS_STAT_RATE_2_5GBPS   = 0x7,
@@ -1502,7 +1539,8 @@ struct uct_ib_mlx5_modify_qp_in_bits {
 };
 
 enum {
-    UCT_IB_MLX5_EVENT_TYPE_SRQ_LAST_WQE       = 0x13
+    UCT_IB_MLX5_EVENT_TYPE_SRQ_LAST_WQE       = 0x13,
+    UCT_IB_MLX5_EVENT_TYPE_SRQ_LIMIT          = 0x14
 };
 
 #endif

@@ -315,7 +315,7 @@ public:
         init_qp(*m_e);
 
         status = uct_ib_device_async_event_register(dev(*m_e),
-                IBV_EVENT_QP_LAST_WQE_REACHED, m_qp->qp_num());
+                IBV_EVENT_QP_LAST_WQE_REACHED, m_qp->qp_num(), NULL, NULL);
         ASSERT_UCS_OK(status);
 
         ret = uct_test_event_base::wait_for_last_wqe_event(*m_e, before,

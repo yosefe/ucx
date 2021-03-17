@@ -15,6 +15,7 @@
 #include <uct/ib/base/ib_device.h>
 #include <uct/base/uct_md.h>
 #include <ucs/arch/cpu.h>
+#include <ucs/vfs/base/vfs_obj.h>
 #include <ucs/debug/log.h>
 
 #include "rc_mlx5.inl"
@@ -84,6 +85,7 @@ void uct_rc_mlx5_iface_check_rx_completion(uct_rc_mlx5_iface_common_t *iface,
         /* Release the aborted segment */
         wqe_ctr = ntohs(ecqe->wqe_counter);
         seg     = uct_ib_mlx5_srq_get_wqe(&iface->rx.srq, wqe_ctr);
+        ++iface->counters.rx_poll;
         ++cq->cq_ci;
         /* TODO: Check if ib_stride_index valid for error CQE */
         uct_rc_mlx5_iface_release_srq_seg(iface, seg, cqe, wqe_ctr, UCS_OK,
@@ -265,7 +267,7 @@ ucs_status_t uct_rc_mlx5_iface_create_qp(uct_rc_mlx5_iface_common_t *iface,
             return status;
         }
 
-        status = uct_rc_mlx5_devx_iface_subscribe_event(iface, qp,
+        status = uct_rc_mlx5_devx_iface_subscribe_event(iface, qp->devx.obj,
                 UCT_IB_MLX5_EVENT_TYPE_SRQ_LAST_WQE,
                 IBV_EVENT_QP_LAST_WQE_REACHED, qp->qp_num);
         if (status != UCS_OK) {
@@ -588,6 +590,14 @@ int uct_rc_mlx5_iface_is_reachable(const uct_iface_h tl_iface,
     return uct_ib_iface_is_reachable(tl_iface, dev_addr, iface_addr);
 }
 
+static void uct_rc_mlx5_iface_srq_limit_reached(void *arg)
+{
+    uct_rc_mlx5_iface_common_t *iface = arg;
+
+    ucs_atomic_add64(&iface->counters.low_watermark, 1);
+    uct_rc_mlx5_devx_arm_rmp(&iface->rx.srq, iface->super.rx.srq.limit);
+}
+
 UCS_CLASS_INIT_FUNC(uct_rc_mlx5_iface_common_t,
                     uct_rc_iface_ops_t *ops,
                     uct_md_h tl_md, uct_worker_h worker,
@@ -622,6 +632,8 @@ UCS_CLASS_INIT_FUNC(uct_rc_mlx5_iface_common_t,
     if (!UCT_RC_MLX5_MP_ENABLED(self)) {
         self->tm.am_desc.offset = self->super.super.config.rx_headroom_offset;
     }
+
+    memset(&self->counters, 0, sizeof(self->counters));
 
     status = uct_ib_mlx5_iface_select_sl(&self->super.super,
                                          &mlx5_config->super,
@@ -719,6 +731,37 @@ UCS_CLASS_INIT_FUNC(uct_rc_mlx5_iface_common_t,
         self->super.config.atomic64_ext_handler = uct_rc_mlx5_common_atomic64_le_handler;
     }
 
+    uct_ib_device_async_event_register(&md->super.dev,
+                                       IBV_EVENT_SRQ_LIMIT_REACHED,
+                                       self->rx.srq.srq_num,
+                                       uct_rc_mlx5_iface_srq_limit_reached,
+                                       self);
+
+    ucs_info("iface %p using srqn 0x%x cqn 0x%x 0x%x", self,
+             self->rx.srq.srq_num, self->cq[UCT_IB_DIR_RX].cq_num,
+             self->cq[UCT_IB_DIR_TX].cq_num);
+
+    status = uct_rc_mlx5_devx_iface_subscribe_event(
+            self, self->rx.srq.devx.obj, UCT_IB_MLX5_EVENT_TYPE_SRQ_LIMIT,
+            IBV_EVENT_SRQ_LIMIT_REACHED, self->rx.srq.srq_num);
+    if (status != UCS_OK) {
+        ucs_warn("failed to subscribe devx event");
+    }
+
+    ucs_vfs_obj_add_dir(NULL, self, "uct/iface/%p", self);
+    ucs_vfs_obj_add_ro_file(self, ucs_vfs_uint64_show, &self->counters.low_watermark,
+                            "counters/low_watermark");
+    ucs_vfs_obj_add_ro_file(self, ucs_vfs_uint64_show, &self->counters.rx_post,
+                            "counters/rx_post");
+    ucs_vfs_obj_add_ro_file(self, ucs_vfs_uint64_show, &self->counters.rx_poll,
+                            "counters/rx_poll");
+    ucs_vfs_obj_add_ro_file(self, ucs_vfs_uint_show, &self->super.rx.srq.available,
+                            "srq/available");
+    ucs_vfs_obj_add_ro_file(self, ucs_vfs_uint_show, &self->super.rx.srq.quota,
+                            "srq/quota");
+    ucs_vfs_obj_add_ro_file(self, ucs_vfs_uint_show, &self->super.rx.srq.limit,
+                            "srq/limit");
+
     return UCS_OK;
 
 cleanup_dm:
@@ -732,6 +775,8 @@ cleanup_stats:
 
 static UCS_CLASS_CLEANUP_FUNC(uct_rc_mlx5_iface_common_t)
 {
+    ucs_vfs_obj_remove(self);
+
     uct_rc_iface_cleanup_eps(&self->super);
 #if HAVE_DEVX
     uct_rc_mlx5_devx_iface_free_events(self);

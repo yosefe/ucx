@@ -42,6 +42,7 @@ struct ucs_vfs_node {
     ucs_vfs_node_t         *parent;
     ucs_list_link_t        children;
     ucs_vfs_file_show_cb_t text_cb;
+    void                   *arg;
     ucs_vfs_refresh_cb_t   refresh_cb;
     ucs_list_link_t        list;
     char                   path[0];
@@ -271,11 +272,17 @@ static void ucs_vfs_refresh_dir(ucs_vfs_node_t *node)
 static void
 ucs_vfs_read_ro_file(ucs_vfs_node_t *node, ucs_string_buffer_t *strb)
 {
-    ucs_assert(ucs_vfs_check_node(node, UCS_VFS_NODE_TYPE_RO_FILE) == 1);
+    ucs_vfs_node_t *obj_owner_node;
+
+    ucs_assert(ucs_vfs_check_node(node, UCS_VFS_NODE_TYPE_RO_FILE));
 
     ucs_spin_unlock(&ucs_vfs_obj_context.lock);
 
-    node->text_cb(node->parent->obj, strb);
+    for (obj_owner_node = node; obj_owner_node->obj == NULL;
+         obj_owner_node = obj_owner_node->parent)
+        ;
+
+    node->text_cb(obj_owner_node->obj, strb, node->arg);
 
     ucs_spin_lock(&ucs_vfs_obj_context.lock);
 }
@@ -304,7 +311,7 @@ void ucs_vfs_obj_add_dir(void *parent_obj, void *obj, const char *rel_path, ...)
     ucs_spin_unlock(&ucs_vfs_obj_context.lock);
 }
 
-void ucs_vfs_obj_add_ro_file(void *obj, ucs_vfs_file_show_cb_t text_cb,
+void ucs_vfs_obj_add_ro_file(void *obj, ucs_vfs_file_show_cb_t text_cb, void *arg,
                              const char *rel_path, ...)
 {
     ucs_vfs_node_t *node;
@@ -318,6 +325,7 @@ void ucs_vfs_obj_add_ro_file(void *obj, ucs_vfs_file_show_cb_t text_cb,
 
     if (node != NULL) {
         node->text_cb = text_cb;
+        node->arg     = arg;
     }
 
     ucs_spin_unlock(&ucs_vfs_obj_context.lock);
@@ -457,6 +465,20 @@ out_unlock:
     ucs_spin_unlock(&ucs_vfs_obj_context.lock);
 
     return status;
+}
+
+void ucs_vfs_uint64_show(void *obj, ucs_string_buffer_t *strb, void *arg)
+{
+    const uint64_t *counter = arg;
+
+    ucs_string_buffer_appendf(strb, "%lu\n", *counter);
+}
+
+void ucs_vfs_uint_show(void *obj, ucs_string_buffer_t *strb, void *arg)
+{
+    const unsigned *counter = arg;
+
+    ucs_string_buffer_appendf(strb, "%u\n", *counter);
 }
 
 UCS_STATIC_INIT

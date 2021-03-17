@@ -426,6 +426,13 @@ typedef struct uct_rc_mlx5_iface_common {
         uint8_t                        atomic_fence_flag;
         uct_rc_mlx5_srq_topo_t         srq_topo;
     } config;
+
+    struct {
+        uint64_t low_watermark;
+        uint64_t rx_post;
+        uint64_t rx_poll;
+    } counters;
+
     UCS_STATS_NODE_DECLARE(stats)
 } uct_rc_mlx5_iface_common_t;
 
@@ -691,6 +698,8 @@ uct_rc_mlx5_devx_cleanup_srq(uct_ib_mlx5_md_t *md, uct_ib_mlx5_srq_t *srq)
 }
 #endif
 
+int uct_rc_mlx5_devx_arm_rmp(uct_ib_mlx5_srq_t *srq, uint16_t lwm);
+
 void uct_rc_mlx5_tag_cleanup(uct_rc_mlx5_iface_common_t *iface);
 
 ucs_status_t uct_rc_mlx5_iface_common_tag_init(uct_rc_mlx5_iface_common_t *iface);
@@ -746,7 +755,7 @@ ucs_status_t uct_rc_mlx5_devx_iface_init_events(uct_rc_mlx5_iface_common_t *ifac
 void uct_rc_mlx5_devx_iface_free_events(uct_rc_mlx5_iface_common_t *iface);
 
 ucs_status_t uct_rc_mlx5_devx_iface_subscribe_event(uct_rc_mlx5_iface_common_t *iface,
-                                                    uct_ib_mlx5_qp_t *qp,
+                                                    struct mlx5dv_devx_obj *obj,
                                                     unsigned event_num,
                                                     enum ibv_event_type event_type,
                                                     unsigned event_data);

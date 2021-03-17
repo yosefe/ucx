@@ -17,7 +17,7 @@
 #include <uct/ib/mlx5/dv/ib_mlx5_ifc.h>
 
 ucs_status_t uct_rc_mlx5_devx_iface_subscribe_event(uct_rc_mlx5_iface_common_t *iface,
-                                                    uct_ib_mlx5_qp_t *qp,
+                                                    struct mlx5dv_devx_obj *obj, /* uct_ib_mlx5_qp_t *qp, */
                                                     unsigned event_num,
                                                     enum ibv_event_type event_type,
                                                     unsigned event_data)
@@ -33,7 +33,7 @@ ucs_status_t uct_rc_mlx5_devx_iface_subscribe_event(uct_rc_mlx5_iface_common_t *
 
     event  = event_num;
     cookie = event_type | ((uint64_t)event_data << UCT_IB_MLX5_DEVX_EVENT_DATA_SHIFT);
-    ret    = mlx5dv_devx_subscribe_devx_event(iface->event_channel, qp->devx.obj,
+    ret    = mlx5dv_devx_subscribe_devx_event(iface->event_channel, obj,
                                               sizeof(event), &event, cookie);
     if (ret) {
         ucs_error("mlx5dv_devx_subscribe_devx_event() failed: %m");
@@ -68,6 +68,9 @@ uct_rc_mlx5_devx_iface_event_handler(int fd, ucs_event_set_types_t events,
     switch (event.event_type) {
     case IBV_EVENT_QP_LAST_WQE_REACHED:
         event.qp_num = devx_event.cookie >> UCT_IB_MLX5_DEVX_EVENT_DATA_SHIFT;
+        break;
+    case IBV_EVENT_SRQ_LIMIT_REACHED:
+        event.resource_id = devx_event.cookie >> UCT_IB_MLX5_DEVX_EVENT_DATA_SHIFT;
         break;
     default:
         ucs_warn("unexpected async event: %d", event.event_type);
@@ -268,6 +271,48 @@ err_cleanup_srq:
     return status;
 }
 
+int uct_rc_mlx5_devx_arm_rmp(uct_ib_mlx5_srq_t *srq, uint16_t lwm)
+{
+    char in[UCT_IB_MLX5DV_ST_SZ_BYTES(modify_rmp_in)]   = {};
+    char out[UCT_IB_MLX5DV_ST_SZ_BYTES(modify_rmp_out)] = {};
+    void *rmpc;
+    void *wq;
+    void *bitmask;
+    const void *o;
+    int ret;
+
+    rmpc    = UCT_IB_MLX5DV_ADDR_OF(modify_rmp_in, in, rmp_context);
+    bitmask = UCT_IB_MLX5DV_ADDR_OF(modify_rmp_in, in, bitmask);
+    wq      = UCT_IB_MLX5DV_ADDR_OF(rmpc, rmpc, wq);
+
+    UCT_IB_MLX5DV_SET(modify_rmp_in, in, rmp_state, UCT_IB_MLX5_RMPC_STATE_RDY);
+    UCT_IB_MLX5DV_SET(modify_rmp_in, in, rmpn, srq->srq_num);
+    UCT_IB_MLX5DV_SET(wq, wq, lwm, lwm);
+    UCT_IB_MLX5DV_SET(rmp_bitmask, bitmask, lwm, 1);
+    UCT_IB_MLX5DV_SET(rmpc, rmpc, state, UCT_IB_MLX5_RMPC_STATE_RDY);
+    UCT_IB_MLX5DV_SET(modify_rmp_in, in, opcode, UCT_IB_MLX5_CMD_OP_MODIFY_RMP);
+
+again:
+    ret = mlx5dv_devx_obj_modify(srq->devx.obj, in, sizeof(in), out,
+                                 sizeof(out));
+    if (ret) {
+        if (errno == EBUSY) {
+            ucs_debug("RMP arm busy, retry..");
+            usleep(10);
+            goto again;
+        }
+
+        ucs_error("mlx5dv_devx_obj_modify(RMP) failed, syndrome %x: %m",
+                  UCT_IB_MLX5DV_GET(modify_rmp_out, out, syndrome));
+        return UCS_ERR_IO_ERROR;
+    }
+
+    o = out;
+    ucs_debug("RMP 0x%x armed to limit %u status %u", srq->srq_num, lwm,
+             UCT_IB_MLX5DV_GET(modify_rmp_out, o, status));
+    return UCS_OK;
+}
+
 ucs_status_t uct_rc_mlx5_devx_init_rx(uct_rc_mlx5_iface_common_t *iface,
                                       const uct_rc_iface_common_config_t *config)
 {
@@ -308,6 +353,11 @@ ucs_status_t uct_rc_mlx5_devx_init_rx(uct_rc_mlx5_iface_common_t *iface,
 
     iface->rx.srq.srq_num = UCT_IB_MLX5DV_GET(create_rmp_out, out, rmpn);
 
+    ucs_debug("RMP 0x%x created, log_wq_sz %d cqn 0x%x 0x%x",
+              iface->rx.srq.srq_num,
+              UCT_IB_MLX5DV_GET(wq, UCT_IB_MLX5DV_ADDR_OF(rmpc, rmpc, wq),
+                                log_wq_sz),
+              iface->cq[UCT_IB_DIR_RX].cq_num, iface->cq[UCT_IB_DIR_TX].cq_num);
     return UCS_OK;
 
 err_cleanup_srq:

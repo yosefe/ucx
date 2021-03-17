@@ -600,7 +600,7 @@ UCS_CLASS_INIT_FUNC(uct_rc_verbs_ep_t, const uct_ep_params_t *params)
 
     status = uct_ib_device_async_event_register(&md->dev,
                                                 IBV_EVENT_QP_LAST_WQE_REACHED,
-                                                self->qp->qp_num);
+                                                self->qp->qp_num, NULL, NULL);
     if (status != UCS_OK) {
         goto err_qp_cleanup;
     }
