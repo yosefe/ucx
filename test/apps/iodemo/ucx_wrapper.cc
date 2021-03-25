@@ -511,9 +511,13 @@ void UcxContext::destroy_worker()
 unsigned UcxConnection::_num_instances = 0;
 
 UcxConnection::UcxConnection(UcxContext &context) :
-    _context(context), _establish_cb(NULL),
-    _conn_id(UcxContext::get_next_conn_id()), _remote_conn_id(0), _ep(NULL),
-    _close_request(NULL), _ucx_status(UCS_INPROGRESS)
+    _context(context),
+    _establish_cb(NULL),
+    _conn_id(UcxContext::get_next_conn_id()),
+    _remote_conn_id(0),
+    _ep(NULL),
+    _close_request(NULL),
+    _ucx_status(UCS_INPROGRESS)
 {
     ++_num_instances;
     struct sockaddr_in in_addr = {0};
