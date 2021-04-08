@@ -358,7 +358,7 @@ protected:
         }
 
     public:
-        static const size_t    _npos = SIZE_MAX;
+        static const size_t    _npos = static_cast<size_t>(-1);
 
     private:
         std::vector<Buffer*>   _iov;
