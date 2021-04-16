@@ -117,6 +117,7 @@ static uct_iface_ops_t uct_tcp_sockcm_iface_ops = {
     .ep_pending_purge         = (uct_ep_pending_purge_func_t)ucs_empty_function,
     .ep_disconnect            = uct_tcp_sockcm_ep_disconnect,
     .ep_destroy               = UCS_CLASS_DELETE_FUNC_NAME(uct_tcp_sockcm_ep_t),
+    .ep_enable_keep_alive     = (uct_ep_enable_keep_alive_func_t)ucs_empty_function_return_unsupported,
     .ep_put_short             = (uct_ep_put_short_func_t)ucs_empty_function_return_unsupported,
     .ep_put_bcopy             = (uct_ep_put_bcopy_func_t)ucs_empty_function_return_unsupported,
     .ep_get_bcopy             = (uct_ep_get_bcopy_func_t)ucs_empty_function_return_unsupported,

@@ -560,6 +560,7 @@ static uct_cm_ops_t uct_rdmacm_cm_ops = {
 static uct_iface_ops_t uct_rdmacm_cm_iface_ops = {
     .ep_pending_purge         = ucs_empty_function,
     .ep_disconnect            = uct_rdmacm_cm_ep_disconnect,
+    .ep_enable_keep_alive     = (uct_ep_enable_keep_alive_func_t)ucs_empty_function_return_unsupported,
     .cm_ep_conn_notify        = uct_rdmacm_cm_ep_conn_notify,
     .ep_query                 = uct_rdmacm_ep_query,
     .ep_destroy               = UCS_CLASS_DELETE_FUNC_NAME(uct_rdmacm_cm_ep_t),
