@@ -125,6 +125,8 @@ ucs_status_t uct_rc_mlx5_ep_connect_to_ep(uct_ep_h tl_ep,
                                           const uct_device_addr_t *dev_addr,
                                           const uct_ep_addr_t *ep_addr);
 
+ucs_status_t uct_rc_mlx5_ep_enable_keep_alive(uct_ep_h tl_ep, int enable);
+
 unsigned uct_rc_mlx5_iface_progress(void *arg);
 
 ucs_status_t uct_rc_mlx5_ep_tag_eager_short(uct_ep_h tl_ep, uct_tag_t tag,

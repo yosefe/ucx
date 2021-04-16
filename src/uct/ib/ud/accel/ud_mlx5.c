@@ -756,6 +756,7 @@ static uct_ud_iface_ops_t uct_ud_mlx5_iface_ops = {
     .ep_destroy               = uct_ud_ep_disconnect ,
     .ep_get_address           = uct_ud_ep_get_address,
     .ep_connect_to_ep         = uct_ud_mlx5_ep_connect_to_ep,
+    .ep_enable_keep_alive     = (uct_ep_enable_keep_alive_func_t)ucs_empty_function_return_unsupported,
     .iface_flush              = uct_ud_iface_flush,
     .iface_fence              = uct_base_iface_fence,
     .iface_progress_enable    = uct_ud_iface_progress_enable,

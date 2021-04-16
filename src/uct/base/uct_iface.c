@@ -367,6 +367,7 @@ ucs_status_t uct_set_ep_failed(ucs_class_t *cls, uct_ep_h tl_ep,
     ops->ep_fence            = (uct_ep_fence_func_t)ucs_empty_function_return_ep_timeout;
     ops->ep_check            = (uct_ep_check_func_t)ucs_empty_function_return_ep_timeout;
     ops->ep_connect_to_ep    = (uct_ep_connect_to_ep_func_t)ucs_empty_function_return_ep_timeout;
+    ops->ep_enable_keep_alive= (uct_ep_enable_keep_alive_func_t)ucs_empty_function_return_ep_timeout,
     ops->ep_query            = (uct_ep_query_func_t)ucs_empty_function_return_ep_timeout;
     ops->ep_destroy          = uct_ep_failed_destroy;
     ops->ep_get_address      = (uct_ep_get_address_func_t)ucs_empty_function_return_ep_timeout;
@@ -556,6 +557,11 @@ ucs_status_t uct_ep_connect_to_ep(uct_ep_h ep, const uct_device_addr_t *dev_addr
                                   const uct_ep_addr_t *ep_addr)
 {
     return ep->iface->ops.ep_connect_to_ep(ep, dev_addr, ep_addr);
+}
+
+ucs_status_t uct_ep_enable_keep_alive(uct_ep_h ep, int enable)
+{
+    return ep->iface->ops.ep_enable_keep_alive(ep, enable);
 }
 
 ucs_status_t uct_cm_client_ep_conn_notify(uct_ep_h ep)
