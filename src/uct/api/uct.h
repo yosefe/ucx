@@ -2065,6 +2065,17 @@ ucs_status_t uct_ep_connect_to_ep(uct_ep_h ep, const uct_device_addr_t *dev_addr
 
 
 /**
+ * @ingroup UCT_RESOURCE
+ * @brief enable/disable keep alive protocol on the endpoint.
+ *
+ * @param [in] ep           Endpoint to enable keep alive on.
+ * @param [in] enable       1 - enable, 0 - disable keep alive
+ * @return UCS_OK               In case of success
+ *         UCS_ERR_UNSUPPORTED  If transport does not support keep alive
+ */
+ucs_status_t uct_ep_enable_keep_alive(uct_ep_h ep, int enable);
+
+/**
  * @ingroup UCT_MD
  * @brief Query for memory domain attributes.
  *

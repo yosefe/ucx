@@ -230,6 +230,8 @@ typedef ucs_status_t (*uct_ep_connect_to_ep_func_t)(uct_ep_h ep,
                                                     const uct_device_addr_t *dev_addr,
                                                     const uct_ep_addr_t *ep_addr);
 
+typedef ucs_status_t (*uct_ep_enable_keep_alive_func_t)(uct_ep_h ep, int enable);
+
 typedef ucs_status_t (*uct_iface_accept_func_t)(uct_iface_h iface,
                                                 uct_conn_request_h conn_request);
 
@@ -341,6 +343,7 @@ typedef struct uct_iface_ops {
     uct_ep_destroy_func_t               ep_destroy;
     uct_ep_get_address_func_t           ep_get_address;
     uct_ep_connect_to_ep_func_t         ep_connect_to_ep;
+    uct_ep_enable_keep_alive_func_t     ep_enable_keep_alive;
     uct_iface_accept_func_t             iface_accept;
     uct_iface_reject_func_t             iface_reject;
 

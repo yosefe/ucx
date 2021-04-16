@@ -701,8 +701,15 @@ ucs_status_t uct_rc_mlx5_ep_connect_to_ep(uct_ep_h tl_ep,
     }
 
     ep->atomic_mr_offset = uct_ib_md_atomic_offset(rc_addr->atomic_mr_id);
-    ep->connected        = 1;
 
+    return UCS_OK;
+}
+
+ucs_status_t uct_rc_mlx5_ep_enable_keep_alive(uct_ep_h tl_ep, int enable)
+{
+    uct_rc_mlx5_ep_t *rc_mlx5_ep = ucs_derived_of(tl_ep, uct_rc_mlx5_ep_t);
+
+    rc_mlx5_ep->connected = enable;
     return UCS_OK;
 }
 
