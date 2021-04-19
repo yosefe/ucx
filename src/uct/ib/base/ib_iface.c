@@ -1094,7 +1094,7 @@ UCS_CLASS_INIT_FUNC(uct_ib_iface_t, uct_ib_iface_ops_t *ops, uct_md_h md,
         goto err_destroy_comp_channel;
     }
 
-    inl = config->rx.inl;
+    inl = config->tx.inl_resp;
     status = uct_ib_iface_create_cq(self, init_attr->tx_cq_len, &inl,
                                     preferred_cpu, init_attr->flags,
                                     &self->cq[UCT_IB_DIR_TX]);

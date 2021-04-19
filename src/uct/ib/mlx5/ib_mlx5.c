@@ -79,7 +79,7 @@ ucs_status_t uct_ib_mlx5_create_cq(struct ibv_context *context, int cqe,
     }
 
     *cq_p = cq;
-    *inl  = dv_attr.cqe_size / 2;
+    *inl  = (*inl > 0) ? (dv_attr.cqe_size / 2) : 0;
     return UCS_OK;
 #else
     return uct_ib_verbs_create_cq(context, cqe, channel, comp_vector,
