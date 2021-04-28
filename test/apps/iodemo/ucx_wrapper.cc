@@ -14,6 +14,7 @@
 #include <sys/types.h>
 
 #include <unistd.h>
+#include <algorithm>
 #include <limits>
 
 struct ucx_request {
@@ -87,6 +88,21 @@ void UcxContext::UcxAcceptCallback::operator()(ucs_status_t status)
         _context.dispatch_connection_accepted(&_connection);
     }
 
+    delete this;
+}
+
+UcxContext::UcxDisconnectCallback::UcxDisconnectCallback(UcxConnection &conn)
+    : _conn(&conn)
+{
+}
+
+UcxContext::UcxDisconnectCallback::~UcxDisconnectCallback()
+{
+    delete _conn;
+}
+
+void UcxContext::UcxDisconnectCallback::operator()(ucs_status_t status)
+{
     delete this;
 }
 
@@ -178,6 +194,7 @@ void UcxContext::progress()
     progress_timed_out_conns();
     progress_conn_requests();
     progress_failed_connections();
+    progress_disconnected_connections();
 }
 
 void UcxContext::memory_pin_stats(memory_pin_stats_t *stats)
@@ -371,6 +388,19 @@ void UcxContext::progress_failed_connections()
     }
 }
 
+void UcxContext::progress_disconnected_connections()
+{
+    std::list<UcxConnection *>::iterator it = _disconnecting_conns.begin();
+    while (it != _disconnecting_conns.end()) {
+        UcxConnection *conn = *it;
+        if (conn->disconnect_progress()) {
+            it = _disconnecting_conns.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
 UcxContext::wait_status_t
 UcxContext::wait_completion(ucs_status_ptr_t status_ptr, const char *title,
                             double timeout)
@@ -446,6 +476,14 @@ void UcxContext::remove_connection_inprogress(UcxConnection *conn)
     }
 }
 
+void UcxContext::move_connection_to_disconnecting(UcxConnection *conn)
+{
+    remove_connection(conn);
+    assert(std::find(_disconnecting_conns.begin(), _disconnecting_conns.end(),
+                     conn) == _disconnecting_conns.end());
+    _disconnecting_conns.push_back(conn);
+}
+
 void UcxContext::dispatch_connection_accepted(UcxConnection* conn)
 {
 }
@@ -467,14 +505,21 @@ void UcxContext::destroy_connections()
     }
 
     while (!_conns_in_progress.empty()) {
-        delete _conns_in_progress.begin()->second;
+        UcxConnection &conn = *_conns_in_progress.begin()->second;
         _conns_in_progress.erase(_conns_in_progress.begin());
+        conn.disconnect(new UcxDisconnectCallback(conn));
     }
 
     UCX_LOG << "destroy_connections";
     while (!_conns.empty()) {
-        // UcxConnection destructor removes itself from _conns map
-        delete _conns.begin()->second;
+        UcxConnection &conn = *_conns.begin()->second;
+        _conns.erase(_conns.begin());
+        conn.disconnect(new UcxDisconnectCallback(conn));
+    }
+
+    while (!_disconnecting_conns.empty()) {
+        ucp_worker_progress(_worker);
+        progress_disconnected_connections();
     }
 }
 
@@ -513,7 +558,8 @@ unsigned UcxConnection::_num_instances = 0;
 UcxConnection::UcxConnection(UcxContext &context) :
     _context(context),
     _establish_cb(NULL),
-    _conn_id(UcxContext::get_next_conn_id()),
+    _disconnect_cb(NULL),
+    _conn_id(context.get_next_conn_id()),
     _remote_conn_id(0),
     _ep(NULL),
     _close_request(NULL),
@@ -529,33 +575,13 @@ UcxConnection::UcxConnection(UcxContext &context) :
 
 UcxConnection::~UcxConnection()
 {
-    UCX_CONN_LOG << "destroying, ep is " << _ep;
-    print_addresses();
-
-    _context.remove_connection(this);
-    cancel_all();
-
-    // if _ep is NULL, connection was closed and removed by error handler
-    if (_ep != NULL) {
-        ep_close(UCP_EP_CLOSE_MODE_FORCE);
-    }
-
-    if (_close_request) {
-        _context.wait_completion(_close_request, "ep close");
-    }
-
     /* establish cb must be destroyed earlier since it accesses
      * the connection */
     assert(_establish_cb == NULL);
-
-    // wait until all requests are completed
-    if (!ucs_list_is_empty(&_all_requests)) {
-        UCX_CONN_LOG << "waiting for " << ucs_list_length(&_all_requests) <<
-                        " uncompleted requests";
-    }
-    while (!ucs_list_is_empty(&_all_requests)) {
-        ucp_worker_progress(_context.worker());
-    }
+    assert(_disconnect_cb == NULL);
+    assert(_ep == NULL);
+    assert(ucs_list_is_empty(&_all_requests));
+    assert(!UCS_PTR_IS_PTR(_close_request));
 
     UCX_CONN_LOG << "released";
     --_num_instances;
@@ -597,6 +623,48 @@ void UcxConnection::accept(ucp_conn_request_h conn_req, UcxCallback *callback)
     ep_params.field_mask   = UCP_EP_PARAM_FIELD_CONN_REQUEST;
     ep_params.conn_request = conn_req;
     connect_common(ep_params, callback);
+}
+
+void UcxConnection::disconnect(UcxCallback *callback)
+{
+    /* establish cb must be destroyed earlier since it accesses
+     * the connection */
+    assert(_establish_cb == NULL);
+    assert(_disconnect_cb == NULL);
+    assert(_ep != NULL);
+
+    UCX_CONN_LOG << "destroying, ep is " << _ep;
+
+    _disconnect_cb = callback;
+    if (ucs_list_is_empty(&_all_requests)) {
+        ep_close(UCP_EP_CLOSE_MODE_FORCE);
+        _context.move_connection_to_disconnecting(this);
+    } else {
+        cancel_all();
+        ep_close(UCP_EP_CLOSE_MODE_FORCE);
+    }
+}
+
+bool UcxConnection::disconnect_progress()
+{
+    assert(_ep == NULL);
+    assert(_disconnect_cb != NULL);
+
+    if (UCS_PTR_IS_PTR(_close_request)) {
+        if (ucp_request_check_status(_close_request) == UCS_INPROGRESS) {
+            return false;
+        } else {
+            ucp_request_free(_close_request);
+            _close_request = NULL;
+        }
+    }
+
+    assert(ucs_list_is_empty(&_all_requests));
+    UcxCallback *cb = _disconnect_cb;
+    _disconnect_cb  = NULL;
+    // invoke last since it can delete this object
+    (*cb)(UCS_OK);
+    return true;
 }
 
 bool UcxConnection::send_io_message(const void *buffer, size_t length,
@@ -839,6 +907,9 @@ void UcxConnection::request_completed(ucx_request *r)
 {
     assert(r->conn == this);
     ucs_list_del(&r->pos);
+    if (ucs_list_is_empty(&_all_requests) && (_disconnect_cb != NULL)) {
+        _context.move_connection_to_disconnecting(this);
+    }
 }
 
 void UcxConnection::handle_connection_error(ucs_status_t status)
