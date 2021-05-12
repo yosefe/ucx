@@ -176,6 +176,10 @@ ucs_config_field_t uct_ib_iface_config_table[] = {
    "path for the same pair of endpoints.",
    ucs_offsetof(uct_ib_iface_config_t, roce_path_factor), UCS_CONFIG_TYPE_UINT},
 
+  {"ROCE_RANDOM_PATH", "n",
+   "Enable/Disable random RoCE path generation.",
+   ucs_offsetof(uct_ib_iface_config_t, roce_random_path), UCS_CONFIG_TYPE_BOOL},
+
   {"LID_PATH_BITS", "0",
    "List of IB Path bits separated by comma (a,b,c) "
    "which will be the low portion of the LID, according to the LMC in the fabric.",
@@ -529,7 +533,17 @@ void uct_ib_iface_fill_ah_attr_from_gid_lid(uct_ib_iface_t *iface, uint16_t lid,
     ah_attr->grh.traffic_class = iface->config.traffic_class;
 
     if (uct_ib_iface_is_roce(iface)) {
-        udp_sport               = iface->config.roce_path_factor * path_index;
+        if (iface->config.roce_random_path) {
+            if (path_index == 0) {
+                rand_r(&iface->rand_value);
+            }
+            udp_sport = (iface->rand_value %
+                         (UCT_IB_ROCE_MAX_PATH_FACTOR + 1 -
+                          iface->config.roce_path_factor)) +
+                        iface->config.roce_path_factor * path_index;
+        } else {
+            udp_sport = iface->config.roce_path_factor * path_index;
+        }
         /* older drivers use dlid for udp.sport, new drivers use flow_label when
            its nonzero */
         ah_attr->dlid           = UCT_IB_ROCE_UDP_SRC_PORT_BASE | udp_sport;
@@ -1003,6 +1017,11 @@ UCS_CLASS_INIT_FUNC(uct_ib_iface_t, uct_ib_iface_ops_t *ops, uct_md_h md,
     uint8_t port_num;
     size_t inl;
 
+    if (config->roce_path_factor > UCT_IB_ROCE_MAX_PATH_FACTOR) {
+        status = UCS_ERR_INVALID_PARAM;
+        goto err; 
+    }
+
     if (!(params->open_mode & UCT_IFACE_OPEN_MODE_DEVICE)) {
         return UCS_ERR_UNSUPPORTED;
     }
@@ -1041,6 +1060,7 @@ UCS_CLASS_INIT_FUNC(uct_ib_iface_t, uct_ib_iface_ops_t *ops, uct_md_h md,
     self->config.rx_headroom_offset = self->config.rx_payload_offset -
                                       rx_headroom;
     self->config.seg_size           = init_attr->seg_size;
+    self->config.roce_random_path   = config->roce_random_path;
     self->config.roce_path_factor   = config->roce_path_factor;
     self->config.tx_max_poll        = config->tx.max_poll;
     self->config.rx_max_poll        = config->rx.max_poll;
@@ -1052,6 +1072,10 @@ UCS_CLASS_INIT_FUNC(uct_ib_iface_t, uct_ib_iface_ops_t *ops, uct_md_h md,
     self->release_desc.cb           = uct_ib_iface_release_desc;
     self->config.enable_res_domain  = config->enable_res_domain;
     self->config.qp_type            = init_attr->qp_type;
+
+    if (config->roce_random_path) {
+        self->rand_value            = ucs_generate_uuid(0);
+    }
 
     if (ucs_derived_of(worker, uct_priv_worker_t)->thread_mode == UCS_THREAD_MODE_MULTI) {
         ucs_error("IB transports do not support multi-threaded worker");

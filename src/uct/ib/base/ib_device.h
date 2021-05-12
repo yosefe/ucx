@@ -47,6 +47,7 @@
 #define UCT_IB_SITE_LOCAL_MASK            be64toh(0xffffffffffff0000ul) /* IBTA 4.1.1 12b */
 #define UCT_IB_DEFAULT_ROCEV2_DSCP        106  /* Default DSCP for RoCE v2 */
 #define UCT_IB_ROCE_UDP_SRC_PORT_BASE     0xC000
+#define UCT_IB_ROCE_MAX_PATH_FACTOR       0x400
 #define UCT_IB_DEVICE_SYSFS_PFX           "/sys/class/infiniband/%s"
 #define UCT_IB_DEVICE_SYSFS_FMT           UCT_IB_DEVICE_SYSFS_PFX "/device/%s"
 #define UCT_IB_DEVICE_SYSFS_GID_ATTR_PFX  UCT_IB_DEVICE_SYSFS_PFX "/ports/%d/gid_attrs"

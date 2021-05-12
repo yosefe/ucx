@@ -122,6 +122,9 @@ struct uct_ib_iface_config {
     /* Multiplier for RoCE LAG UDP source port calculation */
     unsigned                roce_path_factor;
 
+    /* Enable random path factor for RoCE LAG UDP source port calculation */
+    int                     roce_random_path;
+
     /* Ranges of path bits */
     UCS_CONFIG_ARRAY_FIELD(ucs_range_spec_t, ranges) lid_path_bits;
 
@@ -195,6 +198,7 @@ struct uct_ib_iface {
     uint16_t                  pkey_value;
     uint8_t                   addr_size;
     uct_ib_device_gid_info_t  gid_info;
+    unsigned                  rand_value;
 
     struct {
         unsigned              rx_payload_offset;   /* offset from desc to payload */
@@ -205,6 +209,7 @@ struct uct_ib_iface {
         unsigned              tx_max_poll;
         unsigned              seg_size;
         unsigned              roce_path_factor;
+        uint8_t               roce_random_path;
         uint8_t               max_inl_resp;
         uint8_t               port_num;
         uint8_t               sl;
