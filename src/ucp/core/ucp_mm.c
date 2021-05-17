@@ -649,8 +649,7 @@ ucp_mem_advise(ucp_context_h context, ucp_mem_h memh,
 }
 
 static inline ucs_status_t
-ucp_mpool_malloc(ucp_worker_h worker, ucs_mpool_t *mp, size_t *size_p,
-                 void **chunk_p)
+ucp_mpool_malloc(ucp_worker_h worker, ucs_mpool_t *mp, size_t *size_p, void **chunk_p)
 {
     ucp_mem_desc_t *chunk_hdr;
     ucp_mem_h memh;
@@ -705,26 +704,18 @@ void ucp_reg_mpool_free(ucs_mpool_t *mp, void *chunk)
     ucp_mpool_free(worker, mp, chunk);
 }
 
-ucs_status_t ucp_rndv_mpool_malloc(ucs_mpool_t *mp, size_t *size_p,
-                                   void **chunk_p)
+ucs_status_t ucp_frag_mpool_malloc(ucs_mpool_t *mp, size_t *size_p, void **chunk_p)
 {
     ucp_worker_h worker = ucs_container_of(mp, ucp_worker_t, rndv_frag_mp);
 
     return ucp_mpool_malloc(worker, mp, size_p, chunk_p);
 }
 
-void ucp_rndv_mpool_free(ucs_mpool_t *mp, void *chunk)
+void ucp_frag_mpool_free(ucs_mpool_t *mp, void *chunk)
 {
     ucp_worker_h worker = ucs_container_of(mp, ucp_worker_t, rndv_frag_mp);
 
     ucp_mpool_free(worker, mp, chunk);
-}
-
-void ucp_rndv_mpool_obj_init(ucs_mpool_t *mp, void *obj, void *chunk)
-{
-    ucp_rndv_frag_t *frag = obj;
-
-    ucp_mpool_obj_init(mp, &frag->super, chunk);
 }
 
 void ucp_mem_print_info(const char *mem_size, ucp_context_h context, FILE *stream)

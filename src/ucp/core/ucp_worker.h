@@ -177,9 +177,9 @@ enum {
     UCS_STATS_UPDATE_COUNTER((_worker)->tm_offload_stats, \
                              UCP_WORKER_STAT_TAG_OFFLOAD_##_name, 1);
 
-#define ucp_worker_mpool_get(_mp, _type) \
+#define ucp_worker_mpool_get(_mp) \
     ({ \
-	    _type *_rdesc = ucs_mpool_get_inline(_mp); \
+	    ucp_mem_desc_t *_rdesc = ucs_mpool_get_inline(_mp); \
         if (_rdesc != NULL) { \
             VALGRIND_MAKE_MEM_DEFINED(_rdesc, sizeof(*_rdesc)); \
         } \

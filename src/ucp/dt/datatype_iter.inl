@@ -183,45 +183,72 @@ ucp_datatype_iter_next_pack(const ucp_datatype_iter_t *dt_iter,
     return length;
 }
 
+static UCS_F_ALWAYS_INLINE void
+ucp_datatype_iter_iov_seek(ucp_datatype_iter_t *dt_iter, size_t offset)
+{
+    const ucp_dt_iov_t *iov = dt_iter->type.iov.iov;
+    size_t length_it;
+
+    if (ucs_likely(offset == dt_iter->offset)) {
+        return;
+    }
+
+    dt_iter->type.iov.iov_offset += (offset - dt_iter->offset);
+    if (dt_iter->type.iov.iov_offset < 0) {
+        /* seek backwards */
+        do {
+            ucs_assert(dt_iter->type.iov.iov_index > 0);
+            --dt_iter->type.iov.iov_index;
+            dt_iter->type.iov.iov_offset +=
+                    iov[dt_iter->type.iov.iov_index].length;
+        } while (dt_iter->type.iov.iov_index < 0);
+    } else {
+        /* seek forward */
+        while (dt_iter->type.iov.iov_offset >=
+               (length_it = iov[dt_iter->type.iov.iov_index].length)) {
+            dt_iter->type.iov.iov_offset -= length_it;
+            ++dt_iter->type.iov.iov_index;
+        }
+    }
+}
+
 /*
  * Unpack data and set some fields of next_iter as next iterator state
  */
 static UCS_F_ALWAYS_INLINE ucs_status_t
-ucp_datatype_iter_next_unpack(const ucp_datatype_iter_t *dt_iter,
-                              ucp_worker_h worker, size_t length,
-                              ucp_datatype_iter_t *next_iter, const void *src)
+ucp_datatype_iter_unpack(ucp_datatype_iter_t *dt_iter, ucp_worker_h worker,
+                         size_t length, size_t offset, const void *src)
 {
     ucp_dt_generic_t *dt_gen;
     ucs_status_t status;
     void *dest;
 
-    if (ucs_unlikely(dt_iter->length - dt_iter->offset < length)) {
+    if (ucs_unlikely(dt_iter->length - offset < length)) {
         return UCS_ERR_MESSAGE_TRUNCATED;
     }
 
     switch (dt_iter->dt_class) {
     case UCP_DATATYPE_CONTIG:
         ucs_assert(dt_iter->mem_info.type < UCS_MEMORY_TYPE_LAST);
-        dest = UCS_PTR_BYTE_OFFSET(dt_iter->type.contig.buffer, dt_iter->offset);
+        dest = UCS_PTR_BYTE_OFFSET(dt_iter->type.contig.buffer, offset);
         ucp_dt_contig_unpack(worker, dest, src, length,
                              (ucs_memory_type_t)dt_iter->mem_info.type);
         status = UCS_OK;
         break;
     case UCP_DATATYPE_IOV:
-        next_iter->type.iov.iov_index  = dt_iter->type.iov.iov_index;
-        next_iter->type.iov.iov_offset = dt_iter->type.iov.iov_offset;
+        ucp_datatype_iter_iov_seek(dt_iter, offset);
         UCS_PROFILE_CALL_VOID(ucp_dt_iov_scatter, dt_iter->type.iov.iov,
                               SIZE_MAX, src, length,
-                              &next_iter->type.iov.iov_offset,
-                              &next_iter->type.iov.iov_index);
+                              &dt_iter->type.iov.iov_offset,
+                              &dt_iter->type.iov.iov_index);
         status = UCS_OK;
         break;
     case UCP_DATATYPE_GENERIC:
         if (length != 0) {
             dt_gen = dt_iter->type.generic.dt_gen;
             status = UCS_PROFILE_NAMED_CALL("dt_unpack", dt_gen->ops.unpack,
-                                            dt_iter->type.generic.state,
-                                            dt_iter->offset, src, length);
+                                            dt_iter->type.generic.state, offset,
+                                            src, length);
         } else {
             status = UCS_OK;
         }
@@ -230,7 +257,6 @@ ucp_datatype_iter_next_unpack(const ucp_datatype_iter_t *dt_iter,
         ucs_fatal("invalid data type");
     }
 
-    next_iter->offset = dt_iter->offset + length;
     return status;
 }
 
@@ -275,6 +301,19 @@ ucp_datatype_iter_next_ptr(const ucp_datatype_iter_t *dt_iter,
 }
 
 static UCS_F_ALWAYS_INLINE void
+ucp_datatype_iter_next_slice(const ucp_datatype_iter_t *dt_iter,
+                             size_t max_length,
+                             ucp_datatype_iter_t *sliced_dt_iter,
+                             ucp_datatype_iter_t *next_iter)
+{
+    size_t length;
+
+    // TODO support/check non contig
+    length = ucp_datatype_iter_next(dt_iter, max_length, next_iter);
+    ucp_datatype_iter_slice(dt_iter, dt_iter->offset, length, sliced_dt_iter);
+}
+
+static UCS_F_ALWAYS_INLINE void
 ucp_datatype_iter_advance(const ucp_datatype_iter_t *dt_iter,
                           size_t length, ucp_datatype_iter_t *next_iter)
 {
@@ -294,7 +333,7 @@ ucp_datatype_iter_advance(const ucp_datatype_iter_t *dt_iter,
  */
 static UCS_F_ALWAYS_INLINE void
 ucp_datatype_iter_next_iov(const ucp_datatype_iter_t *dt_iter,
-                           ucp_rsc_index_t memh_index, size_t max_length,
+                           size_t max_length, ucp_rsc_index_t memh_index,
                            ucp_datatype_iter_t *next_iter, uct_iov_t *iov)
 {
     /* TODO support IOV datatype */
@@ -376,6 +415,8 @@ ucp_datatype_iter_mem_reg(ucp_context_h context, ucp_datatype_iter_t *dt_iter,
 static UCS_F_ALWAYS_INLINE void
 ucp_datatype_iter_mem_dereg(ucp_context_h context, ucp_datatype_iter_t *dt_iter)
 {
+    /* TODO support IOV datatype */
+    ucs_assert(dt_iter->dt_class == UCP_DATATYPE_CONTIG);
     ucp_mem_rereg_mds(context, 0, NULL, 0, 0, NULL,
                       (ucs_memory_type_t)dt_iter->mem_info.type, NULL,
                       dt_iter->type.contig.reg.memh,

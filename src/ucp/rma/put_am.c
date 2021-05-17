@@ -81,6 +81,7 @@ ucp_proto_put_am_bcopy_init(const ucp_proto_init_params_t *init_params)
         .super.cfg_thresh    = context->config.ext.bcopy_thresh,
         .super.cfg_priority  = 20,
         .super.min_length    = 0,
+        .super.max_length    = SIZE_MAX,
         .super.min_frag_offs = UCP_PROTO_COMMON_OFFSET_INVALID,
         .super.max_frag_offs = ucs_offsetof(uct_iface_attr_t, cap.am.max_bcopy),
         .super.hdr_size      = sizeof(ucp_put_hdr_t),
@@ -103,7 +104,7 @@ static ucp_proto_t ucp_put_am_bcopy_proto = {
     .flags      = 0,
     .init       = ucp_proto_put_am_bcopy_init,
     .config_str = ucp_proto_multi_config_str,
-    .progress   = ucp_proto_put_am_bcopy_progress
+    .progress   = {ucp_proto_put_am_bcopy_progress},
 };
 UCP_PROTO_REGISTER(&ucp_put_am_bcopy_proto);
 

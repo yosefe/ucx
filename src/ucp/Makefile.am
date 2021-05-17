@@ -59,8 +59,7 @@ noinst_HEADERS = \
 	rma/rma.inl \
 	rndv/proto_rndv.h \
 	rndv/proto_rndv.inl \
-	rndv/rndv_ppln.h \
-	rndv/rndv_ppln.inl \
+	rndv/rndv_mtcopy.inl \
 	rndv/rndv.h \
 	tag/eager.h \
 	tag/tag_rndv.h \

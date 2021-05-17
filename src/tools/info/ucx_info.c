@@ -233,7 +233,7 @@ static int append_select_param(ucs_array_t(select_param) *select_params,
 
     mem_info.type    = UCS_MEMORY_TYPE_HOST;
     mem_info.sys_dev = UCS_SYS_DEVICE_ID_UNKNOWN;
-    ucp_proto_select_param_init(&select_param, UCP_OP_ID_LAST, 0,
+    ucp_proto_select_param_init(&select_param, UCP_OP_ID_LAST, 0, 0,
                                 UCP_DATATYPE_CONTIG, &mem_info, 1);
 
     p   = strtok_r(spec, ",", &saveptr);

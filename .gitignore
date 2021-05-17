@@ -104,3 +104,5 @@ test/apps/test_init_mt
 updn.sh
 tencent-env.sh
 log
+.history
+.gitignore

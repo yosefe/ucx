@@ -198,7 +198,7 @@ void ucp_dt_iov_copy_uct(ucp_context_h context, uct_iov_t *iov, size_t *iovcnt,
                          size_t max_dst_iov, ucp_dt_state_t *state,
                          const ucp_dt_iov_t *src_iov, ucp_datatype_t datatype,
                          size_t length_max, ucp_md_index_t md_index,
-                         ucp_rndv_frag_t *frag)
+                         ucp_mem_desc_t *mdesc)
 {
     uint64_t md_flags = context->tl_mds[md_index].attr.cap.flags;
     size_t length_it  = 0;
@@ -210,9 +210,9 @@ void ucp_dt_iov_copy_uct(ucp_context_h context, uct_iov_t *iov, size_t *iovcnt,
     switch (datatype & UCP_DATATYPE_CLASS_MASK) {
     case UCP_DATATYPE_CONTIG:
         if (md_flags & UCT_MD_FLAG_NEED_MEMH) {
-            if (frag) {
-                memh_index  = ucs_bitmap2idx(frag->super.memh->md_map, md_index);
-                iov[0].memh = frag->super.memh->uct[memh_index];
+            if (mdesc) {
+                memh_index  = ucs_bitmap2idx(mdesc->memh->md_map, md_index);
+                iov[0].memh = mdesc->memh->uct[memh_index];
             } else {
                 memh_index  = ucs_bitmap2idx(state->dt.contig.md_map, md_index);
                 iov[0].memh = state->dt.contig.memh[memh_index];

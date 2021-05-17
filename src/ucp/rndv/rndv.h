@@ -88,19 +88,6 @@ typedef struct {
 } UCS_S_PACKED ucp_rndv_atp_hdr_t;
 
 
-/**
- * Rendezvous fragment
- */
-typedef struct ucp_rndv_frag {
-    ucp_mem_desc_t                super;
-    ucp_request_t                 *req;
-    uct_completion_t              comp;   /* Wait for fragment completions */
-    size_t                        offset;
-    size_t                        length; // TODO remove this
-    // ucs_ptr_map_key_t             frag_id;
-} ucp_rndv_frag_t;
-
-
 void ucp_rndv_req_send_ack(ucp_request_t *ack_req, ucp_request_t *req,
                            ucs_ptr_map_key_t remote_req_id, ucs_status_t status,
                            ucp_am_id_t am_id, const char *ack_str);

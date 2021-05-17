@@ -28,7 +28,6 @@ ucs_status_t ucp_proto_multi_init(const ucp_proto_multi_init_params_t *params)
     ucp_proto_multi_lane_priv_t *lpriv;
     ucp_lane_map_t lane_map;
     ucp_md_map_t reg_md_map;
-    size_t max_frag_sum;
     uint32_t weight_sum;
 
     ucs_assert(params->max_lanes >= 1);
@@ -97,13 +96,13 @@ ucs_status_t ucp_proto_multi_init(const ucp_proto_multi_init_params_t *params)
     }
 
     /* Initialize multi-lane private data and relative weights */
-    reg_md_map        = ucp_proto_common_reg_md_map(&params->super, lane_map);
-    mpriv->reg_md_map = reg_md_map | params->prereg_md_map;
-    mpriv->lane_map   = lane_map;
-    mpriv->num_lanes  = 0;
-    perf.max_frag     = SIZE_MAX;
-    max_frag_sum      = 0;
-    weight_sum        = 0;
+    reg_md_map          = ucp_proto_common_reg_md_map(&params->super, lane_map);
+    mpriv->reg_md_map   = reg_md_map | params->prereg_md_map;
+    mpriv->lane_map     = lane_map;
+    mpriv->num_lanes    = 0;
+    mpriv->max_frag_sum = 0;
+    weight_sum          = 0;
+    perf.max_frag       = SIZE_MAX;
     ucs_for_each_bit(lane, lane_map) {
         ucs_assert(lane < UCP_MAX_LANES);
 
@@ -130,11 +129,11 @@ ucs_status_t ucp_proto_multi_init(const ucp_proto_multi_init_params_t *params)
         ucs_assert(lpriv->weight > 0);
         ucs_assert(lpriv->weight <= UCP_PROTO_MULTI_WEIGHT_MAX);
 
-        weight_sum         += lpriv->weight;
-        max_frag_sum       += lpriv->max_frag;
-        lpriv->weight_sum   = weight_sum;
-        lpriv->max_frag_sum = max_frag_sum;
-        perf.max_frag       = ucs_min(perf.max_frag, lpriv->max_frag);
+        weight_sum          += lpriv->weight;
+        mpriv->max_frag_sum += lpriv->max_frag;
+        lpriv->weight_sum    = weight_sum;
+        lpriv->max_frag_sum  = mpriv->max_frag_sum;
+        perf.max_frag        = ucs_min(perf.max_frag, lpriv->max_frag);
     }
 
     /* Fill the size of private data according to number of used lanes */
@@ -158,7 +157,7 @@ void ucp_proto_multi_config_str(size_t min_length, size_t max_length,
     for (i = 0; i < mpriv->num_lanes; ++i) {
         lpriv      = &mpriv->lanes[i];
         percent    = ucs_min(remaining,
-                             ucp_proto_multi_scaled_length(lpriv, 100));
+                             ucp_proto_multi_scaled_length(lpriv->weight, 100));
         remaining -= percent;
 
         if (percent != 100) {

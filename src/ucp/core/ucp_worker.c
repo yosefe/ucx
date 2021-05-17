@@ -99,10 +99,10 @@ ucs_mpool_ops_t ucp_reg_mpool_ops = {
     .obj_cleanup   = ucs_empty_function
 };
 
-ucs_mpool_ops_t ucp_rndv_mpool_ops = {
-    .chunk_alloc   = ucp_rndv_mpool_malloc,
-    .chunk_release = ucp_rndv_mpool_free,
-    .obj_init      = ucp_rndv_mpool_obj_init,
+ucs_mpool_ops_t ucp_frag_mpool_ops = {
+    .chunk_alloc   = ucp_frag_mpool_malloc,
+    .chunk_release = ucp_frag_mpool_free,
+    .obj_init      = ucp_mpool_obj_init,
     .obj_cleanup   = ucs_empty_function
 };
 
@@ -1857,9 +1857,9 @@ static ucs_status_t ucp_worker_init_mpools(ucp_worker_h worker)
 
     /* Create memory pool for pipelined rndv fragments */
     status = ucs_mpool_init(&worker->rndv_frag_mp, 0,
-                            context->config.ext.rndv_frag_size + sizeof(ucp_rndv_frag_t),
-                            sizeof(ucp_rndv_frag_t), UCS_SYS_PCI_MAX_PAYLOAD, 128,
-                            UINT_MAX, &ucp_rndv_mpool_ops, "ucp_rndv_frags");
+                            context->config.ext.rndv_frag_size + sizeof(ucp_mem_desc_t),
+                            sizeof(ucp_mem_desc_t), UCS_SYS_PCI_MAX_PAYLOAD, 128,
+                            UINT_MAX, &ucp_frag_mpool_ops, "ucp_rndv_frags");
     if (status != UCS_OK) {
         goto err_reg_mp_cleanup;
     }

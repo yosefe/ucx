@@ -647,10 +647,6 @@ ucs_status_t ucp_request_progress_wrapper(uct_pending_req_t *self)
     const ucp_proto_t *proto = req->send.proto_config->proto;
     ucs_status_t status;
 
-    if (proto->flags & UCP_PROTO_FLAG_INVALID) {
-        return proto->progress(self);
-    }
-
     ucp_trace_req(req, "progress protocol %s ep_cfg[%d] rkey_cfg[%d] offset %zu/%zu",
                   proto->name, req->send.proto_config->ep_cfg_index,
                   req->send.proto_config->rkey_cfg_index,
@@ -658,7 +654,7 @@ ucs_status_t ucp_request_progress_wrapper(uct_pending_req_t *self)
                   req->send.state.dt_iter.length);
 
     ucs_log_indent(1);
-    status = UCS_PROFILE_CALL(proto->progress, self);
+    status = proto->progress[req->send.stage](self);
     if (status != UCS_OK) {
         ucp_trace_req(req, "progress protocol %s returned: %s lane %d",
                       proto->name, ucs_status_string(status), req->send.lane);

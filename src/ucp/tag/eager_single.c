@@ -54,6 +54,7 @@ ucp_proto_eager_short_init(const ucp_proto_init_params_t *init_params)
         .super.cfg_thresh    = UCS_MEMUNITS_AUTO,
         .super.cfg_priority  = 0,
         .super.min_length    = 0,
+        .super.max_length    = SIZE_MAX,
         .super.min_frag_offs = UCP_PROTO_COMMON_OFFSET_INVALID,
         .super.max_frag_offs = ucs_offsetof(uct_iface_attr_t, cap.am.max_short),
         .super.hdr_size      = sizeof(ucp_tag_hdr_t),
@@ -78,7 +79,7 @@ static ucp_proto_t ucp_eager_short_proto = {
     .flags      = UCP_PROTO_FLAG_AM_SHORT,
     .init       = ucp_proto_eager_short_init,
     .config_str = ucp_proto_single_config_str,
-    .progress   = ucp_eager_short_progress
+    .progress   = {ucp_eager_short_progress},
 };
 UCP_PROTO_REGISTER(&ucp_eager_short_proto);
 
@@ -119,6 +120,7 @@ ucp_proto_eager_bcopy_single_init(const ucp_proto_init_params_t *init_params)
         .super.cfg_thresh    = context->config.ext.bcopy_thresh,
         .super.cfg_priority  = 20,
         .super.min_length    = 0,
+        .super.max_length    = SIZE_MAX,
         .super.min_frag_offs = UCP_PROTO_COMMON_OFFSET_INVALID,
         .super.max_frag_offs = ucs_offsetof(uct_iface_attr_t, cap.am.max_bcopy),
         .super.hdr_size      = sizeof(ucp_tag_hdr_t),
@@ -141,7 +143,7 @@ static ucp_proto_t ucp_eager_bcopy_single_proto = {
     .flags      = 0,
     .init       = ucp_proto_eager_bcopy_single_init,
     .config_str = ucp_proto_single_config_str,
-    .progress   = ucp_eager_bcopy_single_progress,
+    .progress   = {ucp_eager_bcopy_single_progress},
 };
 UCP_PROTO_REGISTER(&ucp_eager_bcopy_single_proto);
 
@@ -156,6 +158,7 @@ ucp_proto_eager_zcopy_single_init(const ucp_proto_init_params_t *init_params)
         .super.cfg_thresh    = context->config.ext.zcopy_thresh,
         .super.cfg_priority  = 30,
         .super.min_length    = 0,
+        .super.max_length    = SIZE_MAX,
         .super.min_frag_offs = ucs_offsetof(uct_iface_attr_t, cap.am.min_zcopy),
         .super.max_frag_offs = ucs_offsetof(uct_iface_attr_t, cap.am.max_zcopy),
         .super.hdr_size      = sizeof(ucp_tag_hdr_t),
@@ -202,6 +205,6 @@ static ucp_proto_t ucp_eager_zcopy_single_proto = {
     .flags      = 0,
     .init       = ucp_proto_eager_zcopy_single_init,
     .config_str = ucp_proto_single_config_str,
-    .progress   = ucp_proto_eager_zcopy_single_progress,
+    .progress   = {ucp_proto_eager_zcopy_single_progress},
 };
 UCP_PROTO_REGISTER(&ucp_eager_zcopy_single_proto);

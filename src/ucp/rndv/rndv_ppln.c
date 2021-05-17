@@ -4,239 +4,239 @@
  * See file LICENSE for terms.
  */
 
-#include "rndv_ppln.h"
-#include "rndv_ppln.inl"
+#include "proto_rndv.inl"
 
 #include <ucp/core/ucp_request.inl>
 #include <ucp/proto/proto_multi.inl>
 
 
-ucs_status_t
-ucp_proto_rndv_ppln_get_frag_md_map(ucp_worker_h worker, ucp_md_map_t *md_map_p)
+enum {
+    UCP_PROTO_RNDV_PPLN_STAGE_SEND = UCP_PROTO_STAGE_START,
+
+    /* Send ATS/ATP */
+    UCP_PROTO_RNDV_PPLN_STAGE_ACK,
+};
+
+typedef struct {
+    /* Which protocol will be used for each fragment */
+    ucp_proto_select_elem_t frag_proto;
+
+    /* Fragment size to push to the underlying protocol */
+    size_t                  frag_size;
+
+    /* Lane for sending the ack message */
+    ucp_lane_index_t        ack_lane;
+
+} ucp_proto_rndv_ppln_priv_t;
+
+
+static ucs_status_t
+ucp_proto_rndv_ppln_init(const ucp_proto_init_params_t *init_params)
 {
-    ucp_rndv_frag_t *frag = ucp_worker_mpool_get(&worker->rndv_frag_mp,
-                                                 ucp_rndv_frag_t);
-    if (frag == NULL) {
+    ucp_worker_h worker               = init_params->worker;
+    ucp_proto_rndv_ppln_priv_t *rpriv = init_params->priv;
+    ucp_proto_caps_t *caps            = init_params->caps;
+    const ucp_proto_perf_range_t *perf_range, *best_perf_range;
+    const ucp_proto_select_elem_t *select_elem;
+    ucp_proto_select_param_t sel_param;
+    ucp_rkey_config_t *rkey_config;
+    double perf_m, best_perf_m;
+
+    if ((init_params->rkey_cfg_index == UCP_WORKER_CFG_INDEX_NULL) ||
+        (init_params->select_param->op_flags & UCP_PROTO_SELECT_OP_FLAG_PPLN)) {
         return UCS_ERR_UNSUPPORTED;
     }
 
-    *md_map_p = frag->super.memh->md_map;
-    ucs_mpool_put(frag);
+    /* Find lane to send the ack message */
+    rpriv->ack_lane = ucp_proto_common_find_am_bcopy_lane(init_params);
+    if (rpriv->ack_lane == UCP_NULL_LANE) {
+        return UCS_ERR_NO_ELEM;
+    }
+
+    /* Select a protocol for rndv recv */
+    sel_param          = *init_params->select_param;
+    sel_param.op_flags = UCP_PROTO_SELECT_OP_FLAG_PPLN;
+    rkey_config        = &worker->rkey_config[init_params->rkey_cfg_index];
+    select_elem        = ucp_proto_select_lookup_slow(worker,
+                                                      &rkey_config->proto_select,
+                                                      init_params->ep_cfg_index,
+                                                      init_params->rkey_cfg_index,
+                                                      &sel_param);
+    if (select_elem == NULL) {
+        return UCS_ERR_UNSUPPORTED;
+    }
+
+    /* Find protocol with best bandwidth when used in pipeline mode */
+    perf_range      = select_elem->perf_ranges;
+    best_perf_range = NULL; /* Silence bogus warning */
+    best_perf_m     = 0; /* Silence bogus warning */
+    do {
+        /* Pipeline bandwidth: worst between bandwidth and amortized overhead */
+        perf_m = ucs_max(perf_range->perf.c / perf_range->max_length,
+                         perf_range->perf.m);
+        if ((perf_range == select_elem->perf_ranges) ||
+            (perf_m < best_perf_m)) {
+            best_perf_m     = perf_m;
+            best_perf_range = perf_range;
+        }
+    } while ((perf_range++)->max_length != SIZE_MAX);
+
+    /* Initialize private data */
+    *init_params->priv_size = sizeof(*rpriv);
+    rpriv->frag_proto       = *select_elem;
+    rpriv->frag_size        = best_perf_range->max_length;
+
+    /* The pipeline protocol only covers ranges beyond the maximal fragment
+    *  size. There is no point to conver smaller ranges, since better protocols
+    *  exist there.
+     */
+    caps->cfg_thresh           = worker->context->config.ext.rndv_thresh;
+    caps->cfg_priority         = 60;
+    caps->min_length           = rpriv->frag_size + 1;
+    caps->num_ranges           = 1;
+    caps->ranges[0].max_length = SIZE_MAX;
+    caps->ranges[0].perf.c     = best_perf_range->perf.c + 50e-9;
+    caps->ranges[0].perf.m     = best_perf_m;
+
     return UCS_OK;
 }
 
-static ucs_status_t
-ucp_proto_rndv_ppln_frag_get(ucp_worker_h worker, ucp_request_t *req,
-                             ucp_proto_rndv_ppln_frag_init_cb_t frag_init)
+static void ucp_proto_rndv_ppln_complete_one(void *request, ucs_status_t status,
+                                             void *user_data)
 {
-    ucp_rndv_frag_t *frag;
+    ucp_request_t *freq = (ucp_request_t*)request - 1;
+    ucp_request_t *req  = ucp_request_user_data_get_super(request, user_data);
 
-    frag = ucp_worker_mpool_get(&worker->rndv_frag_mp, ucp_rndv_frag_t);
-    if (frag == NULL) {
-        ucp_proto_request_abort(req, UCS_ERR_NO_MEMORY);
-        return UCS_OK;
+    if (ucp_proto_rndv_frag_completed(req, freq)) {
+        ucp_proto_request_set_stage(req, UCP_PROTO_RNDV_PPLN_STAGE_ACK);
+        ucp_request_send(req, 0);
     }
-
-    req->send.frag = frag;
-    return frag_init(req);
 }
 
-/**
- * Calculate the lane which should be used to send the chunk of data which
- * starts from position "offset".
- *
- * @param [in]  req
- * @param [in]  mpriv
- * @param [in]  offset      Send offset
- * @param [in]  length      Total data length
- * @param [out] lane_idx_p  Filled with lane index (in mpriv) to use
- *
- * @return Maximal size to send on the lane.
- */
-static size_t
-ucp_proto_rndv_ppln_max_payload(ucp_request_t *req,
-                                const ucp_proto_multi_priv_t *mpriv,
-                                size_t offset, size_t length,
-                                ucp_lane_index_t *lane_idx_p)
+static ucs_status_t ucp_proto_rndv_ppln_progress(uct_pending_req_t *uct_req)
 {
-    size_t total_frag_size = mpriv->lanes[mpriv->num_lanes - 1].max_frag_sum;
-    size_t frag_offset     = offset % total_frag_size;
-    const ucp_proto_multi_lane_priv_t *lpriv;
-    size_t lane_send_offset, lane_start_offset;
-    ucp_lane_index_t lane_idx;
-    size_t end_offset;
-    size_t max_payload;
+    ucp_request_t *req  = ucs_container_of(uct_req, ucp_request_t, send.uct);
+    ucp_worker_h worker = req->send.ep->worker;
+    const ucp_proto_rndv_ppln_priv_t *rpriv;
+    ucp_datatype_iter_t next_iter;
+    ucs_status_t status;
+    ucp_request_t *freq;
 
-    lane_start_offset = 0;
-    for (lane_idx = 0; lane_idx < (mpriv->num_lanes - 1); ++lane_idx) {
-        lpriv = &mpriv->lanes[lane_idx];
-        if (length < total_frag_size) {
-            /* request is small so use weight */
-            end_offset = (lpriv->weight_sum * length) >>
-                         UCP_PROTO_MULTI_WEIGHT_SHIFT;
-        } else {
-            /* request is large, so each sends full fragment */
-            end_offset = lpriv->max_frag_sum;
-        }
+    /* Nested pipeline is prevented during protocol selection */
+    ucs_assert(!(req->flags & UCP_REQUEST_FLAG_RNDV_FRAG));
+    ucs_assert(!(req->flags & UCP_REQUEST_FLAG_PROTO_INITIALIZED));
+    req->send.state.completed_size = 0;
 
-        ucp_trace_req(req, "lane[%d] end_offset=%zu max_frag_sum=%zu", lane_idx,
-                      end_offset, lpriv->max_frag_sum);
-        if (frag_offset < end_offset) {
-            /* found lane */
+    rpriv = req->send.proto_config->priv;
+    do {
+        status = ucp_proto_rndv_frag_request_alloc(
+                worker, req, ucp_proto_rndv_ppln_complete_one, &freq);
+        if (status != UCS_OK) {
+            ucp_proto_request_abort(req, status);
             break;
         }
 
-        lane_start_offset = end_offset;
-    }
+        /* Initialize datatype for the fragment */
+        ucp_datatype_iter_next_slice(&req->send.state.dt_iter, rpriv->frag_size,
+                                     &freq->send.state.dt_iter, &next_iter);
 
-    lane_send_offset = frag_offset - lane_start_offset;
-    lpriv            = &mpriv->lanes[lane_idx];
-    max_payload      = lpriv->max_frag - lane_send_offset;
-    *lane_idx_p      = lane_idx;
+        /* Initialize rendezvous parameters */
+        freq->send.rndv.remote_req_id  = UCS_PTR_MAP_KEY_INVALID;
+        freq->send.rndv.remote_address = req->send.rndv.remote_address +
+                                         req->send.state.dt_iter.offset;
+        freq->send.rndv.rkey           = req->send.rndv.rkey;
+        freq->send.rndv.offset         = req->send.rndv.offset +
+                                         req->send.state.dt_iter.offset;
+        ucp_proto_request_select_proto(req, &rpriv->frag_proto,
+                                       req->send.state.dt_iter.length);
 
-    ucp_trace_req(req,
-                  "frag_offset %zu lane[%d] lane_offset %zu max_payload %zu",
-                  frag_offset, lane_idx, lane_send_offset, max_payload);
-    return max_payload;
+        ucp_trace_req(req, "send fragment request %p", freq);
+        ucp_request_send(freq, 0);
+
+    } while (!ucp_datatype_iter_is_next_end(&req->send.state.dt_iter,
+                                            &next_iter));
+    return UCS_OK;
 }
 
-/*
- * frag_init - initializes fragment including its completion.
- *       returns UCS_INPROGRESS to continue, otherwise - return/desched
- */
-ucs_status_t
-ucp_proto_rndv_ppln_send_progress(ucp_request_t *req,
-                                  const ucp_proto_multi_priv_t *mpriv,
-                                  size_t total_length,
-                                  uct_completion_callback_t req_comp_func,
-                                  ucp_proto_rndv_ppln_frag_init_cb_t frag_init,
-                                  ucp_proto_rndv_ppln_frag_send_cb_t frag_send,
-                                  ucp_proto_complete_cb_t sent_func)
+static void ucp_proto_rndv_ppln_config_str(size_t min_length, size_t max_length,
+                                           const void *priv,
+                                           ucs_string_buffer_t *strb)
 {
-    ucp_worker_h worker = req->send.ep->worker;
-    size_t frag_size    = ucs_min(worker->context->config.ext.rndv_frag_size,
-                                  req->send.state.dt_iter.length -
-                                          req->send.state.dt_iter.offset);
-    size_t send_offset  = req->send.rndv.ppln.offset +
-                          req->send.state.dt_iter.offset;
-    const ucp_proto_multi_lane_priv_t *lpriv;
-    ucp_lane_index_t lane_idx;
-    ucp_rndv_frag_t *frag;
-    ucs_status_t status;
-    size_t max_payload;
-    size_t send_size;
-    size_t frag_offset;
-    uct_iov_t iov;
+    const ucp_proto_rndv_ppln_priv_t *rpriv = priv;
 
-    ucp_trace_req(req,
-                  "rndv ppln_progress %zu/%zu (%zu/%zu) "
-                  "rva 0x%" PRIx64 " rreq 0x%" PRIx64 " rkey %p",
-                  req->send.state.dt_iter.offset,
-                  req->send.state.dt_iter.length, send_offset, total_length,
-                  req->send.rndv.remote_address, req->send.rndv.remote_req_id,
-                  req->send.rndv.rkey);
-
-    ucs_assert(req->send.state.dt_iter.length > 0);
-    ucs_assert(!ucp_datatype_iter_is_end(&req->send.state.dt_iter));
-
-    if (!(req->flags & UCP_REQUEST_FLAG_PROTO_INITIALIZED)) {
-        ucp_proto_completion_init(&req->send.state.uct_comp, req_comp_func);
-        ucp_proto_multi_request_init(req);
-        req->flags |= UCP_REQUEST_FLAG_PROTO_INITIALIZED;
-
-        status = ucp_proto_rndv_ppln_frag_get(worker, req, frag_init);
-        if (status != UCS_INPROGRESS) {
-            return status;
-        }
-    }
-
-    ucp_trace_req(req, "comp.count=%d", req->send.state.uct_comp.count);
-    max_payload = ucp_proto_rndv_ppln_max_payload(req, mpriv, send_offset,
-                                                  total_length, &lane_idx);
-    lpriv       = &mpriv->lanes[lane_idx];
-    frag_offset = req->send.state.dt_iter.offset % frag_size;
-    send_size   = ucs_min(frag_size - frag_offset, max_payload);
-
-    /* Set IOV to next portion of frag to send, according to dt_iter */
-    frag       = req->send.frag;
-    iov.buffer = UCS_PTR_BYTE_OFFSET(frag + 1, frag_offset);
-    iov.length = send_size;
-    if (lpriv->super.memh_index == UCP_NULL_RESOURCE) {
-        iov.memh = UCT_MEM_HANDLE_NULL;
-    } else {
-        iov.memh = frag->super.memh->uct[lpriv->super.memh_index];
-    }
-    iov.count  = 1;
-    iov.stride = 0;
-
-    ucs_assertv(frag->comp.count > 0, "frag=%p", frag);
-    status = frag_send(req, lpriv, &iov, &frag->comp);
-    if (ucs_likely(status == UCS_OK)) {
-        /* fast path is OK */
-    } else if (status == UCS_INPROGRESS) {
-         /* operation started and completion will be called later */
-        ++frag->comp.count;
-    } else if (status == UCS_ERR_NO_RESOURCE) {
-        return ucp_proto_multi_no_resource(req, lpriv);
-    } else {
-        ucp_proto_request_abort(req, status);
-        return UCS_OK;
-    }
-
-    /* When fragment send is completed, just release it */
-    ucp_datatype_iter_advance(&req->send.state.dt_iter, send_size,
-                              &req->send.state.dt_iter);
-
-    if ((frag_offset + send_size) != frag_size) {
-        return UCS_INPROGRESS;
-    }
-
-    ucp_invoke_uct_completion(&frag->comp, UCS_OK);
-    if (ucp_datatype_iter_is_end(&req->send.state.dt_iter)) {
-        status = sent_func(req);
-        ucp_trace_req(req, "calling sent_func %p: status %d", sent_func,
-                      status);
-        return status;
-    }
-
-    return ucp_proto_rndv_ppln_frag_get(worker, req, frag_init);
+    ucs_string_buffer_appendf(strb, "frag:%zu ", rpriv->frag_size);
+    ucp_proto_threshold_elem_str(rpriv->frag_proto.thresholds, min_length,
+                                 max_length, strb);
 }
 
-static void
-ucp_proto_rndv_ppln_frag_copy_out_completion(uct_completion_t *uct_comp)
+static ucs_status_t
+ucp_proto_rndv_send_ppln_init(const ucp_proto_init_params_t *init_params)
 {
-    ucp_rndv_frag_t *frag = ucs_container_of(uct_comp, ucp_rndv_frag_t, comp);
-    ucp_request_t *req    = frag->req;
-
-    /* complete related rndv_rtr request */
-    ucp_trace_req(req, "frag %p copy out completion, req count: %d", frag,
-                  req->send.state.uct_comp.count);
-    ucp_invoke_uct_completion(&req->send.state.uct_comp, frag->comp.status);
-    ucs_mpool_put(frag);
-}
-
-void ucp_proto_rndv_ppln_frag_recv_completion(uct_completion_t *uct_comp)
-{
-    ucp_rndv_frag_t *frag = ucs_container_of(uct_comp, ucp_rndv_frag_t, comp);
-    ucp_request_t *req    = frag->req;
-    ucs_status_t status;
-    void *buffer;
-
-    buffer = UCS_PTR_BYTE_OFFSET(req->send.state.dt_iter.type.contig.buffer,
-                                 frag->offset);
-    status = ucp_proto_rndv_ppln_frag_copy(
-            req, frag, buffer, frag->length, uct_ep_put_zcopy,
-            ucp_proto_rndv_ppln_frag_copy_out_completion, "out to");
-    if (status == UCS_OK) {
-        ucp_invoke_uct_completion(&frag->comp, UCS_OK);
-    } else if (status != UCS_INPROGRESS) {
-        ucp_proto_request_abort(req, status);
+    if (init_params->select_param->op_id != UCP_OP_ID_RNDV_SEND) {
+        return UCS_ERR_UNSUPPORTED;
     }
+
+    return ucp_proto_rndv_ppln_init(init_params);
 }
 
-int ucp_proto_rndv_ppln_is_supported(const ucp_proto_init_params_t *init_params)
+static size_t ucp_proto_rndv_send_ppln_pack_atp(void *dest, void *arg)
 {
-    ucp_worker_h worker = init_params->worker;
-
-    return worker->mem_type_ep[init_params->select_param->mem_type] != NULL;
+    return ucp_proto_rndv_send_pack_atp(arg, dest, 1);
 }
+
+static ucs_status_t
+ucp_proto_rndv_send_ppln_atp_progress(uct_pending_req_t *uct_req)
+{
+    ucp_request_t *req = ucs_container_of(uct_req, ucp_request_t, send.uct);
+    const ucp_proto_rndv_ppln_priv_t *rpriv = req->send.proto_config->priv;
+
+    return ucp_proto_am_bcopy_single_progress(
+            req, UCP_AM_ID_RNDV_ATP, rpriv->ack_lane,
+            ucp_proto_rndv_send_ppln_pack_atp, req, sizeof(ucp_rndv_atp_hdr_t),
+            ucp_proto_request_complete_success);
+}
+
+static ucp_proto_t ucp_rndv_send_ppln_proto = {
+    .name       = "rndv/send/ppln",
+    .flags      = 0,
+    .init       = ucp_proto_rndv_send_ppln_init,
+    .config_str = ucp_proto_rndv_ppln_config_str,
+    .progress   = {
+        [UCP_PROTO_RNDV_PPLN_STAGE_SEND] = ucp_proto_rndv_ppln_progress,
+        [UCP_PROTO_RNDV_PPLN_STAGE_ACK]  = ucp_proto_rndv_send_ppln_atp_progress,
+    },
+};
+UCP_PROTO_REGISTER(&ucp_rndv_send_ppln_proto);
+
+static ucs_status_t
+ucp_proto_rndv_recv_ppln_init(const ucp_proto_init_params_t *init_params)
+{
+    if (init_params->select_param->op_id != UCP_OP_ID_RNDV_RECV) {
+        return UCS_ERR_UNSUPPORTED;
+    }
+
+    return ucp_proto_rndv_ppln_init(init_params);
+}
+
+static ucs_status_t
+ucp_proto_rndv_recv_ppn_ats_progress(uct_pending_req_t *uct_req)
+{
+    ucp_request_t *req = ucs_container_of(uct_req, ucp_request_t, send.uct);
+    const ucp_proto_rndv_ppln_priv_t *rpriv = req->send.proto_config->priv;
+
+    return ucp_proto_am_bcopy_single_progress(
+            req, UCP_AM_ID_RNDV_ATS, rpriv->ack_lane, ucp_proto_rndv_pack_ack,
+            req, sizeof(ucp_reply_hdr_t), ucp_proto_request_complete_success);
+}
+
+static ucp_proto_t ucp_rndv_recv_ppln_proto = {
+    .name       = "rndv/recv/ppln",
+    .flags      = 0,
+    .init       = ucp_proto_rndv_recv_ppln_init,
+    .config_str = ucp_proto_rndv_ppln_config_str,
+    .progress   = {
+        [UCP_PROTO_RNDV_PPLN_STAGE_SEND] = ucp_proto_rndv_ppln_progress,
+        [UCP_PROTO_RNDV_PPLN_STAGE_ACK]  = ucp_proto_rndv_recv_ppn_ats_progress,
+    },
+};
+UCP_PROTO_REGISTER(&ucp_rndv_recv_ppln_proto);

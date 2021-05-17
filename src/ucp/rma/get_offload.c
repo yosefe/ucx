@@ -80,6 +80,7 @@ ucp_proto_get_offload_bcopy_init(const ucp_proto_init_params_t *init_params)
         .super.cfg_thresh    = context->config.ext.bcopy_thresh,
         .super.cfg_priority  = 20,
         .super.min_length    = 0,
+        .super.max_length    = SIZE_MAX,
         .super.min_frag_offs = UCP_PROTO_COMMON_OFFSET_INVALID,
         .super.max_frag_offs = ucs_offsetof(uct_iface_attr_t,
                                             cap.get.max_bcopy),
@@ -105,7 +106,7 @@ static ucp_proto_t ucp_get_offload_bcopy_proto = {
     .flags      = 0,
     .init       = ucp_proto_get_offload_bcopy_init,
     .config_str = ucp_proto_multi_config_str,
-    .progress   = ucp_proto_get_offload_bcopy_progress
+    .progress   = {ucp_proto_get_offload_bcopy_progress}
 };
 UCP_PROTO_REGISTER(&ucp_get_offload_bcopy_proto);
 
@@ -119,9 +120,8 @@ ucp_proto_get_offload_zcopy_send_func(ucp_request_t *req,
     uct_iov_t iov;
 
     ucp_datatype_iter_next_iov(&req->send.state.dt_iter,
-                               lpriv->super.memh_index,
                                ucp_proto_multi_max_payload(req, lpriv, 0),
-                               next_iter, &iov);
+                               lpriv->super.memh_index, next_iter, &iov);
     return uct_ep_get_zcopy(req->send.ep->uct_eps[lpriv->super.lane], &iov, 1,
                             req->send.rma.remote_addr +
                             req->send.state.dt_iter.offset,
@@ -132,10 +132,12 @@ static ucs_status_t ucp_proto_get_offload_zcopy_progress(uct_pending_req_t *self
 {
     ucp_request_t *req = ucs_container_of(self, ucp_request_t, send.uct);
 
-    return ucp_proto_multi_zcopy_progress(req, req->send.proto_config->priv,
-                                          NULL, UCT_MD_MEM_ACCESS_LOCAL_WRITE,
-                                          ucp_proto_get_offload_zcopy_send_func,
-                                          ucp_proto_request_zcopy_completion);
+    return ucp_proto_multi_zcopy_progress(
+            req, req->send.proto_config->priv, NULL,
+            UCT_MD_MEM_ACCESS_LOCAL_WRITE,
+            ucp_proto_get_offload_zcopy_send_func,
+            ucp_request_invoke_uct_completion_success,
+            ucp_proto_request_zcopy_completion);
 }
 
 static ucs_status_t
@@ -149,6 +151,7 @@ ucp_proto_get_offload_zcopy_init(const ucp_proto_init_params_t *init_params)
         .super.cfg_thresh    = context->config.ext.zcopy_thresh,
         .super.cfg_priority  = 30,
         .super.min_length    = 0,
+        .super.max_length    = SIZE_MAX,
         .super.min_frag_offs = ucs_offsetof(uct_iface_attr_t,
                                             cap.get.min_zcopy),
         .super.max_frag_offs = ucs_offsetof(uct_iface_attr_t,
@@ -176,6 +179,6 @@ static ucp_proto_t ucp_get_offload_zcopy_proto = {
     .flags      = 0,
     .init       = ucp_proto_get_offload_zcopy_init,
     .config_str = ucp_proto_multi_config_str,
-    .progress   = ucp_proto_get_offload_zcopy_progress
+    .progress   = {ucp_proto_get_offload_zcopy_progress}
 };
 UCP_PROTO_REGISTER(&ucp_get_offload_zcopy_proto);

@@ -309,7 +309,7 @@ ucp_tag_offload_do_post(ucp_request_t *req)
         iov.buffer          = (void*)req->recv.buffer;
         iov.memh            = req->recv.state.dt.contig.memh[0];
     } else {
-        rdesc = ucp_worker_mpool_get(&worker->reg_mp, ucp_mem_desc_t);
+        rdesc = ucp_worker_mpool_get(&worker->reg_mp);
         if (rdesc == NULL) {
             return UCS_ERR_NO_MEMORY;
         }

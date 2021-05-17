@@ -18,6 +18,11 @@
  */
 #define UCP_PROTO_SELECT_OP_ATTR_BASE   UCP_OP_ATTR_FLAG_NO_IMM_CMPL
 #define UCP_PROTO_SELECT_OP_ATTR_MASK   UCP_OP_ATTR_FLAG_FAST_CMPL
+#define UCP_PROTO_SELECT_OP_FLAGS_BASE  UCS_BIT(5)
+
+/* Rendezvous protocol which is part of a pipeline and does not have remote
+   request id */
+#define UCP_PROTO_SELECT_OP_FLAG_PPLN   (UCP_PROTO_SELECT_OP_FLAGS_BASE << 0)
 
 
 /** Maximal length of ucp_proto_select_param_str() */
@@ -134,5 +139,10 @@ ucp_proto_select_short_init(ucp_worker_h worker, ucp_proto_select_t *proto_selec
 void
 ucp_proto_select_get_valid_range(const ucp_proto_threshold_elem_t *thresholds,
                                  size_t *min_length_p, size_t *max_length_p);
+
+
+void ucp_proto_threshold_elem_str(const ucp_proto_threshold_elem_t *thresh_elem,
+                                  size_t min_length, size_t max_length,
+                                  ucs_string_buffer_t *strb);
 
 #endif

@@ -45,10 +45,10 @@ ucp_proto_thresholds_search(const ucp_proto_threshold_elem_t *thresholds,
 static UCS_F_ALWAYS_INLINE uint8_t
 ucp_proto_select_op_attr_to_flags(uint32_t op_attr_mask)
 {
-    UCS_STATIC_ASSERT(UCP_PROTO_SELECT_OP_ATTR_MASK /
-                      UCP_PROTO_SELECT_OP_ATTR_BASE <= UINT8_MAX);
+    UCS_STATIC_ASSERT(
+            (UCP_PROTO_SELECT_OP_ATTR_MASK / UCP_PROTO_SELECT_OP_ATTR_BASE) <
+            UCP_PROTO_SELECT_OP_FLAGS_BASE);
     return 0;
-    //op_attr_mask / UCP_PROTO_SELECT_OP_ATTR_BASE;
 }
 
 static UCS_F_ALWAYS_INLINE uint32_t
@@ -102,7 +102,7 @@ ucp_proto_select_lookup(ucp_worker_h worker, ucp_proto_select_t *proto_select,
 static UCS_F_ALWAYS_INLINE void
 ucp_proto_select_param_init(ucp_proto_select_param_t *select_param,
                             ucp_operation_id_t op_id, uint32_t op_attr_mask,
-                            ucp_dt_class_t dt_class,
+                            uint8_t op_flags, ucp_dt_class_t dt_class,
                             const ucp_memory_info_t *mem_info, uint8_t sg_count)
 {
     if (dt_class == UCP_DATATYPE_CONTIG) {

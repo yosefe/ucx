@@ -958,6 +958,16 @@ ucp_request_get_super(ucp_request_t *req)
     return req->super_req;
 }
 
+static UCS_F_ALWAYS_INLINE ucp_request_t *
+ucp_request_user_data_get_super(void *request, void *user_data)
+{
+    ucp_request_t UCS_V_UNUSED *req = (ucp_request_t*)request - 1;
+    ucp_request_t *super_req        = (ucp_request_t*)user_data;
+
+    ucs_assert(ucp_request_get_super(req) == super_req);
+    return super_req;
+}
+
 static UCS_F_ALWAYS_INLINE void
 ucp_request_param_rndv_thresh(ucp_request_t *req,
                               const ucp_request_param_t *param,

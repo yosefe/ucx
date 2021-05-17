@@ -48,7 +48,7 @@ static ucs_status_t ucp_proto_reconfig_select_progress(uct_pending_req_t *self)
     }
 
     /* Select from protocol hash according to saved request parameters */
-    status = ucp_proto_request_set_proto(worker, ep, req, proto_select,
+    status = ucp_proto_request_lookup_proto(worker, ep, req, proto_select,
                                          rkey_cfg_index,
                                          &req->send.proto_config->select_param,
                                          req->send.state.dt_iter.length);
@@ -104,6 +104,6 @@ static ucp_proto_t ucp_reconfig_proto = {
     .flags      = UCP_PROTO_FLAG_INVALID,
     .init       = ucp_proto_reconfig_init,
     .config_str = (ucp_proto_config_str_func_t)ucs_empty_function,
-    .progress   = ucp_proto_reconfig_progress
+    .progress   = {ucp_proto_reconfig_progress}
 };
 UCP_PROTO_REGISTER(&ucp_reconfig_proto);

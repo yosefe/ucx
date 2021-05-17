@@ -368,8 +368,7 @@ ucp_am_zcopy_pack_user_header(ucp_request_t *req)
 
     ucs_assert(req->send.msg_proto.am.header != NULL);
 
-    reg_desc = ucp_worker_mpool_get(&req->send.ep->worker->reg_mp,
-                                    ucp_mem_desc_t);
+    reg_desc = ucp_worker_mpool_get(&req->send.ep->worker->reg_mp);
     if (ucs_unlikely(reg_desc == NULL)) {
         return UCS_ERR_NO_MEMORY;
     }

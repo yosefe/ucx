@@ -20,8 +20,9 @@ ucp_proto_rdnv_am_init_common(ucp_proto_multi_init_params_t *params)
         return UCS_ERR_UNSUPPORTED;
     }
 
-    if (params->super.super.rkey_cfg_index != UCP_WORKER_CFG_INDEX_NULL) {
-        /* FIXME disable rdnv_am for pipelined RTR */
+    if (params->super.super.select_param->op_flags &
+        UCP_PROTO_SELECT_OP_FLAG_PPLN) {
+        /* RNDV_AM requires remote req id which is not present in case of PPLN */
         return UCS_ERR_UNSUPPORTED;
     }
 
@@ -44,7 +45,7 @@ static size_t ucp_proto_rndv_am_bcopy_pack(void *dest, void *arg)
     ucp_proto_multi_pack_ctx_t *pack_ctx = arg;
     ucp_request_t *req                   = pack_ctx->req;
 
-    hdr->rreq_id = req->send.rndv.remote_req_id;
+    hdr->rreq_id = ucp_proto_rndv_request_get_remote_req_id(req);
     hdr->offset  = req->send.state.dt_iter.offset;
 
     return sizeof(*hdr) + ucp_proto_multi_data_pack(pack_ctx, hdr + 1);
@@ -119,6 +120,6 @@ static ucp_proto_t ucp_rndv_am_bcopy_proto = {
     .flags      = 0,
     .init       = ucp_proto_rdnv_am_bcopy_init,
     .config_str = ucp_proto_multi_config_str,
-    .progress   = ucp_proto_rndv_am_bcopy_progress,
+    .progress   = {ucp_proto_rndv_am_bcopy_progress},
 };
 UCP_PROTO_REGISTER(&ucp_rndv_am_bcopy_proto);

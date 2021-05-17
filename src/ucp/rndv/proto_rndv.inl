@@ -15,6 +15,7 @@
 #include <ucp/proto/proto_multi.inl>
 
 
+/* Used only for internal RNDV functions */
 static UCS_F_ALWAYS_INLINE size_t
 ucp_proto_rndv_cfg_thresh(ucp_context_h context, uint64_t rndv_modes)
 {
@@ -59,6 +60,20 @@ ucp_proto_rndv_rts_request_init(ucp_request_t *req)
     req->send.state.completed_size = 0;
 
     return UCS_OK;
+}
+
+static UCS_F_ALWAYS_INLINE int
+ucp_proto_rndv_request_should_send_ack(ucp_request_t *req)
+{
+    return ucs_likely(req->send.rndv.remote_req_id != UCS_PTR_MAP_KEY_INVALID);
+}
+
+static UCS_F_ALWAYS_INLINE uint64_t
+ucp_proto_rndv_request_get_remote_req_id(ucp_request_t *req)
+{
+    ucs_assertv(req->send.rndv.remote_req_id != UCS_PTR_MAP_KEY_INVALID,
+                "req=%p", req);
+    return req->send.rndv.remote_req_id;
 }
 
 static UCS_F_ALWAYS_INLINE ucs_status_t
@@ -113,14 +128,109 @@ ucp_proto_rndv_ack_progress(ucp_request_t *req, ucp_am_id_t am_id,
                                               complete_func);
 }
 
-static UCS_F_ALWAYS_INLINE void
-ucp_proto_rndv_rtr_common_complete(ucp_request_t *req, ucs_status_t status)
+static size_t UCS_F_ALWAYS_INLINE
+ucp_proto_rndv_send_pack_atp(ucp_request_t *req, void *dest, uint8_t count)
 {
-    ucp_trace_req(req, "rndv_rtr_common_complete");
+    ucp_rndv_atp_hdr_t *atp = dest;
+
+    atp->super.req_id = ucp_proto_rndv_request_get_remote_req_id(req);
+    atp->super.status = UCS_OK;
+    atp->count        = count;
+    return sizeof(*atp);
+}
+
+static UCS_F_ALWAYS_INLINE ucs_status_t ucp_proto_rndv_frag_request_alloc(
+        ucp_worker_h worker, ucp_request_t *req,
+        ucp_send_nbx_callback_t comp_cb, ucp_request_t **freq_p)
+{
+    ucp_request_t *freq;
+
+    freq = ucp_request_get(worker);
+    if (freq == NULL) {
+        ucs_error("failed to allocated rendezvous send fragment");
+        return UCS_ERR_NO_MEMORY;
+    }
+
+    ucp_trace_req(req, "allocated rndv fragment %p", freq);
+    ucp_request_set_super(freq, req);
+    freq->flags   = UCP_REQUEST_FLAG_RNDV_FRAG | UCP_REQUEST_FLAG_CALLBACK |
+                    UCP_REQUEST_FLAG_RELEASED;
+    freq->send.ep = req->send.ep;
+    freq->send.cb = comp_cb;
+    *freq_p       = freq;
+
+    // TODO slice dt iter
+    return UCS_OK;
+}
+
+static UCS_F_ALWAYS_INLINE int
+ucp_proto_rndv_frag_completed(ucp_request_t *req, ucp_request_t *freq)
+{
+    ucs_assert(freq->flags & UCP_REQUEST_FLAG_RNDV_FRAG);
+
+    req->send.state.completed_size += freq->send.state.dt_iter.length;
+    ucp_trace_req(req, "completed %zu/%zu by frag %p length %zu",
+                  req->send.state.completed_size,
+                  req->send.state.dt_iter.length, freq,
+                  freq->send.state.dt_iter.length);
+
+    if (req->send.state.completed_size < req->send.state.dt_iter.length) {
+        return 0;
+    }
+
     if (req->send.rndv.rkey != NULL) {
         ucp_rkey_destroy(req->send.rndv.rkey);
     }
-    ucp_proto_request_zcopy_complete(req, status);
+
+    return 1;
+}
+
+static UCS_F_ALWAYS_INLINE size_t
+ucp_proto_rndv_request_total_length(ucp_request_t *req)
+{
+    ucp_request_t *super_req;
+
+    if (ucs_unlikely(req->flags & UCP_REQUEST_FLAG_RNDV_FRAG)) {
+        super_req = ucp_request_get_super(req);
+        return super_req->send.state.dt_iter.length;
+    }
+
+    return req->send.state.dt_iter.length;
+}
+
+static UCS_F_ALWAYS_INLINE void
+ucp_proto_rndv_bulk_request_init(ucp_request_t *req,
+                                 const ucp_proto_rndv_bulk_priv_t *rpriv)
+{
+    if (req->send.rndv.offset == 0) {
+        req->send.multi_lane_idx = 0;
+    } else {
+        ucp_proto_rndv_bulk_request_init_lane_idx(req, rpriv);
+    }
+    ucp_proto_multi_set_send_lane(req);
+}
+
+/**
+ * Calculate how much data to send on the next lane in a rendezvous protocol,
+ * including when the request is a fragment and starts from nonzero offset.
+ */
+static UCS_F_ALWAYS_INLINE size_t
+ucp_proto_rndv_bulk_max_payload(ucp_request_t *req,
+                                const ucp_proto_rndv_bulk_priv_t *rpriv,
+                                const ucp_proto_multi_lane_priv_t *lpriv)
+{
+    size_t total_length = ucp_proto_rndv_request_total_length(req);
+    size_t max_frag_sum = rpriv->mpriv.max_frag_sum;
+    size_t offset = req->send.rndv.offset + req->send.state.dt_iter.offset;
+
+    if (ucs_likely(total_length < max_frag_sum)) {
+        /* Each lane sends less than its maximal fragment size */
+        return ucp_proto_multi_scaled_length(lpriv->weight_sum, total_length) -
+               offset;
+    } else {
+        /* Send in round-robin fashion, each lanes sends its maximal size */
+        return lpriv->max_frag_sum - (offset % max_frag_sum);
+    }
 }
 
 #endif

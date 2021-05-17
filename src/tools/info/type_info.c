@@ -275,7 +275,6 @@ void print_type_info(const char * tl_name)
     PRINT_SIZE(ucp_rkey_t);
     PRINT_SIZE(ucp_wireup_msg_t);
     PRINT_SIZE(ucp_mem_desc_t);
-    PRINT_SIZE(ucp_rndv_frag_t);
     PRINT_SIZE(ucp_proto_multi_lane_priv_t);
     PRINT_SIZE(ucp_eager_hdr_t);
     PRINT_SIZE(ucp_eager_first_hdr_t);

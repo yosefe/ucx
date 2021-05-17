@@ -27,19 +27,17 @@ ucp_proto_multi_request_init(ucp_request_t *req)
     ucp_proto_multi_set_send_lane(req);
 }
 
-static UCS_F_ALWAYS_INLINE size_t
+static UCS_F_ALWAYS_INLINE uint32_t
 ucs_proto_multi_calc_weight(double lane_weight, double total_weight)
 {
-    return (size_t)(
-            lane_weight * UCP_PROTO_MULTI_WEIGHT_MAX / total_weight +
-            0.5);
+    return (uint32_t)(
+            ((lane_weight * UCP_PROTO_MULTI_WEIGHT_MAX) / total_weight) + 0.5);
 }
 
 static UCS_F_ALWAYS_INLINE size_t
-ucp_proto_multi_scaled_length(const ucp_proto_multi_lane_priv_t *lpriv,
-                              size_t length)
+ucp_proto_multi_scaled_length(uint32_t weight, size_t length)
 {
-    return (lpriv->weight * length + UCP_PROTO_MULTI_WEIGHT_MAX - 1) >>
+    return ((weight * length) + UCP_PROTO_MULTI_WEIGHT_MAX - 1) >>
            UCP_PROTO_MULTI_WEIGHT_SHIFT;
 }
 
@@ -48,16 +46,16 @@ ucp_proto_multi_max_payload(ucp_request_t *req,
                             const ucp_proto_multi_lane_priv_t *lpriv,
                             size_t hdr_size)
 {
-    size_t scaled_length =
-            ucp_proto_multi_scaled_length(lpriv, req->send.state.dt_iter.length);
-    size_t max_payload   = ucs_min(scaled_length, lpriv->max_frag - hdr_size);
+    size_t length = req->send.state.dt_iter.length;
+    size_t max_payload;
 
+    max_payload = ucs_min(ucp_proto_multi_scaled_length(lpriv->weight, length),
+                          lpriv->max_frag - hdr_size);
     ucs_assertv(max_payload > 0,
-                "length=%zu weight=%.2f scaled_length=%zu max_frag=%zu "
-                "hdr_size=%zu",
+                "length=%zu weight=%zu%% max_frag=%zu hdr_size=%zu",
                 req->send.state.dt_iter.length,
-                lpriv->weight / (double)UCS_BIT(UCP_PROTO_MULTI_WEIGHT_SHIFT),
-                scaled_length, lpriv->max_frag, hdr_size);
+                ucp_proto_multi_scaled_length(lpriv->weight, 100),
+                lpriv->max_frag, hdr_size);
     return max_payload;
 }
 
@@ -177,13 +175,14 @@ static UCS_F_ALWAYS_INLINE ucs_status_t ucp_proto_multi_zcopy_progress(
         ucp_request_t *req, const ucp_proto_multi_priv_t *mpriv,
         ucp_proto_init_cb_t init_func, unsigned uct_mem_flags,
         ucp_proto_send_multi_cb_t send_func,
-        uct_completion_callback_t comp_func)
+        ucp_proto_complete_cb_t comp_func,
+        uct_completion_callback_t uct_comp_cb)
 {
     ucs_status_t status;
 
     if (!(req->flags & UCP_REQUEST_FLAG_PROTO_INITIALIZED)) {
-        status = ucp_proto_request_zcopy_init(req, mpriv->reg_md_map, comp_func,
-                                              uct_mem_flags);
+        status = ucp_proto_request_zcopy_init(req, mpriv->reg_md_map,
+                                              uct_comp_cb, uct_mem_flags);
         if (status != UCS_OK) {
             // TODO fallback to other protocol
             ucp_proto_request_abort(req, status);
@@ -198,8 +197,7 @@ static UCS_F_ALWAYS_INLINE ucs_status_t ucp_proto_multi_zcopy_progress(
         req->flags |= UCP_REQUEST_FLAG_PROTO_INITIALIZED;
     }
 
-    return ucp_proto_multi_progress(req, mpriv, send_func,
-                                    ucp_request_invoke_uct_completion_success,
+    return ucp_proto_multi_progress(req, mpriv, send_func, comp_func,
                                     UCS_BIT(UCP_DATATYPE_CONTIG));
 }
 

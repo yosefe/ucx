@@ -51,7 +51,7 @@ static UCS_F_ALWAYS_INLINE ucs_status_t ucp_proto_single_status_handle(
 {
     if (ucs_likely(status == UCS_OK)) {
         if (complete_func != NULL) {
-            complete_func(req);
+            return complete_func(req);
         }
         return UCS_OK;
     } else if (is_zcopy && (status == UCS_INPROGRESS)) {
@@ -101,8 +101,8 @@ ucp_proto_zcopy_single_progress(ucp_request_t *req, unsigned uct_mem_flags,
         req->flags |= UCP_REQUEST_FLAG_PROTO_INITIALIZED;
     }
 
-    ucp_datatype_iter_next_iov(&req->send.state.dt_iter, spriv->super.memh_index,
-                               SIZE_MAX, &next_iter, &iov);
+    ucp_datatype_iter_next_iov(&req->send.state.dt_iter, SIZE_MAX,
+                               spriv->super.memh_index, &next_iter, &iov);
     status = send_func(req, spriv, &iov);
     UCS_PROFILE_REQUEST_EVENT_CHECK_STATUS(req, name, iov.length, status);
 

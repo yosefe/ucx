@@ -509,23 +509,23 @@ ucp_proto_common_calc_latency(const ucp_proto_common_init_params_t *params,
 
     /* Performance for 0...frag_size */
     range             = &params->super.caps->ranges[params->super.caps->num_ranges++];
-    range->max_length = frag_size;
+    range->max_length = ucs_min(frag_size, params->max_length);
     range->perf       = ucs_linear_func_add(uct_time, recv_time);
     if (!(params->flags & UCP_PROTO_COMMON_INIT_FLAG_SEND_ZCOPY)) {
         ucs_linear_func_add_inplace(&range->perf, pack_time);
     }
 
-    /* If the 1st range already covers up to SIZE_MAX, or the protocol should be
-     * limited by single fragment - no more ranges are created
+    /* If the 1st range already covers up to max_length, or the protocol should
+     * be limited by single fragment - no more ranges are created
      */
-    if ((range->max_length == SIZE_MAX) ||
+    if ((range->max_length >= params->max_length) ||
         (params->flags & UCP_PROTO_COMMON_INIT_FLAG_MAX_FRAG)) {
         return;
     }
 
     /* Performance for frag_size+1...MAX */
     range             = &params->super.caps->ranges[params->super.caps->num_ranges++];
-    range->max_length = SIZE_MAX;
+    range->max_length = params->max_length;
     range->perf       = ucs_linear_func_make(0, 0);
 
     if (ucs_test_all_flags(params->flags, UCP_PROTO_COMMON_INIT_FLAG_SEND_ZCOPY |
@@ -554,7 +554,7 @@ ucp_proto_common_calc_latency(const ucp_proto_common_init_params_t *params,
     ucs_linear_func_add_value_at(&range->perf, recv_time, frag_size);
 }
 
-ucs_linear_func_t
+static ucs_linear_func_t
 ucp_proto_common_get_pack_time(ucp_worker_h worker, ucs_memory_type_t mem_type,
                                size_t frag_size, int is_sync, const char *title)
 {

@@ -57,6 +57,7 @@ typedef struct {
     size_t                  cfg_thresh;    /* user-configured threshold */
     unsigned                cfg_priority;  /* user configuration priority */
     size_t                  min_length;    /* Minimal payload size */
+    size_t                  max_length;    /* Maximal payload size */
     ptrdiff_t               min_frag_offs; /* offset in uct_iface_attr_t of the
                                               minimal size of a single fragment */
     ptrdiff_t               max_frag_offs; /* offset in uct_iface_attr_t of the
@@ -191,12 +192,6 @@ ucp_proto_common_reg_md_map(const ucp_proto_common_init_params_t *params,
 
 ucp_lane_index_t
 ucp_proto_common_find_am_bcopy_lane(const ucp_proto_init_params_t *params);
-
-
-ucs_linear_func_t ucp_proto_common_get_pack_time(ucp_worker_h worker,
-                                                 ucs_memory_type_t mem_type,
-                                                 size_t frag_size, int is_sync,
-                                                 const char *title);
 
 
 void ucp_proto_common_init_caps(const ucp_proto_common_init_params_t *params,

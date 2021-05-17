@@ -119,6 +119,8 @@ typedef struct ucp_context_config {
     unsigned                               reg_whole_alloc_bitmap;
     /** Error handler delay */
     ucs_time_t                             err_handler_delay;
+    /** Always use flush operation in rendezvous put */
+    int                                    rndv_put_force_flush;
 } ucp_context_config_t;
 
 

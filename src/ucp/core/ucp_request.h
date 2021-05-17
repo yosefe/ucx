@@ -59,7 +59,7 @@ enum {
 #else
     UCP_REQUEST_FLAG_STREAM_RECV           = 0,
     UCP_REQUEST_DEBUG_FLAG_EXTERNAL        = 0,
-    UCP_REQUEST_FLAG_SUPER_VALID           = 0    
+    UCP_REQUEST_FLAG_SUPER_VALID           = 0
 #endif
 };
 
@@ -155,8 +155,8 @@ struct ucp_request {
                     ucp_dt_state_t       dt;       /* Position in the send buffer */
                 };
                 union {
-                    uct_completion_t     uct_comp; /* UCT completion used by flush */
-                    size_t               completed_size; /* Number of bytes completed */
+                    uct_completion_t uct_comp; /* UCT completion used by flush */
+                    size_t           completed_size; /* Used by some RNDV */
                 };
             } state;
 
@@ -206,6 +206,7 @@ struct ucp_request {
                     ucp_wireup_ep_t      *wireup_ep;
                 } proxy;
 
+                /* Used by version 1 rendezvous protocols */
                 struct {
                     uint64_t          remote_address;  /* address of the sender/receiver's data
                                                           buffer for the GET/PUT operation */
@@ -213,29 +214,47 @@ struct ucp_request {
                     ucs_ptr_map_key_t remote_req_id;
                     ucp_rkey_h        rkey;            /* key for remote send/receive buffer for
                                                           the GET/PUT operation */
-                    union {
-                        struct {
-                            ucp_lane_map_t lanes_map_all; /* actual lanes map */
-                            uint8_t        lanes_count; /* actual lanes count */
-                            uint8_t        rkey_index[UCP_MAX_LANES];
-                        };
-                        struct {
-                            size_t         offset;
-                        } ppln;
-                        struct {
-                            /* fence mode: which lanes sent ATP
-                               flush mode: which lanes completed flush
-                             */
-                            ucp_lane_map_t flush_map;
 
-                            /* which lanes need to send atp */
-                            ucp_lane_map_t atp_map;
-                        } put;
+                    /* Actual lanes map */
+                    ucp_lane_map_t    lanes_map_all;
 
-                        struct {
-                            uint8_t atp_count;
-                        } rtr;
-                    };
+                    /* Actual lanes count */
+                    uint8_t           lanes_count;
+
+                    /* Remote key index map */
+                    uint8_t           rkey_index[UCP_MAX_LANES];
+
+                    /* Rendezvous fragment */
+                    ucp_mem_desc_t   *mdesc;
+
+                } rndv_v1;
+
+                struct {
+                    /* Remote request ID to acknowledge */
+                    ucs_ptr_map_key_t remote_req_id;
+
+                    /* Remote buffer address for get/put operation */
+                    uint64_t          remote_address;
+
+                    /* Key for remote buffer get/put operation */
+                    ucp_rkey_h        rkey;
+
+                    /* Data start offset of this request TODO */
+                    size_t            offset;
+
+                    /* Descriptor for staging rendezvous data */
+                    ucp_mem_desc_t    *mdesc;
+
+                    /* Used by rndv/put and rndv/put/frag */
+                    struct {
+                        /* fence mode: which lanes sent ATP
+                        flush mode: which lanes completed flush
+                        */
+                        ucp_lane_map_t flush_map;
+
+                        /* which lanes need to send atp */
+                        ucp_lane_map_t atp_map;
+                    } put;
                 } rndv;
 
                 struct {
@@ -258,6 +277,8 @@ struct ucp_request {
                     size_t            length;
                     /* Offset in the receiver's buffer */
                     size_t            offset;
+                    /* Remote request ID received from a peer */
+                    ucs_ptr_map_key_t remote_req_id;
                 } rndv_rtr;
 
                 struct {
@@ -310,6 +331,7 @@ struct ucp_request {
 
             union {
                 ucp_lane_index_t  am_bw_index;     /* AM BW lane index */
+                ucp_lane_index_t  multi_lane_idx;  /* Index of the lane with multi-send */
                 ucp_lane_map_t    lanes_map_avail; /* Used lanes map */
             };
             uint8_t               mem_type;        /* Memory type, values are
@@ -317,9 +339,8 @@ struct ucp_request {
             ucp_lane_index_t      pending_lane;    /* Lane on which request was moved
                                                     * to pending state */
             ucp_lane_index_t      lane;            /* Lane on which this request is being sent */
-            ucp_lane_index_t      multi_lane_idx;  /* Index of the lane with multi-send */
+            uint8_t               stage;
             uct_pending_req_t     uct;             /* UCT pending request */
-            ucp_rndv_frag_t       *frag;           /* Rendezvous fragment */
         } send;
 
         /* "receive" part - used for tag_recv, am_recv and stream_recv operations */
@@ -335,9 +356,6 @@ struct ucp_request {
             uct_tag_context_t     uct_ctx;  /* Transport offload context */
             ssize_t               remaining;  /* How much more data
                                                * to be received */
-
-            /* Remote request ID received from a peer */
-            ucs_ptr_map_key_t     remote_req_id;
 
             union {
                 struct {

@@ -97,12 +97,12 @@ protected:
             if (is_pack) {
                 ucp_datatype_iter_next_pack(&dt_iter, NULL, seg_size,
                                             &next_iter, packed_ptr);
+                ucp_datatype_iter_copy_from_next(&dt_iter, &next_iter, UINT_MAX);
             } else {
                 size_t unpack_size = std::min(seg_size, size - offset);
-                ucp_datatype_iter_next_unpack(&dt_iter, NULL, unpack_size,
-                                              &next_iter, packed_ptr);
+                ucp_datatype_iter_unpack(&dt_iter, NULL, unpack_size, offset,
+                                         packed_ptr);
             }
-            ucp_datatype_iter_copy_from_next(&dt_iter, &next_iter, UINT_MAX);
             offset += seg_size;
         }
 

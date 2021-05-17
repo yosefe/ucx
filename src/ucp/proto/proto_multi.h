@@ -39,6 +39,7 @@ typedef struct {
 
     /* Sum of 'max_frag' on all previous lanes, inclusive */
     size_t                       max_frag_sum;
+
     /* Ratio of data to send on this lane.
      * This is a fixed-point numeric representation (n * 2^shift), where "n" is
      * the real value, and "shift" is defined by UCP_PROTO_MULTI_WEIGHT_SHIFT.
@@ -54,10 +55,11 @@ typedef struct {
  * Base class for protocols with fragmentation
  */
 typedef struct {
-    ucp_md_map_t                   reg_md_map; /* Memory domains to register on */
-    ucp_lane_map_t                 lane_map;   /* Map of used lanes */
-    ucp_lane_index_t               num_lanes;  /* Number of lanes to use */
-    ucp_proto_multi_lane_priv_t    lanes[0];   /* Array of lanes */
+    ucp_md_map_t                reg_md_map;   /* Memory domains to register on */
+    size_t                      max_frag_sum; /* 'max_frag' sum of all lanes */
+    ucp_lane_map_t              lane_map;     /* Map of used lanes */
+    ucp_lane_index_t            num_lanes;    /* Number of lanes to use */
+    ucp_proto_multi_lane_priv_t lanes[0];     /* Array of lanes */
 } ucp_proto_multi_priv_t;
 
 

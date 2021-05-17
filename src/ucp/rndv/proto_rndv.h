@@ -82,11 +82,6 @@ typedef struct {
     /* Memory type of the transfer */
     ucp_memory_info_t              mem_info;
 
-    /* Minimal data length */
-    size_t                         min_length;
-
-    /* Whether pipelining is used (for performace estimation) */
-    int                            is_pipeline;
 } ucp_proto_rndv_ctrl_init_params_t;
 
 
@@ -116,7 +111,8 @@ void ucp_proto_rndv_ack_config_str(size_t min_length, size_t max_length,
 
 
 ucs_status_t
-ucp_proto_rndv_bulk_init(const ucp_proto_multi_init_params_t *init_params);
+ucp_proto_rndv_bulk_init(const ucp_proto_multi_init_params_t *init_params,
+                         size_t headroom);
 
 
 size_t ucp_proto_rndv_pack_ack(void *dest, void *arg);
@@ -139,7 +135,12 @@ ucp_proto_rndv_handle_rtr(void *arg, void *data, size_t length, unsigned flags);
 ucs_status_t ucp_proto_rndv_rtr_handle_atp(void *arg, void *data, size_t length,
                                            unsigned flags);
 
+
 ucs_status_t ucp_proto_rndv_handle_data(void *arg, void *data, size_t length,
                                         unsigned flags);
+
+
+void ucp_proto_rndv_bulk_request_init_lane_idx(
+        ucp_request_t *req, const ucp_proto_rndv_bulk_priv_t *rpriv);
 
 #endif
