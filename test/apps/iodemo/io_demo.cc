@@ -883,8 +883,8 @@ public:
         UcxConnection* conn;
         long           retry_count;               /* Connect retry counter */
         double         prev_connect_time;         /* timestamp of last connect attempt */
-        long           num_sent;                  /* Total number of sent operations */
         size_t         active_index;              /* Index in active vector */
+        long           num_sent[IO_OP_MAX];       /* Number of sent operations */
         long           num_completed[IO_OP_MAX];  /* Number of completed operations */
         long           prev_completed[IO_OP_MAX]; /* Completed in last report */
     } server_info_t;
@@ -1006,12 +1006,12 @@ public:
         return _server_info[server_index];
     }
 
-    void commit_operation(size_t server_index) {
+    void commit_operation(size_t server_index, io_op_t op) {
         server_info_t& server_info = _server_info[server_index];
 
         assert(get_num_uncompleted(server_info) < opts().conn_window_size);
 
-        ++server_info.num_sent;
+        ++server_info.num_sent[op];
         ++_num_sent;
         if (get_num_uncompleted(server_info) == opts().conn_window_size) {
             active_servers_make_unused(server_info.active_index);
@@ -1045,7 +1045,7 @@ public:
         BufferIov *iov            = _data_buffers_pool.get();
         IoReadResponseCallback *r = _read_callback_pool.get();
 
-        commit_operation(server_index);
+        commit_operation(server_index, IO_READ);
 
         iov->init(data_size, _data_chunks_pool, sn, validate);
         r->init(this, server_index, sn, validate, iov);
@@ -1069,7 +1069,7 @@ public:
         BufferIov *iov           = _data_buffers_pool.get();
         SendCompleteCallback *cb = _send_callback_pool.get();
 
-        commit_operation(server_index);
+        commit_operation(server_index, IO_WRITE);
 
         iov->init(data_size, _data_chunks_pool, sn, validate);
         cb->init(iov, NULL);
@@ -1120,7 +1120,8 @@ public:
     }
 
     static long get_num_uncompleted(const server_info_t& server_info) {
-        return server_info.num_sent -
+        return (server_info.num_sent[IO_READ] +
+                server_info.num_sent[IO_WRITE]) -
                (server_info.num_completed[IO_READ] +
                 server_info.num_completed[IO_WRITE]);
     }
@@ -1132,8 +1133,8 @@ public:
 
     static void reset_server_info(server_info_t& server_info) {
         server_info.conn                   = NULL;
-        server_info.num_sent               = 0;
         for (int op = 0; op < IO_OP_MAX; ++op) {
+            server_info.num_sent[op]       = 0;
             server_info.num_completed[op]  = 0;
             server_info.prev_completed[op] = 0;
         }
@@ -1152,15 +1153,22 @@ public:
 
         if (server_info.conn->is_disconnecting()) {
             LOG << "not disconnecting " << server_info.conn << " with "
-                << get_num_uncompleted(server_info) << " uncompleted oeprations"
-                " due to \"" << reason << "\" because disconnection is already"
-                " in progress";
+                << get_num_uncompleted(server_info) << " uncompleted operations"
+                " (read: " << server_info.num_completed[IO_READ] << "/"
+                << server_info.num_sent[IO_READ] << "; write: "
+                << server_info.num_completed[IO_WRITE] << "/"
+                << server_info.num_sent[IO_WRITE] << ") due to \"" << reason
+                << "\" because disconnection is already in progress";
             return;
         }
 
         LOG << "disconnecting connection " << server_info.conn << " with "
-            << get_num_uncompleted(server_info) << " uncompleted oeprations due"
-            " to \"" << reason << "\"";
+            << get_num_uncompleted(server_info) << " uncompleted operations"
+            " (read: " << server_info.num_completed[IO_READ] << "/"
+            << server_info.num_sent[IO_READ] << "; write: "
+            << server_info.num_completed[IO_WRITE] << "/"
+            << server_info.num_sent[IO_WRITE] << ") due to \"" << reason
+            << "\"";
 
         // Destroying the connection will complete its outstanding operations
         server_info.conn->disconnect(new DisconnectCallback(*this,
