@@ -888,10 +888,6 @@ void UcxConnection::established(ucs_status_t status)
 
     _ucx_status = status;
     _context.remove_connection_inprogress(this);
-    if (status == UCS_OK) {
-        _context.add_connection(this);
-    }
-
     (*_establish_cb)(status);
     _establish_cb = NULL;
 }
