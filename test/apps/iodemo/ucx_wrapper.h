@@ -54,7 +54,9 @@ public:
  */
 class UcxLog {
 public:
-    static bool use_human_time;
+    static bool         use_human_time;
+    static double       timeout_sec;
+    static const double timeout_inf;
 
     UcxLog(const char* prefix, bool enable = true);
     ~UcxLog();
@@ -68,6 +70,10 @@ public:
     }
 
 private:
+    void check_timeout() const;
+
+private:
+    struct timeval           _tv;
     std::stringstream        *_ss;
 };
 
@@ -123,6 +129,8 @@ public:
                                           size_t addrlen);
 
     void destroy_connections();
+
+    static double get_time(const struct timeval &tv);
 
     static double get_time();
 
