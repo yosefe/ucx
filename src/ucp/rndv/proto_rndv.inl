@@ -152,14 +152,14 @@ static UCS_F_ALWAYS_INLINE ucs_status_t ucp_proto_rndv_frag_request_alloc(
     }
 
     ucp_trace_req(req, "allocated rndv fragment %p", freq);
-    ucp_request_set_super(freq, req);
     freq->flags   = UCP_REQUEST_FLAG_RNDV_FRAG | UCP_REQUEST_FLAG_CALLBACK |
                     UCP_REQUEST_FLAG_RELEASED;
     freq->send.ep = req->send.ep;
     freq->send.cb = comp_cb;
-    *freq_p       = freq;
+    ucp_request_set_super(freq, req);
 
     // TODO slice dt iter
+    *freq_p = freq;
     return UCS_OK;
 }
 

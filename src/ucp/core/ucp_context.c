@@ -349,7 +349,7 @@ static ucs_config_field_t ucp_config_table[] = {
    "remote data delivery before sending ATP message. If disabled, the protocol\n"
    "will use fence operation and send ATP immediately on the lane used for put,\n"
    "without waiting for remote completion.",
-   ucs_offsetof(ucp_config_t, ctx.rndv_put_force_flush), UCS_CONFIG_TYPE_ON_OFF_AUTO},
+   ucs_offsetof(ucp_config_t, ctx.rndv_put_force_flush), UCS_CONFIG_TYPE_BOOL},
 
    {NULL}
 };

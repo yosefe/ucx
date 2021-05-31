@@ -507,7 +507,6 @@ void ucp_proto_rndv_receive(ucp_worker_h worker, ucp_request_t *recv_req,
         recv_req->status = UCS_ERR_MESSAGE_TRUNCATED;
     }
 
-    ucp_request_set_super(req, recv_req);
     req->flags                    = UCP_REQUEST_FLAG_RELEASED |
                                     UCP_REQUEST_FLAG_CALLBACK;
     req->send.cb                  = ucp_proto_rndv_recv_complete;
@@ -516,6 +515,7 @@ void ucp_proto_rndv_receive(ucp_worker_h worker, ucp_request_t *recv_req,
     req->send.rndv.remote_address = rts->address;
     req->send.rndv.offset         = 0;
     recv_req->recv.remaining      = send_length;
+    ucp_request_set_super(req, recv_req);
 
     ucs_assert(recv_req->recv.count == recv_req->recv.length);
     ucp_datatype_iter_init(worker->context, recv_req->recv.buffer,
