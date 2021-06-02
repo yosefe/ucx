@@ -12,6 +12,7 @@
 #include <ucs/arch/atomic.h>
 #include <ucs/sys/sys.h>
 #include <ucs/sys/string.h>
+#include <ucs/config/ini.h>
 #include <ucs/datastruct/list.h>
 #include <ucs/datastruct/khash.h>
 #include <ucs/debug/assert.h>
@@ -39,6 +40,8 @@ typedef UCS_CONFIG_ARRAY_FIELD(void, data) ucs_config_array_field_t;
 
 KHASH_SET_INIT_STR(ucs_config_env_vars)
 
+KHASH_MAP_INIT_STR(ucs_config_file, char*)
+
 
 /* Process environment variables */
 extern char **environ;
@@ -47,6 +50,7 @@ extern char **environ;
 UCS_LIST_HEAD(ucs_config_global_list);
 static khash_t(ucs_config_env_vars) ucs_config_parser_env_vars = {0};
 static pthread_mutex_t ucs_config_parser_env_vars_hash_lock    = PTHREAD_MUTEX_INITIALIZER;
+static khash_t(ucs_config_file) ucs_config_parser_file_vars;
 
 
 const char *ucs_async_mode_names[] = {
@@ -1090,6 +1094,47 @@ out:
     pthread_mutex_unlock(&ucs_config_parser_env_vars_hash_lock);
 }
 
+static int ucs_config_file_read_handler(void *user, const char *section, const char *name, const char *value)
+{
+    ucs_assert(strcmp(section, "") == 0);
+    int ret;
+    khiter_t khiter = kh_put(ucs_config_file, &ucs_config_parser_file_vars, ucs_strdup(name, "config_parser_file_key"), &ret);
+    if (ucs_unlikely(ret == -1)) {
+        ucs_error("ucs config parser: kh_put failed for %s=%s", name, value);
+        return 0;
+    } else {
+        /* if a config is repeated, the latter should override the previous. */
+        kh_val(&ucs_config_parser_file_vars, khiter) = ucs_strdup(value, "config_parser_file_var");
+    }
+    return 1;
+}
+
+void ucs_config_file_parse(const char *conf_file, int override)
+{
+    static int visit = 0;
+    if (visit ==0 || override) {
+        pthread_mutex_lock(&ucs_config_parser_env_vars_hash_lock);
+        if (visit == 0 || override) {
+            /* if one config parse error, should not stop parser. */
+            if (ini_parse(conf_file, ucs_config_file_read_handler, NULL) < 0) {
+                ucs_warn("ini_parse parser file failed: %s", conf_file);
+            }
+            visit = 1;
+        }
+        pthread_mutex_unlock(&ucs_config_parser_env_vars_hash_lock);
+    }
+}
+
+static const char* ucx_config_file_get_value(const char *name)
+{
+    pthread_mutex_lock(&ucs_config_parser_env_vars_hash_lock);
+    khiter_t khiter = kh_get(ucs_config_file, &ucs_config_parser_file_vars, name);
+    const char *value = (khiter == kh_end(&ucs_config_parser_file_vars)) ? NULL :
+                        kh_val(&ucs_config_parser_file_vars, khiter);
+    pthread_mutex_unlock(&ucs_config_parser_env_vars_hash_lock);
+    return value;
+}
+
 static ucs_status_t ucs_config_apply_env_vars(void *opts, ucs_config_field_t *fields,
                                              const char *prefix, const char *table_prefix,
                                              int recurse, int ignore_errors)
@@ -1134,9 +1179,13 @@ static ucs_status_t ucs_config_apply_env_vars(void *opts, ucs_config_field_t *fi
         } else {
             /* Read and parse environment variable */
             strncpy(buf + prefix_len, field->name, sizeof(buf) - prefix_len - 1);
+            /* environmental variavle prior to file config */
             env_value = getenv(buf);
             if (env_value == NULL) {
-                continue;
+                env_value = ucx_config_file_get_value(buf);
+                if (env_value == NULL) {
+                    continue;
+                }
             }
 
             ucs_config_parser_mark_env_var_used(buf, &added);
@@ -1213,6 +1262,9 @@ ucs_status_t ucs_config_parser_fill_opts(void *opts, ucs_config_field_t *fields,
     if (status != UCS_OK) {
         goto err;
     }
+
+    /* file config should do before apply environment variables */
+    ucs_config_file_parse(UCX_CONF_FILE, 0);
 
     /* Apply environment variables */
     if (sub_prefix != NULL) {

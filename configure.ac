@@ -109,6 +109,26 @@ AS_IF([${LN_S} --relative symlinktest 2>/dev/null],
 #
 AC_DEFINE_UNQUOTED([UCX_CONFIGURE_FLAGS], ["$config_flags"], [UCX configure flags])
 
+#
+# File path for ucx conf
+# ./configure                                        is /etc/ucx.conf
+# ./configure --prefix=/usr                          is /etc/ucx.conf
+# ./configure --prefix=/usr/local                    is /usr/local/etc/ucx.conf
+# ./configure --prefix=/usr/local --sysconfdir=/etc  is /etc/ucx.conf
+#
+case "$prefix" in
+    NONE | /usr)
+        case "$sysconfdir" in
+            '${prefix}/etc')
+                sysconfdir=/etc
+                ;;
+        esac
+        ;;
+esac
+
+SYSCONFDIR_TMP="`eval echo $sysconfdir`"
+AC_SUBST([ucx_conf_file], [${SYSCONFDIR_TMP}/ucx.conf])
+AC_DEFINE_UNQUOTED([UCX_CONF_FILE], ["$ucx_conf_file"], [ucx conf file])
 
 #
 # Provide the functionality of AS_VAR_APPEND if Autoconf does not have it.
@@ -391,6 +411,7 @@ AC_MSG_NOTICE([Building documents only])
 [
 AC_MSG_NOTICE([UCX build configuration:])
 AC_MSG_NOTICE([      Build prefix:   ${prefix}])
+AC_MSG_NOTICE([       config file:   ${ucx_conf_file}])
 AC_MSG_NOTICE([Preprocessor flags:   ${BASE_CPPFLAGS}])
 AC_MSG_NOTICE([        C compiler:   ${CC} ${BASE_CFLAGS}])
 AC_MSG_NOTICE([      C++ compiler:   ${CXX} ${BASE_CXXFLAGS}])

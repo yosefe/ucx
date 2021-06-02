@@ -10,6 +10,8 @@
 extern "C" {
 #include <ucs/config/parser.h>
 #include <ucs/time/time.h>
+#undef UCX_CONF_FILE
+#define UCX_CONF_FILE "ucs/test_ucx.conf"
 }
 
 
@@ -69,6 +71,10 @@ typedef struct {
     const char      *model;
     color_t         color;
     unsigned long   vin;
+    const char      *version;
+    unsigned        length;
+    unsigned        size;
+    double          pi;
 
     double          bw_bytes;
     double          bw_kbytes;
@@ -159,6 +165,18 @@ ucs_config_field_t car_opts_table[] = {
 
   {"VIN", "auto", "Vehicle identification number",
    ucs_offsetof(car_opts_t, vin), UCS_CONFIG_TYPE_ULUNITS},
+
+  {"VERSION", "1.0.0", "test string file config TEST_FILE_VERSION",
+          ucs_offsetof(car_opts_t, version), UCS_CONFIG_TYPE_STRING},
+
+  {"LENGTH", "10", "test uint file config TEST_FILE_LENGTH",
+          ucs_offsetof(car_opts_t, length), UCS_CONFIG_TYPE_UINT},
+
+  {"SIZE", "20", "test uint file config TEST_FILE_SIZE",
+          ucs_offsetof(car_opts_t, size), UCS_CONFIG_TYPE_UINT},
+
+  {"PI", "3.14", "test double file config TEST_FILE_PI",
+          ucs_offsetof(car_opts_t, pi), UCS_CONFIG_TYPE_DOUBLE},
 
   {"BW_BYTES", "1024Bs", "Bandwidth in bytes",
    ucs_offsetof(car_opts_t, bw_bytes), UCS_CONFIG_TYPE_BW},
@@ -286,6 +304,7 @@ protected:
         static car_opts_t parse(const char *env_prefix,
                                 const char *table_prefix) {
             car_opts_t tmp;
+            ucs_config_file_parse(UCX_CONF_FILE, 1);
             ucs_status_t status = ucs_config_parser_fill_opts(&tmp,
                                                               car_opts_table,
                                                               env_prefix,
@@ -464,6 +483,22 @@ UCS_TEST_F(test_config, set_get_with_env_prefix) {
     EXPECT_EQ(COLOR_WHITE, opts->color);
     EXPECT_EQ(std::string(color_names[COLOR_WHITE]),
               std::string(opts.get("COLOR")));
+}
+
+UCS_TEST_F(test_config, set_get_with_env_and_file) {
+    /*                      default     file       env     result
+     * TEST_FILE_VERSION   "1.0.0"    "1.2.3"      x       "1.2.3"
+     * TEST_FILE_LENGTH      10         100       1000     1000
+     * TEST_FILE_SIZE        20         x          x       20
+     * TEST_FILE_PI        3.14       3.14159      x       3.14159
+     * */
+    ucs::scoped_setenv env1("TEST_FILE_LENGTH", "1000");
+
+    car_opts opts("TEST_FILE_", NULL);
+    EXPECT_EQ(std::string("1.2.3"), std::string(opts->version));
+    EXPECT_EQ(1000, opts->length);
+    EXPECT_EQ(20, opts->size);
+    EXPECT_EQ(3.14159, opts->pi);
 }
 
 UCS_TEST_F(test_config, performance) {
