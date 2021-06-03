@@ -30,7 +30,7 @@ enum {
 };
 
 typedef struct ucp_proto_rndv_put_priv {
-    uct_completion_callback_t  comp_cb;
+    uct_completion_callback_t  send_comp_cb;
     uct_completion_callback_t  atp_comp_cb;
     uint8_t                    stage_start_ack;
     ucp_lane_map_t             flush_map;
@@ -158,6 +158,13 @@ ucp_proto_rndv_put_common_data_sent(ucp_request_t *req)
 }
 
 static UCS_F_ALWAYS_INLINE void
+ucp_proto_rndv_put_common_completion(ucp_request_t *req)
+{
+    ucp_proto_rndv_rkey_destroy(req);
+    ucp_proto_request_zcopy_complete(req, req->send.state.uct_comp.status);
+}
+
+static UCS_F_ALWAYS_INLINE void
 ucp_proto_rndv_put_common_request_init(ucp_request_t *req)
 {
     const ucp_proto_rndv_put_priv_t *rpriv = req->send.proto_config->priv;
@@ -240,14 +247,14 @@ ucp_proto_rndv_put_common_init(const ucp_proto_init_params_t *init_params,
     if (use_fence) {
         /* Send fence followed by ATP on all lanes */
         rpriv->bulk.super.lane = UCP_NULL_LANE;
-        rpriv->comp_cb         = comp_cb;
+        rpriv->send_comp_cb    = comp_cb;
         rpriv->atp_comp_cb     = NULL;
         rpriv->stage_start_ack = UCP_PROTO_RNDV_PUT_STAGE_FENCED_ATP;
         rpriv->flush_map       = 0;
         rpriv->atp_map         = rpriv->bulk.mpriv.lane_map;
     } else {
         /* Flush all lanes and send single ATP on control message lane */
-        rpriv->comp_cb         = ucp_proto_rndv_put_flush_completion;
+        rpriv->send_comp_cb    = ucp_proto_rndv_put_flush_completion;
         rpriv->atp_comp_cb     = comp_cb;
         rpriv->stage_start_ack = UCP_PROTO_RNDV_PUT_STAGE_FLUSH;
         rpriv->flush_map       = rpriv->bulk.mpriv.lane_map;
@@ -283,14 +290,14 @@ ucp_proto_rndv_put_zcopy_send_progress(uct_pending_req_t *uct_req)
     return ucp_proto_multi_zcopy_progress(
             req, &rpriv->bulk.mpriv, ucp_proto_rndv_put_common_request_init,
             UCT_MD_MEM_ACCESS_LOCAL_READ, ucp_proto_rndv_put_zcopy_send_func,
-            ucp_proto_rndv_put_common_data_sent, rpriv->comp_cb);
+            ucp_proto_rndv_put_common_data_sent, rpriv->send_comp_cb);
 }
 
 static void ucp_proto_rndv_put_zcopy_completion(uct_completion_t *uct_comp)
 {
     ucp_request_t *req = ucs_container_of(uct_comp, ucp_request_t,
                                           send.state.uct_comp);
-    ucp_proto_request_zcopy_complete(req, req->send.state.uct_comp.status);
+    ucp_proto_rndv_put_common_completion(req);
 }
 
 static ucs_status_t
@@ -325,7 +332,7 @@ ucp_proto_rndv_put_mtcopy_copy_completion(uct_completion_t *uct_comp)
     const ucp_proto_rndv_put_priv_t *rpriv = req->send.proto_config->priv;
 
     ucp_trace_req(req, "mdesc %p copy-in completed", req->send.rndv.mdesc);
-    ucp_proto_completion_init(&req->send.state.uct_comp, rpriv->comp_cb);
+    ucp_proto_completion_init(&req->send.state.uct_comp, rpriv->send_comp_cb);
     ucp_request_send(req, 0);
 }
 
@@ -376,7 +383,7 @@ static void ucp_proto_rndv_put_mtcopy_completion(uct_completion_t *uct_comp)
                                           send.state.uct_comp);
 
     ucs_mpool_put(req->send.rndv.mdesc);
-    ucp_proto_request_zcopy_complete(req, req->send.state.uct_comp.status);
+    ucp_proto_rndv_put_common_completion(req);
 }
 
 static ucs_status_t

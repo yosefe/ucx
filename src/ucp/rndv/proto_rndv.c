@@ -425,6 +425,7 @@ ucp_proto_rndv_send_reply(ucp_worker_h worker, ucp_request_t *req,
     }
 
     req->send.rndv.rkey = rkey;
+    req->flags         |= UCP_REQUEST_FLAG_RNDV_RKEY_DESTROY;
 
     ucp_trace_req(req,
                   "%s rva 0x%" PRIx64 " rreq_id 0x%" PRIx64 " with protocol %s",
@@ -460,10 +461,7 @@ static void ucp_proto_rndv_recv_complete(void *request, ucs_status_t status,
     ucp_request_t *req  = (ucp_request_t*)request - 1;
     ucp_request_t *rreq = ucp_request_user_data_get_super(request, user_data);
 
-    if (req->send.rndv.rkey != NULL) {
-        ucp_rkey_destroy(req->send.rndv.rkey);
-    }
-
+    ucp_proto_rndv_rkey_destroy(req);
     ucp_request_complete_tag_recv(rreq, rreq->status);
 }
 

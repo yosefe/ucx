@@ -163,6 +163,18 @@ static UCS_F_ALWAYS_INLINE ucs_status_t ucp_proto_rndv_frag_request_alloc(
     return UCS_OK;
 }
 
+static UCS_F_ALWAYS_INLINE void
+ucp_proto_rndv_rkey_destroy(ucp_request_t *req)
+{
+    if (req->flags & UCP_REQUEST_FLAG_RNDV_RKEY_DESTROY) {
+        ucs_assert(req->send.rndv.rkey != NULL);
+        ucp_rkey_destroy(req->send.rndv.rkey);
+#if UCS_ENABLE_ASSERT
+        req->send.rndv.rkey = NULL;
+#endif
+    }
+}
+
 static UCS_F_ALWAYS_INLINE int
 ucp_proto_rndv_frag_completed(ucp_request_t *req, ucp_request_t *freq)
 {
@@ -178,10 +190,7 @@ ucp_proto_rndv_frag_completed(ucp_request_t *req, ucp_request_t *freq)
         return 0;
     }
 
-    if (req->send.rndv.rkey != NULL) {
-        ucp_rkey_destroy(req->send.rndv.rkey);
-    }
-
+    ucp_proto_rndv_rkey_destroy(req);
     return 1;
 }
 

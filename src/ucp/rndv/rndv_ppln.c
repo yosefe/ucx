@@ -47,6 +47,9 @@ ucp_proto_rndv_ppln_init(const ucp_proto_init_params_t *init_params)
         return UCS_ERR_UNSUPPORTED;
     }
 
+    // TODO enable
+    return UCS_ERR_UNSUPPORTED;
+
     /* Find lane to send the ack message */
     rpriv->ack_lane = ucp_proto_common_find_am_bcopy_lane(init_params);
     if (rpriv->ack_lane == UCP_NULL_LANE) {
