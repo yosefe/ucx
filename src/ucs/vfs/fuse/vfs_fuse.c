@@ -467,8 +467,8 @@ static void ucs_fuse_thread_stop()
 UCS_STATIC_INIT
 {
     if (ucs_global_opts.vfs_enable) {
-        pthread_create(&ucs_vfs_fuse_context.thread_id, NULL,
-                       ucs_vfs_fuse_thread_func, NULL);
+        ucs_pthread_create(ucs_vfs_fuse_thread_func, NULL, "vfs_fuse",
+                           &ucs_vfs_fuse_context.thread_id);
     }
 }
 

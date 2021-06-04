@@ -94,7 +94,7 @@ static UCS_F_ALWAYS_INLINE void
 ucp_proto_rndv_rtr_common_pack(ucp_request_t *req, ucp_rndv_rtr_hdr_t *rtr,
                                void *buffer)
 {
-    rtr->sreq_id = ucp_proto_rndv_request_get_remote_req_id(req);
+    rtr->sreq_id = req->send.rndv.remote_req_id;
     rtr->rreq_id = ucp_send_request_get_id(req);
     rtr->size    = req->send.state.dt_iter.length;
     rtr->offset  = req->send.rndv.offset;

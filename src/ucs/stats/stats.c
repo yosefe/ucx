@@ -222,7 +222,7 @@ static void ucs_stats_node_remove(ucs_stats_node_t *node, int make_inactive)
             make_inactive = 0;
         }
     } else {
-        ucs_stats_clean_node(node); 
+        ucs_stats_clean_node(node);
     }
 
     pthread_mutex_unlock(&ucs_stats_context.lock);
@@ -233,7 +233,7 @@ static void ucs_stats_node_remove(ucs_stats_node_t *node, int make_inactive)
         }
         ucs_free(node);
     }
-}   
+}
 
 static void ucs_stats_filter_node_init_root() {
     ucs_list_head_init(&ucs_stats_context.root_filter_node.list);
@@ -354,14 +354,14 @@ static void ucs_stats_add_to_filter(ucs_stats_node_t *node,
 
     filter_node->type_list_len++;
     ucs_list_add_tail(&filter_node->type_list_head, &node->type_list);
-    node->filter_node = filter_node;   
+    node->filter_node = filter_node;
 
     for (i = 0; (i < node->cls->num_counters) && (i < 64); ++i) {
         filter_index = ucs_config_names_search(ucs_global_opts.stats_filter,
                                                node->cls->counter_names[i]);
         if (filter_index >= 0) {
             filter_node->counters_bitmask |= UCS_BIT(i);
-            found = 1; 
+            found = 1;
         }
     }
 
@@ -637,7 +637,8 @@ static void ucs_stats_set_trigger()
         }
 
         ucs_stats_context.flags |= UCS_STATS_FLAG_ON_TIMER;
-        pthread_create(&ucs_stats_context.thread, NULL, ucs_stats_thread_func, NULL);
+        ucs_pthread_create(ucs_stats_thread_func, NULL, "stats",
+                           &ucs_stats_context.thread);
    } else if (!strncmp(ucs_global_opts.stats_trigger, "signal:", 7)) {
         p = ucs_global_opts.stats_trigger + 7;
         if (!ucs_config_sscanf_signo(p, &ucs_stats_context.signo, NULL)) {

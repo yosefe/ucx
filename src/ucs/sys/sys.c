@@ -1501,3 +1501,20 @@ ucs_status_t ucs_sys_get_file_time(const char *name, ucs_sys_file_time_t type,
         return UCS_ERR_INVALID_PARAM;
     }
 }
+
+ucs_status_t ucs_pthread_create(void *(*start_routine)(void*), void *arg,
+                                const char *name, pthread_t *thread_id_p)
+{
+    pthread_t thread_id;
+    int ret;
+
+    ret = pthread_create(&thread_id, NULL, start_routine, arg);
+    if (ret != 0) {
+        ucs_error("pthread_create() failed: %m");
+        return UCS_ERR_IO_ERROR;
+    }
+
+    pthread_setname_np(thread_id, name);
+    *thread_id_p = thread_id;
+    return UCS_OK;
+}

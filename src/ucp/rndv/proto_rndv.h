@@ -143,4 +143,11 @@ ucs_status_t ucp_proto_rndv_handle_data(void *arg, void *data, size_t length,
 void ucp_proto_rndv_bulk_request_init_lane_idx(
         ucp_request_t *req, const ucp_proto_rndv_bulk_priv_t *rpriv);
 
+
+void ucp_proto_rndv_send_frag_complete(ucp_request_t *freq, unsigned ack_flag);
+
+
+void ucp_proto_rndv_recv_frag_complete(ucp_request_t *freq, unsigned ack_flag);
+
+
 #endif

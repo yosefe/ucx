@@ -156,7 +156,6 @@ static ucs_status_t ucs_async_thread_start(ucs_async_thread_t **thread_p)
     ucs_async_thread_t *thread;
     ucs_status_t status;
     int wakeup_rfd;
-    int ret;
 
     ucs_trace_func("");
 
@@ -203,10 +202,9 @@ static ucs_status_t ucs_async_thread_start(ucs_async_thread_t **thread_p)
         goto err_free_event_set;
     }
 
-    ret = pthread_create(&thread->thread_id, NULL, ucs_async_thread_func, thread);
-    if (ret != 0) {
-        ucs_error("pthread_create() returned %d: %m", ret);
-        status = UCS_ERR_IO_ERROR;
+    status = ucs_pthread_create(ucs_async_thread_func, thread, "async",
+                                &thread->thread_id);
+    if (status != UCS_OK) {
         goto err_free_event_set;
     }
 

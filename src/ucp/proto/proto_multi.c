@@ -153,6 +153,8 @@ void ucp_proto_multi_config_str(size_t min_length, size_t max_length,
     char frag_size_buf[64];
     ucp_lane_index_t i;
 
+    ucs_assert(mpriv->num_lanes <= UCP_MAX_LANES);
+
     remaining = 100;
     for (i = 0; i < mpriv->num_lanes; ++i) {
         lpriv      = &mpriv->lanes[i];

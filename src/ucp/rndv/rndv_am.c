@@ -45,7 +45,7 @@ static size_t ucp_proto_rndv_am_bcopy_pack(void *dest, void *arg)
     ucp_proto_multi_pack_ctx_t *pack_ctx = arg;
     ucp_request_t *req                   = pack_ctx->req;
 
-    hdr->rreq_id = ucp_proto_rndv_request_get_remote_req_id(req);
+    hdr->rreq_id = req->send.rndv.remote_req_id;
     hdr->offset  = req->send.state.dt_iter.offset;
 
     return sizeof(*hdr) + ucp_proto_multi_data_pack(pack_ctx, hdr + 1);
@@ -79,7 +79,6 @@ static UCS_F_ALWAYS_INLINE ucs_status_t ucp_proto_rndv_am_bcopy_send_func(
 static UCS_F_ALWAYS_INLINE void
 ucp_proto_rndv_am_request_init(ucp_request_t *req)
 {
-    ucp_proto_rndv_rkey_destroy(req);
     ucp_proto_msg_multi_request_init(req);
     /* Memory could be registered when we sent the RTS */
     ucp_datatype_iter_mem_dereg(req->send.ep->worker->context,

@@ -62,20 +62,6 @@ ucp_proto_rndv_rts_request_init(ucp_request_t *req)
     return UCS_OK;
 }
 
-static UCS_F_ALWAYS_INLINE int
-ucp_proto_rndv_request_should_send_ack(ucp_request_t *req)
-{
-    return ucs_likely(req->send.rndv.remote_req_id != UCS_PTR_MAP_KEY_INVALID);
-}
-
-static UCS_F_ALWAYS_INLINE uint64_t
-ucp_proto_rndv_request_get_remote_req_id(ucp_request_t *req)
-{
-    ucs_assertv(req->send.rndv.remote_req_id != UCS_PTR_MAP_KEY_INVALID,
-                "req=%p", req);
-    return req->send.rndv.remote_req_id;
-}
-
 static UCS_F_ALWAYS_INLINE ucs_status_t
 ucp_proto_rndv_ats_handler(void *arg, void *data, size_t length, unsigned flags)
 {
@@ -114,34 +100,19 @@ static UCS_F_ALWAYS_INLINE size_t ucp_proto_rndv_rts_pack(
     return hdr_len + rkey_size;
 }
 
-static ucs_status_t UCS_F_ALWAYS_INLINE
-ucp_proto_rndv_ack_progress(ucp_request_t *req, ucp_am_id_t am_id,
-                            ucp_proto_complete_cb_t complete_func)
-{
-    const ucp_proto_rndv_ack_priv_t *apriv = req->send.proto_config->priv;
-
-    ucs_assert(ucp_datatype_iter_is_end(&req->send.state.dt_iter));
-
-    return ucp_proto_am_bcopy_single_progress(req, am_id, apriv->lane,
-                                              ucp_proto_rndv_pack_ack, req,
-                                              sizeof(ucp_reply_hdr_t),
-                                              complete_func);
-}
-
 static size_t UCS_F_ALWAYS_INLINE
 ucp_proto_rndv_send_pack_atp(ucp_request_t *req, void *dest, uint8_t count)
 {
     ucp_rndv_atp_hdr_t *atp = dest;
 
-    atp->super.req_id = ucp_proto_rndv_request_get_remote_req_id(req);
+    atp->super.req_id = req->send.rndv.remote_req_id;
     atp->super.status = UCS_OK;
     atp->count        = count;
     return sizeof(*atp);
 }
 
 static UCS_F_ALWAYS_INLINE ucs_status_t ucp_proto_rndv_frag_request_alloc(
-        ucp_worker_h worker, ucp_request_t *req,
-        ucp_send_nbx_callback_t comp_cb, ucp_request_t **freq_p)
+        ucp_worker_h worker, ucp_request_t *req, ucp_request_t **freq_p)
 {
     ucp_request_t *freq;
 
@@ -152,10 +123,8 @@ static UCS_F_ALWAYS_INLINE ucs_status_t ucp_proto_rndv_frag_request_alloc(
     }
 
     ucp_trace_req(req, "allocated rndv fragment %p", freq);
-    freq->flags   = UCP_REQUEST_FLAG_RNDV_FRAG | UCP_REQUEST_FLAG_CALLBACK |
-                    UCP_REQUEST_FLAG_RELEASED;
+    freq->flags   = UCP_REQUEST_FLAG_RNDV_FRAG;
     freq->send.ep = req->send.ep;
-    freq->send.cb = comp_cb;
     ucp_request_set_super(freq, req);
 
     // TODO slice dt iter
@@ -241,5 +210,17 @@ ucp_proto_rndv_bulk_max_payload(ucp_request_t *req,
         return lpriv->max_frag_sum - (offset % max_frag_sum);
     }
 }
+
+static UCS_F_ALWAYS_INLINE ucs_status_t
+ucp_proto_rndv_recv_complete(ucp_request_t *req)
+{
+    ucp_request_t *rreq = ucp_request_get_super(req);
+
+    ucp_proto_rndv_rkey_destroy(req);
+    ucp_request_complete_tag_recv(rreq, rreq->status);
+    ucp_request_put(req);
+    return UCS_OK;
+}
+
 
 #endif

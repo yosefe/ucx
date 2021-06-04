@@ -47,9 +47,6 @@ ucp_proto_rndv_ppln_init(const ucp_proto_init_params_t *init_params)
         return UCS_ERR_UNSUPPORTED;
     }
 
-    // TODO enable
-    return UCS_ERR_UNSUPPORTED;
-
     /* Find lane to send the ack message */
     rpriv->ack_lane = ucp_proto_common_find_am_bcopy_lane(init_params);
     if (rpriv->ack_lane == UCP_NULL_LANE) {
@@ -94,7 +91,7 @@ ucp_proto_rndv_ppln_init(const ucp_proto_init_params_t *init_params)
     *  exist there.
      */
     caps->cfg_thresh           = worker->context->config.ext.rndv_thresh;
-    caps->cfg_priority         = 60;
+    caps->cfg_priority         = 0;
     caps->min_length           = rpriv->frag_size + 1;
     caps->num_ranges           = 1;
     caps->ranges[0].max_length = SIZE_MAX;
@@ -104,16 +101,33 @@ ucp_proto_rndv_ppln_init(const ucp_proto_init_params_t *init_params)
     return UCS_OK;
 }
 
-static void ucp_proto_rndv_ppln_complete_one(void *request, ucs_status_t status,
-                                             void *user_data)
+void ucp_proto_rndv_recv_ppln_complete_one(ucp_request_t *freq, int ats)
 {
-    ucp_request_t *freq = (ucp_request_t*)request - 1;
-    ucp_request_t *req  = ucp_request_user_data_get_super(request, user_data);
+    ucp_request_t *req  = ucp_request_get_super(freq);
+
+    ucs_assert(req->flags & UCP_REQUEST_FLAG_RNDV_FRAG);
 
     if (ucp_proto_rndv_frag_completed(req, freq)) {
-        ucp_proto_request_set_stage(req, UCP_PROTO_RNDV_PPLN_STAGE_ACK);
-        ucp_request_send(req, 0);
+        if (ats) {
+            // TODO ATS flag on req
+            ucs_assert(req->flags & UCP_REQUEST_FLAG_RNDV_SEND_ACK);
+            ucp_proto_request_set_stage(req, UCP_PROTO_RNDV_PPLN_STAGE_ACK);
+            ucp_request_send(req, 0);
+        } else {
+            ucp_proto_request_complete_success(req);
+        }
     }
+}
+
+
+void ucp_proto_rndv_send_frag_complete(ucp_request_t *freq, unsigned ack_flag)
+{
+
+}
+
+void ucp_proto_rndv_recv_frag_complete(ucp_request_t *freq, unsigned ack_flag);
+{
+
 }
 
 static ucs_status_t ucp_proto_rndv_ppln_progress(uct_pending_req_t *uct_req)
@@ -128,15 +142,18 @@ static ucs_status_t ucp_proto_rndv_ppln_progress(uct_pending_req_t *uct_req)
     /* Nested pipeline is prevented during protocol selection */
     ucs_assert(!(req->flags & UCP_REQUEST_FLAG_RNDV_FRAG));
     ucs_assert(!(req->flags & UCP_REQUEST_FLAG_PROTO_INITIALIZED));
+    ucs_assert(req->flags & UCP_REQUEST_FLAG_RNDV_SEND_ACK);
+
+    /* Do not send ACK, unless one of the fragments asked for it */
+    req->flags                    &= ~UCP_REQUEST_FLAG_RNDV_SEND_ACK;
     req->send.state.completed_size = 0;
 
     rpriv = req->send.proto_config->priv;
-    do {
-        status = ucp_proto_rndv_frag_request_alloc(
-                worker, req, ucp_proto_rndv_ppln_complete_one, &freq);
+    for (;;) {
+        status = ucp_proto_rndv_frag_request_alloc(worker, req, &freq);
         if (status != UCS_OK) {
             ucp_proto_request_abort(req, status);
-            break;
+            return UCS_OK;
         }
 
         /* Initialize datatype for the fragment */
@@ -144,21 +161,27 @@ static ucs_status_t ucp_proto_rndv_ppln_progress(uct_pending_req_t *uct_req)
                                      &freq->send.state.dt_iter, &next_iter);
 
         /* Initialize rendezvous parameters */
-        freq->send.rndv.remote_req_id  = UCS_PTR_MAP_KEY_INVALID;
+        freq->send.rndv.remote_req_id  = req->send.rndv.remote_req_id;
         freq->send.rndv.remote_address = req->send.rndv.remote_address +
                                          req->send.state.dt_iter.offset;
         freq->send.rndv.rkey           = req->send.rndv.rkey;
         freq->send.rndv.offset         = req->send.rndv.offset +
                                          req->send.state.dt_iter.offset;
-        ucp_proto_request_select_proto(req, &rpriv->frag_proto,
-                                       req->send.state.dt_iter.length);
+        ucp_proto_request_select_proto(freq, &rpriv->frag_proto,
+                                       freq->send.state.dt_iter.length);
 
         ucp_trace_req(req, "send fragment request %p", freq);
         ucp_request_send(freq, 0);
 
-    } while (!ucp_datatype_iter_is_next_end(&req->send.state.dt_iter,
-                                            &next_iter));
-    return UCS_OK;
+        if (ucp_datatype_iter_is_next_end(&req->send.state.dt_iter,
+                                          &next_iter)) {
+            return UCS_OK;
+        }
+
+        // TODO non-contig?
+        ucp_datatype_iter_copy_from_next(&req->send.state.dt_iter, &next_iter,
+                                         UCS_BIT(UCP_DATATYPE_CONTIG));
+    }
 }
 
 static void ucp_proto_rndv_ppln_config_str(size_t min_length, size_t max_length,
@@ -166,8 +189,10 @@ static void ucp_proto_rndv_ppln_config_str(size_t min_length, size_t max_length,
                                            ucs_string_buffer_t *strb)
 {
     const ucp_proto_rndv_ppln_priv_t *rpriv = priv;
+    char str[128];
 
-    ucs_string_buffer_appendf(strb, "frag:%zu ", rpriv->frag_size);
+    ucs_memunits_to_str(rpriv->frag_size, str, sizeof(str));
+    ucs_string_buffer_appendf(strb, "frag:%s ", str);
     ucp_proto_threshold_elem_str(rpriv->frag_proto.thresholds, min_length,
                                  max_length, strb);
 }
@@ -222,7 +247,7 @@ ucp_proto_rndv_recv_ppln_init(const ucp_proto_init_params_t *init_params)
 }
 
 static ucs_status_t
-ucp_proto_rndv_recv_ppn_ats_progress(uct_pending_req_t *uct_req)
+ucp_proto_rndv_recv_ppln_ats_progress(uct_pending_req_t *uct_req)
 {
     ucp_request_t *req = ucs_container_of(uct_req, ucp_request_t, send.uct);
     const ucp_proto_rndv_ppln_priv_t *rpriv = req->send.proto_config->priv;
@@ -239,7 +264,7 @@ static ucp_proto_t ucp_rndv_recv_ppln_proto = {
     .config_str = ucp_proto_rndv_ppln_config_str,
     .progress   = {
         [UCP_PROTO_RNDV_PPLN_STAGE_SEND] = ucp_proto_rndv_ppln_progress,
-        [UCP_PROTO_RNDV_PPLN_STAGE_ACK]  = ucp_proto_rndv_recv_ppn_ats_progress,
+        [UCP_PROTO_RNDV_PPLN_STAGE_ACK]  = ucp_proto_rndv_recv_ppln_ats_progress,
     },
 };
 UCP_PROTO_REGISTER(&ucp_rndv_recv_ppln_proto);

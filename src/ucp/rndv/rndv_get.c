@@ -82,12 +82,12 @@ ucp_proto_rndv_get_common_complete(ucp_request_t *req)
 {
     ucp_datatype_iter_mem_dereg(req->send.ep->worker->context,
                                 &req->send.state.dt_iter);
-    if (ucp_proto_rndv_request_should_send_ack(req)) {
+    if (ucs_unlikely(req->flags & UCP_REQUEST_FLAG_RNDV_FRAG)) {
+        ucp_proto_rndv_recv_frag_complete(req, UCP_REQUEST_FLAG_RNDV_SEND_ACK);
+    } else {
+        ucs_assert(req->flags & UCP_REQUEST_FLAG_RNDV_SEND_ACK);
         ucp_proto_request_set_stage(req, UCP_PROTO_RNDV_GET_STAGE_ATS);
         ucp_request_send(req, 0);
-    } else {
-        /* Complete the request without sending ACK to peer */
-        ucp_proto_request_zcopy_complete(req, UCS_OK);
     }
 }
 
@@ -95,9 +95,14 @@ static ucs_status_t
 ucp_proto_rndv_get_common_ats_progress(uct_pending_req_t *uct_req)
 {
     ucp_request_t *req = ucs_container_of(uct_req, ucp_request_t, send.uct);
+    const ucp_proto_rndv_ack_priv_t *apriv = req->send.proto_config->priv;
 
-    return ucp_proto_rndv_ack_progress(req, UCP_AM_ID_RNDV_ATS,
-                                       ucp_proto_request_zcopy_complete_success);
+    ucs_assert(ucp_datatype_iter_is_end(&req->send.state.dt_iter));
+    return ucp_proto_am_bcopy_single_progress(req, UCP_AM_ID_RNDV_ATS,
+                                              apriv->lane,
+                                              ucp_proto_rndv_pack_ack, req,
+                                              sizeof(ucp_reply_hdr_t),
+                                              ucp_proto_rndv_recv_complete);
 }
 
 static void

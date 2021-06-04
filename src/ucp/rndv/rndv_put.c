@@ -66,8 +66,9 @@ static void ucp_proto_rndv_put_flush_completion(uct_completion_t *uct_comp)
 
     // TODO try to avoid this branch: set different completion callback
     // depending on whether need to send ACK
-    if (ucp_proto_rndv_request_should_send_ack(req)) {
-        ucp_proto_completion_init(&req->send.state.uct_comp, rpriv->atp_comp_cb);
+    if (req->flags & UCP_REQUEST_FLAG_RNDV_SEND_ACK) {
+        ucp_proto_completion_init(&req->send.state.uct_comp,
+                                  rpriv->atp_comp_cb);
         ucp_proto_request_set_stage(req, UCP_PROTO_RNDV_PUT_STAGE_ATP);
         ucp_request_send(req, 0);
     } else {
@@ -150,7 +151,7 @@ ucp_proto_rndv_put_common_data_sent(ucp_request_t *req)
     uint8_t stage;
 
     /* Either send ACK to peer, or flush the lanes to ensure data delivery */
-    stage = ucp_proto_rndv_request_should_send_ack(req) ?
+    stage = (req->flags & UCP_REQUEST_FLAG_RNDV_SEND_ACK) ?
                     rpriv->stage_start_ack :
                     UCP_PROTO_RNDV_PUT_STAGE_FLUSH;
     ucp_proto_request_set_stage(req, stage);
@@ -161,6 +162,7 @@ static UCS_F_ALWAYS_INLINE void
 ucp_proto_rndv_put_common_completion(ucp_request_t *req)
 {
     ucp_proto_rndv_rkey_destroy(req);
+    ucp_send_request_id_release(req);
     ucp_proto_request_zcopy_complete(req, req->send.state.uct_comp.status);
 }
 
@@ -310,11 +312,39 @@ ucp_proto_rndv_put_zcopy_init(const ucp_proto_init_params_t *init_params)
                                            ucp_proto_rndv_put_zcopy_completion);
 }
 
+static void
+ucs_string_buffer_append_flags(ucs_string_buffer_t *strb, uint64_t mask)
+{
+    unsigned flag;
+
+    ucs_for_each_bit(flag, mask) {
+        ucs_string_buffer_appendf(strb, "%u,", flag);
+    }
+    ucs_string_buffer_rtrim(strb, ",");
+}
+
+static void ucp_proto_rndv_put_config_str(size_t min_length, size_t max_length,
+                                          const void *priv,
+                                          ucs_string_buffer_t *strb)
+{
+    const ucp_proto_rndv_put_priv_t *rpriv = priv;
+
+    ucp_proto_rndv_bulk_config_str(min_length, max_length, &rpriv->bulk, strb);
+    if (rpriv->flush_map != 0) {
+        ucs_string_buffer_appendf(strb, " flush:");
+        ucs_string_buffer_append_flags(strb, rpriv->flush_map);
+    }
+    if (rpriv->atp_map != 0) {
+        ucs_string_buffer_appendf(strb, " atp:");
+        ucs_string_buffer_append_flags(strb, rpriv->atp_map);
+    }
+}
+
 static ucp_proto_t ucp_rndv_put_zcopy_proto = {
     .name        = "rndv/put/zcopy",
     .flags       = 0,
     .init        = ucp_proto_rndv_put_zcopy_init,
-    .config_str  = ucp_proto_rndv_bulk_config_str,
+    .config_str  = ucp_proto_rndv_put_config_str,
     .progress    = {
         [UCP_PROTO_RNDV_PUT_STAGE_SEND]       = ucp_proto_rndv_put_zcopy_send_progress,
         [UCP_PROTO_RNDV_PUT_STAGE_FLUSH]      = ucp_proto_rndv_put_common_flush_progress,
