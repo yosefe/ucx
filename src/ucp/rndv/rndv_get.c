@@ -77,20 +77,6 @@ ucp_proto_rndv_get_common_send(ucp_request_t *req,
                             req->send.state.dt_iter.offset, tl_rkey, comp);
 }
 
-static UCS_F_ALWAYS_INLINE void
-ucp_proto_rndv_get_common_complete(ucp_request_t *req)
-{
-    ucp_datatype_iter_mem_dereg(req->send.ep->worker->context,
-                                &req->send.state.dt_iter);
-    if (ucs_unlikely(req->flags & UCP_REQUEST_FLAG_RNDV_FRAG)) {
-        ucp_proto_rndv_recv_frag_complete(req, UCP_REQUEST_FLAG_RNDV_SEND_ACK);
-    } else {
-        ucs_assert(req->flags & UCP_REQUEST_FLAG_RNDV_SEND_ACK);
-        ucp_proto_request_set_stage(req, UCP_PROTO_RNDV_GET_STAGE_ATS);
-        ucp_request_send(req, 0);
-    }
-}
-
 static ucs_status_t
 ucp_proto_rndv_get_common_ats_progress(uct_pending_req_t *uct_req)
 {
@@ -106,16 +92,29 @@ ucp_proto_rndv_get_common_ats_progress(uct_pending_req_t *uct_req)
 }
 
 static void
+ucp_proto_rndv_get_common_complete(ucp_request_t *req)
+{
+    ucp_proto_rndv_rkey_destroy(req);
+    ucp_proto_request_set_stage(req, UCP_PROTO_RNDV_GET_STAGE_ATS);
+    ucp_request_send(req, 0);
+}
+
+static void
 ucp_proto_rndv_get_zcopy_fetch_completion(uct_completion_t *uct_comp)
 {
     ucp_request_t *req = ucs_container_of(uct_comp, ucp_request_t,
                                           send.state.uct_comp);
+
     ucp_proto_rndv_get_common_complete(req);
 }
 
 static ucs_status_t
 ucp_proto_rndv_get_zcopy_init(const ucp_proto_init_params_t *init_params)
 {
+    if (ucp_proto_rndv_init_params_is_ppln_frag(init_params)) {
+        return UCS_ERR_UNSUPPORTED;
+    }
+
     return ucp_proto_rndv_get_common_init(init_params,
                                           UCS_BIT(UCP_RNDV_MODE_GET_ZCOPY),
                                           SIZE_MAX,
@@ -177,13 +176,17 @@ static UCS_F_ALWAYS_INLINE ucs_status_t ucp_proto_rndv_get_mtcopy_send_func(
 }
 
 static void
-ucp_proto_rndv_get_mtcopy_copy_completion(uct_completion_t *uct_comp)
+ucp_proto_rndv_get_mtcopy_unpack_completion(uct_completion_t *uct_comp)
 {
     ucp_request_t *req = ucs_container_of(uct_comp, ucp_request_t,
                                           send.state.uct_comp);
 
     ucs_mpool_put_inline(req->send.rndv.mdesc);
-    ucp_proto_rndv_get_common_complete(req);
+    if (ucp_proto_rndv_request_is_ppln_frag(req)) {
+        ucp_proto_rndv_ppln_recv_frag_complete(req, 1);
+    } else {
+        ucp_proto_rndv_get_common_complete(req);
+    }
 }
 
 static void
@@ -193,7 +196,8 @@ ucp_proto_rndv_get_mtcopy_fetch_completion(uct_completion_t *uct_comp)
                                           send.state.uct_comp);
 
     ucp_proto_rndv_mtcopy_copy(req, uct_ep_put_zcopy,
-                             ucp_proto_rndv_get_mtcopy_copy_completion, "out to");
+                               ucp_proto_rndv_get_mtcopy_unpack_completion,
+                               "out to");
 }
 
 static ucs_status_t
@@ -260,7 +264,8 @@ ucp_proto_rndv_ats_init(const ucp_proto_init_params_t *params)
 {
     ucs_status_t status;
 
-    if (params->select_param->op_id != UCP_OP_ID_RNDV_RECV) {
+    if ((params->select_param->op_id != UCP_OP_ID_RNDV_RECV) ||
+        ucp_proto_rndv_init_params_is_ppln_frag(params)) {
         return UCS_ERR_UNSUPPORTED;
     }
 

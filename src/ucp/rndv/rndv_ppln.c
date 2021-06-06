@@ -43,6 +43,7 @@ ucp_proto_rndv_ppln_init(const ucp_proto_init_params_t *init_params)
     double perf_m, best_perf_m;
 
     if ((init_params->rkey_cfg_index == UCP_WORKER_CFG_INDEX_NULL) ||
+        (init_params->select_param->dt_class != UCP_DATATYPE_CONTIG) ||
         (init_params->select_param->op_flags & UCP_PROTO_SELECT_OP_FLAG_PPLN)) {
         return UCS_ERR_UNSUPPORTED;
     }
@@ -101,33 +102,39 @@ ucp_proto_rndv_ppln_init(const ucp_proto_init_params_t *init_params)
     return UCS_OK;
 }
 
-void ucp_proto_rndv_recv_ppln_complete_one(ucp_request_t *freq, int ats)
+static void
+ucp_proto_rndv_ppln_frag_complete(ucp_request_t *freq, int send_ack,
+                                  ucp_proto_complete_cb_t complete_func)
 {
-    ucp_request_t *req  = ucp_request_get_super(freq);
+    ucp_request_t *req = ucp_request_get_super(freq);
 
-    ucs_assert(req->flags & UCP_REQUEST_FLAG_RNDV_FRAG);
+    req->send.rndv.ppln.send_ack |= send_ack;
+    if (!ucp_proto_rndv_frag_complete(req, freq)) {
+        return;
+    }
 
-    if (ucp_proto_rndv_frag_completed(req, freq)) {
-        if (ats) {
-            // TODO ATS flag on req
-            ucs_assert(req->flags & UCP_REQUEST_FLAG_RNDV_SEND_ACK);
-            ucp_proto_request_set_stage(req, UCP_PROTO_RNDV_PPLN_STAGE_ACK);
-            ucp_request_send(req, 0);
-        } else {
-            ucp_proto_request_complete_success(req);
-        }
+    if (req->send.rndv.rkey != NULL) {
+        ucp_proto_rndv_rkey_destroy(req);
+    }
+
+    if (req->send.rndv.ppln.send_ack) {
+        ucp_proto_request_set_stage(req, UCP_PROTO_RNDV_PPLN_STAGE_ACK);
+        ucp_request_send(req, 0);
+    } else {
+        complete_func(req);
     }
 }
 
-
-void ucp_proto_rndv_send_frag_complete(ucp_request_t *freq, unsigned ack_flag)
+void ucp_proto_rndv_ppln_send_frag_complete(ucp_request_t *freq, int send_ack)
 {
-
+    ucp_proto_rndv_ppln_frag_complete(freq, send_ack,
+                                      ucp_proto_request_complete_success);
 }
 
-void ucp_proto_rndv_recv_frag_complete(ucp_request_t *freq, unsigned ack_flag);
+void ucp_proto_rndv_ppln_recv_frag_complete(ucp_request_t *freq, int send_ack)
 {
-
+    ucp_proto_rndv_ppln_frag_complete(freq, send_ack,
+                                      ucp_proto_rndv_recv_complete);
 }
 
 static ucs_status_t ucp_proto_rndv_ppln_progress(uct_pending_req_t *uct_req)
@@ -141,14 +148,10 @@ static ucs_status_t ucp_proto_rndv_ppln_progress(uct_pending_req_t *uct_req)
 
     /* Nested pipeline is prevented during protocol selection */
     ucs_assert(!(req->flags & UCP_REQUEST_FLAG_RNDV_FRAG));
-    ucs_assert(!(req->flags & UCP_REQUEST_FLAG_PROTO_INITIALIZED));
-    ucs_assert(req->flags & UCP_REQUEST_FLAG_RNDV_SEND_ACK);
 
-    /* Do not send ACK, unless one of the fragments asked for it */
-    req->flags                    &= ~UCP_REQUEST_FLAG_RNDV_SEND_ACK;
     req->send.state.completed_size = 0;
-
-    rpriv = req->send.proto_config->priv;
+    req->send.rndv.ppln.send_ack   = 0;
+    rpriv                          = req->send.proto_config->priv;
     for (;;) {
         status = ucp_proto_rndv_frag_request_alloc(worker, req, &freq);
         if (status != UCS_OK) {
@@ -192,9 +195,10 @@ static void ucp_proto_rndv_ppln_config_str(size_t min_length, size_t max_length,
     char str[128];
 
     ucs_memunits_to_str(rpriv->frag_size, str, sizeof(str));
-    ucs_string_buffer_appendf(strb, "frag:%s ", str);
-    ucp_proto_threshold_elem_str(rpriv->frag_proto.thresholds, min_length,
-                                 max_length, strb);
+    ucs_string_buffer_appendf(strb, "fr:%s ", str);
+    ucp_proto_threshold_elem_str(rpriv->frag_proto.thresholds,
+                                 ucs_min(rpriv->frag_size, min_length),
+                                 ucs_min(rpriv->frag_size, max_length), strb);
 }
 
 static ucs_status_t
@@ -254,7 +258,7 @@ ucp_proto_rndv_recv_ppln_ats_progress(uct_pending_req_t *uct_req)
 
     return ucp_proto_am_bcopy_single_progress(
             req, UCP_AM_ID_RNDV_ATS, rpriv->ack_lane, ucp_proto_rndv_pack_ack,
-            req, sizeof(ucp_reply_hdr_t), ucp_proto_request_complete_success);
+            req, sizeof(ucp_reply_hdr_t), ucp_proto_rndv_recv_complete);
 }
 
 static ucp_proto_t ucp_rndv_recv_ppln_proto = {

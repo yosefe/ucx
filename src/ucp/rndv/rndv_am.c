@@ -16,13 +16,8 @@ ucp_proto_rdnv_am_init_common(ucp_proto_multi_init_params_t *params)
 {
     ucp_context_h context = params->super.super.worker->context;
 
-    if (params->super.super.select_param->op_id != UCP_OP_ID_RNDV_SEND) {
-        return UCS_ERR_UNSUPPORTED;
-    }
-
-    if (params->super.super.select_param->op_flags &
-        UCP_PROTO_SELECT_OP_FLAG_PPLN) {
-        /* RNDV_AM requires remote req id which is not present in case of PPLN */
+    if ((params->super.super.select_param->op_id != UCP_OP_ID_RNDV_SEND) ||
+        ucp_proto_rndv_init_params_is_ppln_frag(&params->super.super)) {
         return UCS_ERR_UNSUPPORTED;
     }
 

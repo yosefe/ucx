@@ -65,6 +65,8 @@ ucp_proto_rndv_mtcopy_next_iov(ucp_request_t *req,
     iov->memh   = (memh_index == UCP_NULL_RESOURCE) ?
                             UCT_MEM_HANDLE_NULL :
                             mdesc->memh->uct[memh_index];
+    iov->stride = 0;
+    iov->count  = 1;
 
     next_iter->offset = offset + iov->length;
 }

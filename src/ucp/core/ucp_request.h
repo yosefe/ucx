@@ -37,8 +37,6 @@
 enum {
     UCP_REQUEST_FLAG_COMPLETED             = UCS_BIT(0),
     UCP_REQUEST_FLAG_RELEASED              = UCS_BIT(1),
-    UCP_REQUEST_FLAG_RNDV_RKEY_DESTROY     = UCS_BIT(2),
-    UCP_REQUEST_FLAG_RNDV_SEND_ACK         = UCS_BIT(3),
     /* UCS_BIT(2) and UCS_BIT(3) are vacant flags */
     UCP_REQUEST_FLAG_SYNC_LOCAL_COMPLETED  = UCS_BIT(4),
     UCP_REQUEST_FLAG_SYNC_REMOTE_COMPLETED = UCS_BIT(5),
@@ -257,6 +255,11 @@ struct ucp_request {
                         /* which lanes need to send atp */
                         ucp_lane_map_t atp_map;
                     } put;
+
+                    /* Used by rndv/send/ppln and rndv/recv/ppln */
+                    struct {
+                        uint8_t        send_ack;
+                    } ppln;
                 } rndv;
 
                 struct {

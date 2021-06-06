@@ -105,12 +105,15 @@ ucp_proto_rndv_rtr_common_pack(ucp_request_t *req, ucp_rndv_rtr_hdr_t *rtr,
 static UCS_F_ALWAYS_INLINE void
 ucp_proto_rndv_rtr_common_complete(ucp_request_t *req)
 {
-    ucp_send_request_id_release(req);
-    ucp_proto_request_zcopy_complete(req, UCS_OK);
+    if (req->send.rndv.rkey != NULL) {
+        ucp_proto_rndv_rkey_destroy(req);
+    }
+    ucp_proto_rndv_recv_complete(req);
 }
 
 static void ucp_proto_rndv_rtr_data_received(ucp_request_t *req, int in_buffer)
 {
+    ucp_send_request_id_release(req);
     ucp_proto_rndv_rtr_common_complete(req);
 }
 
@@ -160,6 +163,11 @@ ucp_proto_rndv_rtr_init(const ucp_proto_init_params_t *init_params)
 {
     uint64_t rndv_modes = UCS_BIT(UCP_RNDV_MODE_PUT_ZCOPY) |
                           UCS_BIT(UCP_RNDV_MODE_AM);
+
+    if (ucp_proto_rndv_init_params_is_ppln_frag(init_params)) {
+        return UCS_ERR_UNSUPPORTED;
+    }
+
     return ucp_proto_rndv_rtr_common_init(init_params,
                                           ucp_proto_rndv_rtr_data_received,
                                           rndv_modes, SIZE_MAX,
@@ -216,7 +224,12 @@ static size_t ucp_proto_rndv_rtr_mtcopy_pack(void *dest, void *arg)
 static void ucp_proto_rndv_rtr_mtcopy_complete(ucp_request_t *req)
 {
     ucs_mpool_put_inline(req->send.rndv.mdesc);
-    ucp_proto_rndv_rtr_common_complete(req);
+    ucp_send_request_id_release(req);
+    if (ucp_proto_rndv_request_is_ppln_frag(req)) {
+        ucp_proto_rndv_ppln_recv_frag_complete(req, 0);
+    } else {
+        ucp_proto_rndv_rtr_common_complete(req);
+    }
 }
 
 static void

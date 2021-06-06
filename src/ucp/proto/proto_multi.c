@@ -170,7 +170,7 @@ void ucp_proto_multi_config_str(size_t min_length, size_t max_length,
 
         /* Print fragment size if it's small enough. For large fragments we can
            skip the print because it has little effect on performance */
-        if (lpriv->max_frag < UCS_MBYTE) {
+        if (lpriv->max_frag < 128 * UCS_KBYTE) {
             ucs_memunits_to_str(lpriv->max_frag, frag_size_buf,
                                 sizeof(frag_size_buf));
             ucs_string_buffer_appendf(strb, "<=%s", frag_size_buf);

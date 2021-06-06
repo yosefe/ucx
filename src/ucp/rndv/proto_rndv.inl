@@ -135,17 +135,16 @@ static UCS_F_ALWAYS_INLINE ucs_status_t ucp_proto_rndv_frag_request_alloc(
 static UCS_F_ALWAYS_INLINE void
 ucp_proto_rndv_rkey_destroy(ucp_request_t *req)
 {
-    if (req->flags & UCP_REQUEST_FLAG_RNDV_RKEY_DESTROY) {
-        ucs_assert(req->send.rndv.rkey != NULL);
-        ucp_rkey_destroy(req->send.rndv.rkey);
+    ucs_assert(req->send.rndv.rkey != NULL);
+    ucp_rkey_destroy(req->send.rndv.rkey);
 #if UCS_ENABLE_ASSERT
-        req->send.rndv.rkey = NULL;
+    req->send.rndv.rkey = NULL;
 #endif
-    }
 }
 
+/* @return Nonzero if the top-level rendezvous request 'req' is completed */
 static UCS_F_ALWAYS_INLINE int
-ucp_proto_rndv_frag_completed(ucp_request_t *req, ucp_request_t *freq)
+ucp_proto_rndv_frag_complete(ucp_request_t *req, ucp_request_t *freq)
 {
     ucs_assert(freq->flags & UCP_REQUEST_FLAG_RNDV_FRAG);
 
@@ -154,13 +153,11 @@ ucp_proto_rndv_frag_completed(ucp_request_t *req, ucp_request_t *freq)
                   req->send.state.completed_size,
                   req->send.state.dt_iter.length, freq,
                   freq->send.state.dt_iter.length);
+    ucp_request_put(freq);
 
-    if (req->send.state.completed_size < req->send.state.dt_iter.length) {
-        return 0;
-    }
-
-    ucp_proto_rndv_rkey_destroy(req);
-    return 1;
+    ucs_assert(req->send.state.completed_size <=
+               req->send.state.dt_iter.length);
+    return req->send.state.completed_size == req->send.state.dt_iter.length;
 }
 
 static UCS_F_ALWAYS_INLINE size_t
@@ -211,13 +208,33 @@ ucp_proto_rndv_bulk_max_payload(ucp_request_t *req,
     }
 }
 
+
+static UCS_F_ALWAYS_INLINE int
+ucp_proto_rndv_request_is_ppln_frag(ucp_request_t *req)
+{
+    return req->send.proto_config->select_param.op_flags &
+           UCP_PROTO_SELECT_OP_FLAG_PPLN;
+}
+
+static UCS_F_ALWAYS_INLINE int
+ucp_proto_rndv_init_params_is_ppln_frag(const ucp_proto_init_params_t *params)
+{
+    return params->select_param->op_flags & UCP_PROTO_SELECT_OP_FLAG_PPLN;
+}
+
 static UCS_F_ALWAYS_INLINE ucs_status_t
 ucp_proto_rndv_recv_complete(ucp_request_t *req)
 {
-    ucp_request_t *rreq = ucp_request_get_super(req);
+    ucp_request_t *rreq;
 
-    ucp_proto_rndv_rkey_destroy(req);
+    /* Remote key should already be released */
+    ucs_assert(req->send.rndv.rkey == NULL);
+
+    ucs_assert(!ucp_proto_rndv_request_is_ppln_frag(req));
+    rreq = ucp_request_get_super(req);
+
     ucp_request_complete_tag_recv(rreq, rreq->status);
+
     ucp_request_put(req);
     return UCS_OK;
 }

@@ -144,10 +144,10 @@ void ucp_proto_rndv_bulk_request_init_lane_idx(
         ucp_request_t *req, const ucp_proto_rndv_bulk_priv_t *rpriv);
 
 
-void ucp_proto_rndv_send_frag_complete(ucp_request_t *freq, unsigned ack_flag);
+void ucp_proto_rndv_ppln_send_frag_complete(ucp_request_t *freq, int send_ack);
 
 
-void ucp_proto_rndv_recv_frag_complete(ucp_request_t *freq, unsigned ack_flag);
+void ucp_proto_rndv_ppln_recv_frag_complete(ucp_request_t *freq, int send_ack);
 
 
 #endif
