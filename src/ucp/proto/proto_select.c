@@ -998,6 +998,10 @@ void ucp_proto_select_param_str(const ucp_proto_select_param_t *select_param,
         ucs_string_buffer_appendf(strb, "fc,");
     }
 
+    if (op_attr_mask & UCP_OP_ATTR_FLAG_MULTI_SEND) {
+        ucs_string_buffer_appendf(strb, "multi,");
+    }
+
     ucs_string_buffer_rtrim(strb, ",");
     ucs_string_buffer_appendf(strb, ")");
 }
@@ -1036,7 +1040,7 @@ ucp_proto_select_short_init(ucp_worker_h worker, ucp_proto_select_t *proto_selec
      * in both regular mode and UCP_OP_ATTR_FLAG_FAST_CMPL mode.
      */
     ucs_for_each_submask(op_attr, op_attr_mask) {
-        ucp_proto_select_param_init(&select_param, op_id, op_attr, 0,
+        ucp_proto_select_param_init(&select_param, op_id, op_attr,
                                     UCP_DATATYPE_CONTIG, &mem_info, 1);
         thresh = ucp_proto_select_lookup(worker, proto_select, ep_cfg_index,
                                          rkey_cfg_index, &select_param, 0);

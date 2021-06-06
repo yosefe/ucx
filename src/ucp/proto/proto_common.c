@@ -499,7 +499,8 @@ ucp_proto_common_calc_completion(const ucp_proto_common_init_params_t *params,
 
 static void
 ucp_proto_common_calc_latency(const ucp_proto_common_init_params_t *params,
-                              size_t frag_size, ucs_linear_func_t uct_time,
+                              size_t frag_size, uint32_t op_attr_mask,
+                              ucs_linear_func_t uct_time,
                               ucs_linear_func_t pack_time,
                               ucs_linear_func_t recv_time)
 {
@@ -512,7 +513,12 @@ ucp_proto_common_calc_latency(const ucp_proto_common_init_params_t *params,
     range->max_length = ucs_min(frag_size, params->max_length);
     range->perf       = ucs_linear_func_add(uct_time, recv_time);
     if (!(params->flags & UCP_PROTO_COMMON_INIT_FLAG_SEND_ZCOPY)) {
-        ucs_linear_func_add_inplace(&range->perf, pack_time);
+        if (op_attr_mask & UCP_OP_ATTR_FLAG_MULTI_SEND) {
+            range->perf.m = ucs_max(range->perf.m, pack_time.m);
+            range->perf.c += pack_time.c;
+        } else {
+            ucs_linear_func_add_inplace(&range->perf, pack_time);
+        }
     }
 
     /* If the 1st range already covers up to max_length, or the protocol should
@@ -531,6 +537,10 @@ ucp_proto_common_calc_latency(const ucp_proto_common_init_params_t *params,
     if (ucs_test_all_flags(params->flags, UCP_PROTO_COMMON_INIT_FLAG_SEND_ZCOPY |
                                           UCP_PROTO_COMMON_INIT_FLAG_RECV_ZCOPY)) {
         ucs_linear_func_add_inplace(&range->perf, uct_time);
+    } else if (op_attr_mask & UCP_OP_ATTR_FLAG_MULTI_SEND) {
+        m               = ucs_max(pack_time.m, recv_time.m);
+        piped_send_cost = ucs_linear_func_make(0, ucs_max(m, uct_time.m));
+        ucs_linear_func_add_inplace(&range->perf, piped_send_cost);
     } else {
         m               = ucs_max(pack_time.m, recv_time.m);
         piped_send_cost = ucs_linear_func_make(0, ucs_max(m, uct_time.m));
@@ -556,7 +566,8 @@ ucp_proto_common_calc_latency(const ucp_proto_common_init_params_t *params,
 
 static ucs_linear_func_t
 ucp_proto_common_get_pack_time(ucp_worker_h worker, ucs_memory_type_t mem_type,
-                               size_t frag_size, int is_sync, const char *title)
+                               size_t frag_size, uint32_t op_attr_mask,
+                               int is_sync, const char *title)
 {
     ucp_context_h context            = worker->context;
     ucp_ep_h memtype_ep              = worker->mem_type_ep[mem_type];
@@ -578,7 +589,11 @@ ucp_proto_common_get_pack_time(ucp_worker_h worker, ucs_memory_type_t mem_type,
     iface_attr = ucp_worker_iface_get_attr(worker, rsc_index);
 
     /* Calculate single fragment data transfer time for memtype copy */
-    frag_time.c = ucp_tl_iface_latency(context, &iface_attr->latency);
+    if (op_attr_mask & UCP_OP_ATTR_FLAG_MULTI_SEND) {
+        frag_time.c = 0;
+    } else  {
+        frag_time.c = ucp_tl_iface_latency(context, &iface_attr->latency);
+    }
     frag_time.m = 1.0 / ucp_tl_iface_bandwidth(context, &iface_attr->bandwidth);
 
     /* Calculate multi-fragment pack time */
@@ -595,11 +610,13 @@ ucp_proto_common_get_pack_time(ucp_worker_h worker, ucs_memory_type_t mem_type,
     }
 
     ucs_debug("%s %s on " UCT_TL_RESOURCE_DESC_FMT ", %s memory, "
-              "frag_size %zu: " UCP_PROTO_PERF_FUNC_FMT,
+              "frag_size %zu: " UCP_PROTO_PERF_FUNC_FMT " raw bw: %.2f MB/s",
               is_sync ? "sync" : "async", title,
               UCT_TL_RESOURCE_DESC_ARG(&context->tl_rscs[rsc_index].tl_rsc),
               ucs_memory_type_names[mem_type], frag_size,
-              UCP_PROTO_PERF_FUNC_ARG(&pack_time));
+              UCP_PROTO_PERF_FUNC_ARG(&pack_time),
+              ucp_tl_iface_bandwidth(context, &iface_attr->bandwidth) /
+                      UCS_MBYTE);
     return pack_time;
 }
 
@@ -641,7 +658,8 @@ void ucp_proto_common_init_caps(const ucp_proto_common_init_params_t *params,
     is_sync_pack  = !(params->flags & UCP_PROTO_COMMON_INIT_FLAG_ASYNC_COPY);
     pack_time     = ucp_proto_common_get_pack_time(params->super.worker,
                                                    select_param->mem_type,
-                                                   frag_size, is_sync_pack, "pack");
+                                                   frag_size, op_attr_mask,
+                                                   is_sync_pack, "pack");
     extra_time    = ucp_proto_common_get_reg_cost(params, reg_md_map);
     extra_time.c += perf->overhead;
 
@@ -660,19 +678,39 @@ void ucp_proto_common_init_caps(const ucp_proto_common_init_params_t *params,
         }
         unpack_time = ucp_proto_common_get_pack_time(params->super.worker,
                                                      recv_mem_type, frag_size,
-                                                     is_sync_pack, "unpack");
+                                                     op_attr_mask, is_sync_pack,
+                                                     "unpack");
         recv_time   = ucp_proto_common_recv_time(params, perf->overhead,
                                                  unpack_time);
-        ucp_proto_common_calc_latency(params, frag_size, uct_time, pack_time,
-                                      recv_time);
+        ucs_trace("unpack_time: " UCP_PROTO_PERF_FUNC_FMT
+                  " recv_time: " UCP_PROTO_PERF_FUNC_FMT
+                  " uct_time: " UCP_PROTO_PERF_FUNC_FMT,
+                  UCP_PROTO_PERF_FUNC_ARG(&unpack_time),
+                  UCP_PROTO_PERF_FUNC_ARG(&recv_time),
+                  UCP_PROTO_PERF_FUNC_ARG(&uct_time));
+        ucp_proto_common_calc_latency(params, frag_size, op_attr_mask, uct_time,
+                                      pack_time, recv_time);
 
         /* If we wait for response, add latency of sending the request */
-        if (params->flags & UCP_PROTO_COMMON_INIT_FLAG_RESPONSE) {
+        if ((params->flags & UCP_PROTO_COMMON_INIT_FLAG_RESPONSE) &&
+            !(op_attr_mask & UCP_OP_ATTR_FLAG_MULTI_SEND)) {
             extra_time.c += perf->latency;
         }
     }
 
     ucp_proto_common_add_perf(&params->super, extra_time);
+
+    if (0 && op_attr_mask & UCP_OP_ATTR_FLAG_MULTI_SEND) {
+        ucp_proto_perf_range_t *range;
+        int i;
+
+        for (i = 0; i < params->super.caps->num_ranges; ++i) {
+            range = &params->super.caps->ranges[i];
+            range->perf.m = ucs_max(range->perf.m, range->perf.c / frag_size);
+            range->perf.c = 0;
+        }
+    }
+
 }
 
 void ucp_proto_request_zcopy_completion(uct_completion_t *self)

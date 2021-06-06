@@ -683,10 +683,12 @@ typedef enum {
                                                         synchronization with the
                                                         remote peer before releasing
                                                         the local send buffer */
-    UCP_OP_ATTR_FLAG_FORCE_IMM_CMPL = UCS_BIT(18)  /**< force immediate complete
+    UCP_OP_ATTR_FLAG_FORCE_IMM_CMPL = UCS_BIT(18), /**< force immediate complete
                                                         operation, fail if the
                                                         operation cannot be
                                                         completed immediately */
+    UCP_OP_ATTR_FLAG_MULTI_SEND     = UCS_BIT(19)  /**< optimize for multiple
+                                                        operations in flight */
 } ucp_op_attr_t;
 
 

@@ -179,7 +179,7 @@ ucp_proto_rndv_ctrl_init(const ucp_proto_rndv_ctrl_init_params_t *params)
         mem_info.sys_dev = params->super.super.rkey_config_key->sys_dev;
         mem_info.type    = params->super.super.rkey_config_key->mem_type;
         ucp_proto_select_param_init(&remote_select_param, params->remote_op_id,
-                                    0, 0, UCP_DATATYPE_CONTIG, &mem_info, 1);
+                                    0, UCP_DATATYPE_CONTIG, &mem_info, 1);
     }
 
     /* Initialize estimated memory registration map */
@@ -397,7 +397,7 @@ void ucp_proto_rndv_bulk_config_str(size_t min_length, size_t max_length,
 
 static ucs_status_t
 ucp_proto_rndv_send_reply(ucp_worker_h worker, ucp_request_t *req,
-                          ucp_operation_id_t op_id, uint8_t sg_count,
+                          ucp_operation_id_t op_id, uint32_t op_attr_mask,
                           size_t send_length, const void *rkey_buffer,
                           size_t rkey_length)
 {
@@ -409,7 +409,6 @@ ucp_proto_rndv_send_reply(ucp_worker_h worker, ucp_request_t *req,
 
     ucs_assert((op_id == UCP_OP_ID_RNDV_RECV) ||
                (op_id == UCP_OP_ID_RNDV_SEND));
-    ucs_assert(sg_count == 1);
 
     if (rkey_length > 0) {
         ucs_assert(rkey_buffer != NULL);
@@ -428,9 +427,9 @@ ucp_proto_rndv_send_reply(ucp_worker_h worker, ucp_request_t *req,
         rkey           = NULL;
     }
 
-    ucp_proto_select_param_init(&sel_param, op_id, 0, 0,
+    ucp_proto_select_param_init(&sel_param, op_id, op_attr_mask,
                                 req->send.state.dt_iter.dt_class,
-                                &req->send.state.dt_iter.mem_info, sg_count);
+                                &req->send.state.dt_iter.mem_info, 1);
 
     status = ucp_proto_request_lookup_proto(worker, req->send.ep, req,
                                             proto_select, rkey_cfg_index,
@@ -521,10 +520,10 @@ void ucp_proto_rndv_receive(ucp_worker_h worker, ucp_request_t *recv_req,
     ucp_datatype_iter_init(worker->context, recv_req->recv.buffer,
                            recv_req->recv.count, recv_req->recv.datatype,
                            send_length, &req->send.state.dt_iter, &sg_count);
+    ucs_assert(sg_count == 1);
 
-    status = ucp_proto_rndv_send_reply(worker, req, UCP_OP_ID_RNDV_RECV,
-                                       sg_count, send_length, rkey_buffer,
-                                       rkey_length);
+    status = ucp_proto_rndv_send_reply(worker, req, UCP_OP_ID_RNDV_RECV, 0,
+                                       send_length, rkey_buffer, rkey_length);
     if (status != UCS_OK) {
         ucp_datatype_iter_cleanup(&req->send.state.dt_iter, UINT_MAX);
         ucs_mpool_put(req);
@@ -534,7 +533,8 @@ void ucp_proto_rndv_receive(ucp_worker_h worker, ucp_request_t *recv_req,
 
 static ucs_status_t
 ucp_proto_rndv_send_start(ucp_worker_h worker, ucp_request_t *req,
-                          const ucp_rndv_rtr_hdr_t *rtr, size_t header_length)
+                          uint32_t op_attr_mask, const ucp_rndv_rtr_hdr_t *rtr,
+                          size_t header_length)
 {
     ucs_status_t status;
     size_t rkey_length;
@@ -548,8 +548,9 @@ ucp_proto_rndv_send_start(ucp_worker_h worker, ucp_request_t *req,
     req->send.rndv.offset         = rtr->offset;
 
     ucs_assert(rtr->size == req->send.state.dt_iter.length);
-    status = ucp_proto_rndv_send_reply(worker, req, UCP_OP_ID_RNDV_SEND, 1,
-                                       rtr->size, rtr + 1, rkey_length);
+    status = ucp_proto_rndv_send_reply(worker, req, UCP_OP_ID_RNDV_SEND,
+                                       op_attr_mask, rtr->size, rtr + 1,
+                                       rkey_length);
     if (status != UCS_OK) {
         return status;
     }
@@ -590,7 +591,7 @@ ucp_proto_rndv_handle_rtr(void *arg, void *data, size_t length, unsigned flags)
 
         ucp_send_request_id_release(req);
         req->flags &= ~UCP_REQUEST_FLAG_PROTO_INITIALIZED;
-        status      = ucp_proto_rndv_send_start(worker, req, rtr, length);
+        status      = ucp_proto_rndv_send_start(worker, req, 0, rtr, length);
         if (status != UCS_OK) {
             goto err_request_fail;
         }
@@ -612,7 +613,9 @@ ucp_proto_rndv_handle_rtr(void *arg, void *data, size_t length, unsigned flags)
         /* Send rendezvous fragment, when it's completed update 'remaining'
          * and complete 'req' when it reaches zero
          */
-        status = ucp_proto_rndv_send_start(worker, freq, rtr, length);
+        status = ucp_proto_rndv_send_start(worker, freq,
+                                           UCP_OP_ATTR_FLAG_MULTI_SEND, rtr,
+                                           length);
         if (status != UCS_OK) {
             goto err_put_freq;
         }
