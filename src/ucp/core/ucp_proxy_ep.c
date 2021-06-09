@@ -214,22 +214,30 @@ static void ucp_proxy_ep_replace_if_owned(uct_ep_h uct_ep, uct_ep_h owned_ep,
 void ucp_proxy_ep_replace(ucp_proxy_ep_t *proxy_ep)
 {
     ucp_ep_h ucp_ep = proxy_ep->ucp_ep;
+    uct_ep_h tl_ep  = NULL;
     ucp_lane_index_t lane;
-    uct_ep_h tl_ep = NULL;
     ucs_status_t status;
 
     ucs_assert(proxy_ep->uct_ep != NULL);
     for (lane = 0; lane < ucp_ep_num_lanes(ucp_ep); ++lane) {
-        if (ucp_ep->uct_eps[lane] == &proxy_ep->super) {
-            ucs_assert(proxy_ep->uct_ep != NULL);    /* make sure there is only one match */
-            ucp_ep->uct_eps[lane] = proxy_ep->uct_ep;
-            tl_ep = ucp_ep->uct_eps[lane];
-            proxy_ep->uct_ep = NULL;
-            status = uct_ep_enable_keep_alive(tl_ep, 1);
-            if (status != UCS_OK) {
-                ucs_diag("ep %p: uct_ep_enable_keep_alive(tl_ep=%p, 1) failed %s",
-                         ucp_ep, tl_ep, ucs_status_string(status));
-            }
+        if (ucp_ep->uct_eps[lane] != &proxy_ep->super) {
+            continue;
+        }
+
+        /* make sure there is only one match */
+        ucs_assert(proxy_ep->uct_ep != NULL);
+        ucp_ep->uct_eps[lane] = proxy_ep->uct_ep;
+        tl_ep                 = ucp_ep->uct_eps[lane];
+        proxy_ep->uct_ep      = NULL;
+
+        if (ucp_ep_get_cm_lane(ucp_ep) == lane) {
+            continue;
+        }
+
+        status = uct_ep_enable_keep_alive(tl_ep, 1);
+        if (status != UCS_OK) {
+            ucs_diag("ep %p: uct_ep_enable_keep_alive(tl_ep=%p, 1) failed %s",
+                     ucp_ep, tl_ep, ucs_status_string(status));
         }
     }
 
