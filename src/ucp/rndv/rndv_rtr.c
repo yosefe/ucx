@@ -32,6 +32,7 @@ static ucs_status_t
 ucp_proto_rndv_rtr_common_init(const ucp_proto_init_params_t *init_params,
                                ucp_proto_rndv_rtr_data_received_cb_t data_cb,
                                uint64_t rndv_modes, size_t max_length,
+                               ucs_linear_func_t unpack_time,
                                ucs_memory_type_t mem_type,
                                ucs_sys_device_t sys_dev)
 {
@@ -49,6 +50,7 @@ ucp_proto_rndv_rtr_common_init(const ucp_proto_init_params_t *init_params,
         .super.hdr_size      = sizeof(ucp_rndv_rtr_hdr_t),
         .super.flags         = UCP_PROTO_COMMON_INIT_FLAG_RESPONSE,
         .remote_op_id        = UCP_OP_ID_RNDV_SEND,
+        .unpack_time         = unpack_time,
         .perf_bias           = 0.0,
         .mem_info.type       = mem_type,
         .mem_info.sys_dev    = sys_dev,
@@ -171,6 +173,7 @@ ucp_proto_rndv_rtr_init(const ucp_proto_init_params_t *init_params)
     return ucp_proto_rndv_rtr_common_init(init_params,
                                           ucp_proto_rndv_rtr_data_received,
                                           rndv_modes, SIZE_MAX,
+                                          ucs_linear_func_make(0, 0),
                                           init_params->select_param->mem_type,
                                           init_params->select_param->sys_dev);
 }
@@ -279,6 +282,7 @@ static ucs_status_t ucp_proto_rndv_rtr_mtcopy_progress(uct_pending_req_t *self)
 static ucs_status_t
 ucp_proto_rndv_rtr_mtcopy_init(const ucp_proto_init_params_t *init_params)
 {
+    ucs_linear_func_t unpack_time;
     ucs_status_t status;
     size_t frag_size;
 
@@ -287,9 +291,13 @@ ucp_proto_rndv_rtr_mtcopy_init(const ucp_proto_init_params_t *init_params)
         return status;
     }
 
+    unpack_time = ucp_proto_common_get_pack_time(
+            init_params->worker, init_params->select_param->mem_type, frag_size,
+            0, 0, "rtr/mtcopy");
+
     return ucp_proto_rndv_rtr_common_init(
             init_params, ucp_proto_rndv_rtr_mtcopy_data_received,
-            UCS_BIT(UCP_RNDV_MODE_PUT_PIPELINE), frag_size,
+            UCS_BIT(UCP_RNDV_MODE_PUT_PIPELINE), frag_size, unpack_time,
             UCS_MEMORY_TYPE_HOST, UCS_SYS_DEVICE_ID_UNKNOWN);
 }
 

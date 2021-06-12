@@ -513,7 +513,8 @@ ucp_proto_common_calc_latency(const ucp_proto_common_init_params_t *params,
     range->max_length = ucs_min(frag_size, params->max_length);
     range->perf       = ucs_linear_func_add(uct_time, recv_time);
     if (!(params->flags & UCP_PROTO_COMMON_INIT_FLAG_SEND_ZCOPY)) {
-        if (op_attr_mask & UCP_OP_ATTR_FLAG_MULTI_SEND) {
+        if ((op_attr_mask & UCP_OP_ATTR_FLAG_MULTI_SEND) ||
+            (params->flags & UCP_PROTO_COMMON_INIT_FLAG_ASYNC_COPY)) {
             range->perf.m = ucs_max(range->perf.m, pack_time.m);
             range->perf.c += pack_time.c;
         } else {
@@ -564,7 +565,7 @@ ucp_proto_common_calc_latency(const ucp_proto_common_init_params_t *params,
     ucs_linear_func_add_value_at(&range->perf, recv_time, frag_size);
 }
 
-static ucs_linear_func_t
+ucs_linear_func_t
 ucp_proto_common_get_pack_time(ucp_worker_h worker, ucs_memory_type_t mem_type,
                                size_t frag_size, uint32_t op_attr_mask,
                                int is_sync, const char *title)

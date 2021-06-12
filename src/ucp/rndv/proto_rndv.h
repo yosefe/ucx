@@ -75,6 +75,9 @@ typedef struct {
     /* Which operation the remote peer is expected to perform */
     ucp_operation_id_t             remote_op_id;
 
+    /**/
+    ucs_linear_func_t              unpack_time;
+
     /* Reduce estimated time by this value (for example, 0.03 means to report
        a 3% better time) */
     double                         perf_bias;

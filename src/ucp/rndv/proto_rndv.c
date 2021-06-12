@@ -145,7 +145,6 @@ ucp_proto_rndv_ctrl_init(const ucp_proto_rndv_ctrl_init_params_t *params)
     ucp_proto_perf_range_t *perf_range;
     const uct_iface_attr_t *iface_attr;
     ucs_linear_func_t send_overheads;
-    ucs_linear_func_t unpack_time;
     ucs_linear_func_t xfer_time;
     ucp_memory_info_t mem_info;
     ucp_md_index_t md_index;
@@ -182,6 +181,11 @@ ucp_proto_rndv_ctrl_init(const ucp_proto_rndv_ctrl_init_params_t *params)
                                     0, UCP_DATATYPE_CONTIG, &mem_info, 1);
     }
 
+    // if (ucp_proto_rndv_init_params_is_ppln_frag(&params->super.super)) {
+    //     remote_select_param.op_flags |= ucp_proto_select_op_attr_to_flags(
+    //             UCP_OP_ATTR_FLAG_MULTI_SEND);
+    // }
+
     /* Initialize estimated memory registration map */
     ucp_proto_rndv_ctrl_get_md_map(params, &rpriv->md_map, &rpriv->sys_dev_map,
                                    rpriv->sys_dev_distance);
@@ -208,7 +212,6 @@ ucp_proto_rndv_ctrl_init(const ucp_proto_rndv_ctrl_init_params_t *params)
     send_overheads = ucs_linear_func_make(rts_latency, 0.0);
 
     /* Add registration cost to send_overheads */
-    unpack_time = ucs_linear_func_make(0, 0);
     ucs_for_each_bit(md_index, rpriv->md_map) {
         ucs_linear_func_add_inplace(&send_overheads,
                                     context->tl_mds[md_index].attr.reg_cost);
@@ -229,7 +232,8 @@ ucp_proto_rndv_ctrl_init(const ucp_proto_rndv_ctrl_init_params_t *params)
         perf_range->max_length = ucs_min(remote_range->super.max_length,
                                          params->super.max_length);
         xfer_time              = remote_range->super.perf;
-        xfer_time.m            = ucs_max(xfer_time.m, unpack_time.m);
+        xfer_time.m            = ucs_max(xfer_time.m, params->unpack_time.m);
+        xfer_time.c           += params->unpack_time.c;
 
         /* Add send overheads and apply perf_bias */
         perf_range->perf = ucs_linear_func_compose(
@@ -274,6 +278,7 @@ ucs_status_t ucp_proto_rndv_rts_init(const ucp_proto_init_params_t *init_params)
         .super.max_length   = SIZE_MAX,
         .super.flags        = UCP_PROTO_COMMON_INIT_FLAG_RESPONSE,
         .remote_op_id       = UCP_OP_ID_RNDV_RECV,
+        .unpack_time        = ucs_linear_func_make(0, 0),
         .perf_bias          = context->config.ext.rndv_perf_diff / 100.0,
         .mem_info.type      = init_params->select_param->mem_type,
         .mem_info.sys_dev   = init_params->select_param->sys_dev,
