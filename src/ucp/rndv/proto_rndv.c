@@ -140,7 +140,7 @@ ucp_proto_rndv_ctrl_init(const ucp_proto_rndv_ctrl_init_params_t *params)
     ucp_proto_rndv_ctrl_priv_t *rpriv = params->super.super.priv;
     const ucp_proto_select_param_t *select_param =
             params->super.super.select_param;
-    const ucp_proto_perf_range_t *remote_perf_range;
+    const ucp_proto_select_range_t *remote_range;
     ucp_proto_select_param_t remote_select_param;
     ucp_proto_perf_range_t *perf_range;
     const uct_iface_attr_t *iface_attr;
@@ -222,13 +222,13 @@ ucp_proto_rndv_ctrl_init(const ucp_proto_rndv_ctrl_init_params_t *params)
     params->super.super.caps->num_ranges   = 0;
 
     /* Copy performance ranges from the remote protocol, and add overheads */
-    remote_perf_range = rpriv->remote_proto.perf_ranges;
-    caps              = params->super.super.caps;
+    remote_range = rpriv->remote_proto.ranges;
+    caps         = params->super.super.caps;
     do {
         perf_range             = &caps->ranges[caps->num_ranges];
-        perf_range->max_length = ucs_min(remote_perf_range->max_length,
+        perf_range->max_length = ucs_min(remote_range->super.max_length,
                                          params->super.max_length);
-        xfer_time              = remote_perf_range->perf;
+        xfer_time              = remote_range->super.perf;
         xfer_time.m            = ucs_max(xfer_time.m, unpack_time.m);
 
         /* Add send overheads and apply perf_bias */
@@ -237,7 +237,7 @@ ucp_proto_rndv_ctrl_init(const ucp_proto_rndv_ctrl_init_params_t *params)
                 ucs_linear_func_add(xfer_time, send_overheads));
 
         ++caps->num_ranges;
-    } while ((remote_perf_range++)->max_length < params->super.max_length);
+    } while ((remote_range++)->super.max_length < params->super.max_length);
 
     return UCS_OK;
 }

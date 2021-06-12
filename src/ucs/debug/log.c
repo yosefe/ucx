@@ -26,10 +26,12 @@
 #define UCS_MAX_LOG_HANDLERS    32
 
 #define UCS_LOG_TIME_FMT        "[%lu.%06lu]"
-#define UCS_LOG_METADATA_FMT    "%17s:%-4u %-4s %-5s %*s"
+#define UCS_LOG_LOCATION_FMT    "%17s:%-4u"
+#define UCS_LOG_METADATA_FMT    UCS_LOG_LOCATION_FMT " %-4s %-5s %*s"
 #define UCS_LOG_PROC_DATA_FMT   "[%s:%-5d:%s]"
 
-#define UCS_LOG_SHORT_FMT       UCS_LOG_TIME_FMT " [%s] " UCS_LOG_METADATA_FMT "%s\n"
+#define UCS_LOG_SHORT_FMT       UCS_LOG_LOCATION_FMT " %*s %s\n"
+#define UCS_LOG_COMPACT_FMT     UCS_LOG_TIME_FMT " [%s] " UCS_LOG_METADATA_FMT "%s\n"
 #define UCS_LOG_FMT             UCS_LOG_TIME_FMT " " UCS_LOG_PROC_DATA_FMT " " \
                                 UCS_LOG_METADATA_FMT "%s\n"
 
@@ -42,8 +44,11 @@
 #define UCS_LOG_PROC_DATA_ARG() \
     ucs_log_hostname, ucs_log_pid, ucs_log_get_thread_name()
 
-#define UCS_LOG_SHORT_ARG(_short_file, _line, _level, _comp_conf, _tv, \
-                          _message) \
+#define UCS_LOG_SHORT_ARG(_short_file, _line, _message) \
+    (_short_file), (_line), (ucs_log_current_indent * 2), "", (_message)
+
+#define UCS_LOG_COMPACT_ARG(_short_file, _line, _level, _comp_conf, _tv, \
+                            _message) \
     UCS_LOG_TIME_ARG(_tv), ucs_log_get_thread_name(), \
             UCS_LOG_METADATA_ARG(_short_file, _line, _level, _comp_conf), \
             (_message)
@@ -207,9 +212,9 @@ static void ucs_log_print(size_t buffer_size, const char *short_file, int line,
 
     if (RUNNING_ON_VALGRIND) {
         log_buf = ucs_alloca(buffer_size + 1);
-        snprintf(log_buf, buffer_size, UCS_LOG_SHORT_FMT,
-                UCS_LOG_SHORT_ARG(short_file, line, level,
-                                  comp_conf, tv, message));
+        snprintf(log_buf, buffer_size, UCS_LOG_COMPACT_FMT,
+                 UCS_LOG_COMPACT_ARG(short_file, line, level, comp_conf, tv,
+                                     message));
         VALGRIND_PRINTF("%s", log_buf);
     } else if (ucs_log_initialized) {
         if (ucs_log_file_close) { /* non-stdout/stderr */
@@ -220,13 +225,18 @@ static void ucs_log_print(size_t buffer_size, const char *short_file, int line,
             ucs_log_handle_file_max_size(log_entry_len);
         }
 
-        fprintf(ucs_log_file, UCS_LOG_FMT,
-                UCS_LOG_ARG(short_file, line, level,
-                            comp_conf, tv, message));
+        if (1) {
+            fprintf(ucs_log_file, UCS_LOG_SHORT_FMT,
+                    UCS_LOG_SHORT_ARG(short_file, line, message));
+        } else {
+            fprintf(ucs_log_file, UCS_LOG_FMT,
+                    UCS_LOG_ARG(short_file, line, level, comp_conf, tv,
+                                message));
+        }
     } else {
-        fprintf(stdout, UCS_LOG_SHORT_FMT,
-                UCS_LOG_SHORT_ARG(short_file, line, level,
-                                  comp_conf, tv, message));
+        fprintf(stdout, UCS_LOG_COMPACT_FMT,
+                UCS_LOG_COMPACT_ARG(short_file, line, level, comp_conf, tv,
+                                    message));
     }
 }
 

@@ -46,7 +46,7 @@ typedef struct {
 
 UCS_ARRAY_DEFINE_INLINE(ucp_proto_thresh, unsigned,
                         ucp_proto_threshold_tmp_elem_t);
-UCS_ARRAY_DEFINE_INLINE(ucp_proto_perf, unsigned, ucp_proto_perf_range_t);
+UCS_ARRAY_DEFINE_INLINE(ucp_proto_select_range, unsigned, ucp_proto_select_range_t);
 
 
 const ucp_proto_threshold_elem_t*
@@ -88,30 +88,29 @@ ucp_proto_thresholds_append(ucs_array_t(ucp_proto_thresh) *thresh_list,
 }
 
 static ucs_status_t
-ucp_proto_perf_append(ucs_array_t(ucp_proto_perf) *perf_list, size_t max_length,
-                      ucs_linear_func_t perf)
+ucp_proto_perf_append(ucs_array_t(ucp_proto_select_range) *range_list,
+                      const ucp_proto_select_range_t *new_elem)
 {
-    ucp_proto_perf_range_t *perf_elem;
+    ucp_proto_select_range_t *range_elem;
     ucs_status_t status;
 
-    if (!ucs_array_is_empty(perf_list)) {
-        perf_elem = ucs_array_last(perf_list);
-        ucs_assert(max_length > perf_elem->max_length);
-        if (ucs_linear_func_is_equal(perf_elem->perf, perf, 1e-15)) {
-            perf_elem->max_length = max_length;
+    if (!ucs_array_is_empty(range_list)) {
+        range_elem = ucs_array_last(range_list);
+        ucs_assert(new_elem->super.max_length > range_elem->super.max_length);
+        if (ucs_linear_func_is_equal(range_elem->super.perf,
+                                     new_elem->super.perf, 1e-15) &&
+            (range_elem->cfg_thresh == new_elem->cfg_thresh)) {
+            range_elem->super.max_length = new_elem->super.max_length;
             return UCS_OK;
         }
     }
 
-    status = ucs_array_append(ucp_proto_perf, perf_list);
+    status = ucs_array_append(ucp_proto_select_range, range_list);
     if (status != UCS_OK) {
         return status;
     }
 
-    perf_elem             = ucs_array_last(perf_list);
-    perf_elem->max_length = max_length;
-    perf_elem->perf       = perf;
-
+    *ucs_array_last(range_list) = *new_elem;
     return UCS_OK;
 }
 
@@ -128,14 +127,15 @@ static void ucp_proto_select_perf_str(const ucs_linear_func_t *perf,
 }
 
 
-static ucs_status_t
-ucp_proto_thresholds_select_best(ucp_proto_id_mask_t proto_mask,
-                                 const ucs_linear_func_t *proto_perf,
-                                 ucs_array_t(ucp_proto_thresh) *thresh_list,
-                                 ucs_array_t(ucp_proto_perf) *perf_list,
-                                 size_t start, size_t end)
+static ucs_status_t ucp_proto_thresholds_select_best(
+        ucp_proto_id_mask_t proto_mask, const ucp_proto_caps_t *proto_caps,
+        const ucs_linear_func_t *proto_perf,
+        ucs_array_t(ucp_proto_thresh) *thresh_list,
+        ucs_array_t(ucp_proto_select_range) *range_list, size_t start,
+        size_t end)
 {
     char time_str[64], bw_str[64], num_str[64];
+    ucp_proto_select_range_t range_elem;
     struct {
         ucp_proto_id_t proto_id;
         double         result;
@@ -210,8 +210,10 @@ ucp_proto_thresholds_select_best(ucp_proto_id_mask_t proto_mask,
             return status;
         }
 
-        status = ucp_proto_perf_append(perf_list, midpoint,
-                                       proto_perf[best.proto_id]);
+        range_elem.super.max_length = midpoint;
+        range_elem.super.perf       = proto_perf[best.proto_id];
+        range_elem.cfg_thresh       = proto_caps[best.proto_id].cfg_thresh;
+        status = ucp_proto_perf_append(range_list, &range_elem);
         if (status != UCS_OK) {
             return status;
         }
@@ -229,7 +231,7 @@ static ucs_status_t
 ucp_proto_thresholds_select_next(ucp_proto_id_mask_t proto_mask,
                                  const ucp_proto_caps_t *proto_caps,
                                  ucs_array_t(ucp_proto_thresh) *thresh_list,
-                                 ucs_array_t(ucp_proto_perf) *perf_list,
+                                 ucs_array_t(ucp_proto_select_range) *range_list,
                                  size_t msg_length, size_t *max_length_p)
 {
     ucp_proto_id_mask_t valid_proto_mask, disabled_proto_mask;
@@ -335,9 +337,10 @@ ucp_proto_thresholds_select_next(ucp_proto_id_mask_t proto_mask,
     }
     ucs_assert(valid_proto_mask != 0);
 
-    status = ucp_proto_thresholds_select_best(valid_proto_mask, proto_perf,
-                                              thresh_list, perf_list,
-                                              msg_length, max_length);
+    status = ucp_proto_thresholds_select_best(valid_proto_mask, proto_caps,
+                                              proto_perf, thresh_list,
+                                              range_list, msg_length,
+                                              max_length);
     if (status == UCS_OK) {
         *max_length_p = max_length;
     }
@@ -494,10 +497,10 @@ static ucs_status_t ucp_proto_select_elem_init_thresh(
 {
     UCS_ARRAY_DEFINE_ONSTACK(tmp_thresh_list, ucp_proto_thresh,
                              UCP_PROTO_MAX_COUNT);
-    UCS_ARRAY_DEFINE_ONSTACK(tmp_perf_list, ucp_proto_perf,
+    UCS_ARRAY_DEFINE_ONSTACK(tmp_range_list, ucp_proto_select_range,
                              UCP_PROTO_MAX_PERF_RANGES);
-    ucp_proto_perf_range_t *perf_ranges, *tmp_perf_elem;
     ucp_proto_threshold_tmp_elem_t *tmp_thresh_elem;
+    ucp_proto_select_range_t *ranges, *tmp_range;
     ucp_proto_threshold_elem_t *thresholds;
     size_t msg_length, max_length;
     ucp_proto_config_t *proto_config;
@@ -519,7 +522,7 @@ static ucs_status_t ucp_proto_select_elem_init_thresh(
         status = ucp_proto_thresholds_select_next(proto_init->mask,
                                                   proto_init->caps,
                                                   &tmp_thresh_list,
-                                                  &tmp_perf_list, msg_length,
+                                                  &tmp_range_list, msg_length,
                                                   &max_length);
         if (status != UCS_OK) {
             if (status == UCS_ERR_UNSUPPORTED) {
@@ -566,23 +569,24 @@ static ucs_status_t ucp_proto_select_elem_init_thresh(
         ++i;
     }
 
-    ucs_assert_always(!ucs_array_is_empty(&tmp_perf_list));
-    ucs_assert_always(ucs_array_last(&tmp_perf_list)->max_length == SIZE_MAX);
+    ucs_assert_always(!ucs_array_is_empty(&tmp_range_list));
+    ucs_assert_always(ucs_array_last(&tmp_range_list)->super.max_length ==
+                      SIZE_MAX);
 
     /* Allocate performance functions array */
-    perf_ranges = ucs_calloc(ucs_array_length(&tmp_perf_list),
-                             sizeof(*select_elem->perf_ranges), "ucp_proto_perf");
-    if (perf_ranges == NULL) {
+    ranges = ucs_calloc(ucs_array_length(&tmp_range_list),
+                        sizeof(*select_elem->ranges), "ucp_proto_perf");
+    if (ranges == NULL) {
         status = UCS_ERR_NO_MEMORY;
         goto err_free_thresholds;
     }
 
-    select_elem->perf_ranges = perf_ranges;
+    select_elem->ranges = ranges;
 
     /* Copy the performance elements */
     i = 0;
-    ucs_array_for_each(tmp_perf_elem, &tmp_perf_list) {
-        perf_ranges[i++] = *tmp_perf_elem;
+    ucs_array_for_each(tmp_range, &tmp_range_list) {
+        ranges[i++] = *tmp_range;
     }
 
     return UCS_OK;
@@ -650,7 +654,7 @@ out:
 static void
 ucp_proto_select_elem_cleanup(ucp_proto_select_elem_t *select_elem)
 {
-    ucs_free((void*)select_elem->perf_ranges);
+    ucs_free((void*)select_elem->ranges);
     ucs_free((void*)select_elem->thresholds);
     ucs_free(select_elem->priv_buf);
 }
@@ -849,20 +853,20 @@ ucp_proto_select_dump_perf(const ucp_proto_select_elem_t *select_elem,
                            ucs_string_buffer_t *strb)
 {
     static const char *proto_info_fmt = "    %-16s %-20s %s\n";
-    const ucp_proto_perf_range_t *perf_elem;
+    const ucp_proto_select_range_t *range_elem;
     size_t range_start, range_end;
     char range_str[128];
     char time_str[64];
     char bw_str[64];
 
     range_start = 0;
-    perf_elem   = select_elem->perf_ranges;
+    range_elem   = select_elem->ranges;
     ucs_string_buffer_appendf(strb, proto_info_fmt, "SIZE", "TIME (nsec)",
                               "BANDWIDTH (MiB/s)");
     do {
-        range_end = perf_elem->max_length;
+        range_end = range_elem->super.max_length;
 
-        ucp_proto_select_perf_str(&perf_elem->perf,
+        ucp_proto_select_perf_str(&range_elem->super.perf,
                                   time_str, sizeof(time_str),
                                   bw_str, sizeof(bw_str));
         ucs_memunits_range_str(range_start, range_end, range_str,
@@ -872,7 +876,7 @@ ucp_proto_select_dump_perf(const ucp_proto_select_elem_t *select_elem,
                                   bw_str);
 
         range_start = range_end + 1;
-        ++perf_elem;
+        ++range_elem;
     } while (range_end != SIZE_MAX);
 }
 

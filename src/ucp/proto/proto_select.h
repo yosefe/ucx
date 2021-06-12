@@ -39,13 +39,19 @@ typedef struct {
 } ucp_proto_threshold_elem_t;
 
 
+typedef struct {
+    ucp_proto_perf_range_t  super;
+    size_t                  cfg_thresh; /* Configured protocol threshold */
+} ucp_proto_select_range_t;
+
+
 /**
  * Protocol selection per a particular buffer type and operation
  */
 typedef struct {
     const ucp_proto_threshold_elem_t *thresholds; /* Array of which protocol to use
                                                      for different message sizes */
-    const ucp_proto_perf_range_t     *perf_ranges;/* Estimated performance for
+    const ucp_proto_select_range_t   *ranges;     /* Estimated performance for
                                                      the selected protocols */
     void                             *priv_buf;   /* Private configuration area
                                                      for the selected protocols */

@@ -158,7 +158,7 @@ static ucs_status_t ucp_proto_eager_tag_offload_zcopy_init(
         .super.overhead      = 0,
         .super.cfg_thresh    = context->config.ext.zcopy_thresh,
         .super.cfg_priority  = 30,
-        .super.min_length    = 0,
+        .super.min_length    = 1,
         .super.max_length    = SIZE_MAX,
         .super.min_frag_offs = UCP_PROTO_COMMON_OFFSET_INVALID,
         .super.max_frag_offs = ucs_offsetof(uct_iface_attr_t,

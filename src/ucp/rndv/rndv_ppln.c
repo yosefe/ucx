@@ -36,7 +36,7 @@ ucp_proto_rndv_ppln_init(const ucp_proto_init_params_t *init_params)
     ucp_worker_h worker               = init_params->worker;
     ucp_proto_rndv_ppln_priv_t *rpriv = init_params->priv;
     ucp_proto_caps_t *caps            = init_params->caps;
-    const ucp_proto_perf_range_t *perf_range, *best_perf_range;
+    const ucp_proto_select_range_t *frag_range, *best_perf_range;
     const ucp_proto_select_elem_t *select_elem;
     ucp_proto_select_param_t sel_param;
     ucp_rkey_config_t *rkey_config;
@@ -70,35 +70,36 @@ ucp_proto_rndv_ppln_init(const ucp_proto_init_params_t *init_params)
     }
 
     /* Find protocol with best bandwidth when used in pipeline mode */
-    perf_range      = select_elem->perf_ranges;
+    frag_range      = select_elem->ranges;
     best_perf_range = NULL; /* Silence bogus warning */
     best_perf_m     = 0; /* Silence bogus warning */
     do {
         /* Pipeline bandwidth: worst between bandwidth and amortized overhead */
-        perf_m = ucs_max(perf_range->perf.c / perf_range->max_length,
-                         perf_range->perf.m);
-        if ((perf_range == select_elem->perf_ranges) ||
+        perf_m = ucs_max(frag_range->super.perf.c /
+                                 frag_range->super.max_length,
+                         frag_range->super.perf.m);
+        if ((frag_range == select_elem->ranges) ||
             (perf_m < best_perf_m)) {
             best_perf_m     = perf_m;
-            best_perf_range = perf_range;
+            best_perf_range = frag_range;
         }
-    } while ((perf_range++)->max_length != SIZE_MAX);
+    } while ((frag_range++)->super.max_length != SIZE_MAX);
 
     /* Initialize private data */
     *init_params->priv_size = sizeof(*rpriv);
     rpriv->frag_proto       = *select_elem;
-    rpriv->frag_size        = best_perf_range->max_length;
+    rpriv->frag_size        = best_perf_range->super.max_length;
 
     /* The pipeline protocol only covers ranges beyond the maximal fragment
     *  size. There is no point to conver smaller ranges, since better protocols
     *  exist there.
      */
-    caps->cfg_thresh           = worker->context->config.ext.rndv_thresh;
+    caps->cfg_thresh           = best_perf_range->cfg_thresh;
     caps->cfg_priority         = 0;
     caps->min_length           = rpriv->frag_size + 1;
     caps->num_ranges           = 1;
     caps->ranges[0].max_length = SIZE_MAX;
-    caps->ranges[0].perf.c     = best_perf_range->perf.c + 50e-9;
+    caps->ranges[0].perf.c     = best_perf_range->super.perf.c + 50e-9;
     caps->ranges[0].perf.m     = best_perf_m;
 
     return UCS_OK;

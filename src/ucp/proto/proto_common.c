@@ -642,7 +642,7 @@ void ucp_proto_common_init_caps(const ucp_proto_common_init_params_t *params,
     /* Initialize capabilities */
     caps->cfg_thresh   = params->cfg_thresh;
     caps->cfg_priority = params->cfg_priority;
-    caps->min_length   = perf->min_frag;
+    caps->min_length   = ucs_max(perf->min_frag, params->min_length);
     caps->num_ranges   = 0;
 
     /* Take fragment size from first lane */
@@ -778,22 +778,22 @@ void ucp_proto_set_wjh(ucp_request_t *req,
 {
     ucs_string_buffer_t *strb              = ucp_wjh_buffer();
     const ucp_proto_config_t *proto_config = req->send.proto_config;
-    const ucp_proto_perf_range_t *perf_range;
+    const ucp_proto_select_range_t *range;
 
     ucp_proto_select_param_str(&proto_config->select_param, strb);
     ucs_string_buffer_appendf(strb, ": %s ", proto_config->proto->name);
 
     proto_config->proto->config_str(length, length, proto_config->priv, strb);
 
-    perf_range = select_elem->perf_ranges;
+    range = select_elem->ranges;
     do {
-        if (length <= perf_range->max_length) {
-            double latency = ucs_linear_func_apply(perf_range->perf, length);
+        if (length <= range->super.max_length) {
+            double latency = ucs_linear_func_apply(range->super.perf, length);
             double bw      = length / latency;
             ucs_string_buffer_appendf(strb, "  %.2f MBs / %.2f us",
                                       bw / UCS_MBYTE,
                                       latency * UCS_USEC_PER_SEC);
             break;
         }
-    } while ((perf_range++)->max_length < SIZE_MAX);
+    } while ((range++)->super.max_length < SIZE_MAX);
 }
