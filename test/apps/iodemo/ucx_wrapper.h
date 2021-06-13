@@ -96,14 +96,7 @@ class UcxContext {
 protected:
     class UcxDisconnectCallback : public UcxCallback {
     public:
-        UcxDisconnectCallback(UcxConnection &conn);
-
-        virtual ~UcxDisconnectCallback();
-
         virtual void operator()(ucs_status_t status);
-
-    private:
-        UcxConnection *_conn;
     };
 
 public:
@@ -240,6 +233,9 @@ public:
 
     void accept(ucp_conn_request_h conn_req, UcxCallback *callback);
 
+    /**
+     * The connection will be destroyed automatically after callback is called.
+     */
     void disconnect(UcxCallback *callback);
 
     bool disconnect_progress();
@@ -281,6 +277,10 @@ public:
 
     void handle_connection_error(ucs_status_t status);
 
+    static size_t get_num_instances() {
+        return _num_instances;
+    }
+
 private:
     static ucp_tag_t make_data_tag(uint32_t conn_id, uint32_t sn);
 
@@ -319,6 +319,8 @@ private:
 
     bool process_request(const char *what, ucs_status_ptr_t ptr_status,
                          UcxCallback* callback);
+
+    static void invoke_callback(UcxCallback *&cb, ucs_status_t status);
 
     static unsigned _num_instances;
 
