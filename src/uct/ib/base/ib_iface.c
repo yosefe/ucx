@@ -1575,7 +1575,7 @@ static ucs_status_t uct_ib_iface_get_numa_latency(uct_ib_iface_t *iface,
         if (min_cpu_distance != INT_MAX) {
             /* set the extra latency to (numa_distance - 10) * 20nsec */
             *latency = (min_cpu_distance - UCS_NUMA_MIN_DISTANCE) * 20e-9;
-            return UCS_OK;
+            goto out;
         }
     }
 #endif
@@ -1587,6 +1587,9 @@ static ucs_status_t uct_ib_iface_get_numa_latency(uct_ib_iface_t *iface,
     } else {
         *latency = 200e-9;
     }
+
+out:
+    ucs_trace("%s NUMA latency is %.0f", uct_ib_device_name(dev), *latency * 1e9);
     return UCS_OK;
 }
 
@@ -1680,7 +1683,7 @@ ucs_status_t uct_ib_iface_query(uct_ib_iface_t *iface, size_t xport_hdr_len,
         return status;
     }
 
-    iface_attr->latency.c += numa_latency + 350e-9;
+    iface_attr->latency.c += numa_latency + 200e-9;
     iface_attr->latency.m  = 0;
 
     /* Wire speed calculation: Width * SignalRate * Encoding */
@@ -1699,6 +1702,11 @@ ucs_status_t uct_ib_iface_query(uct_ib_iface_t *iface, size_t xport_hdr_len,
         /* TODO check if UCT_IB_DELIM_LEN is present in RoCE as well */
         extra_pkt_len += UCT_IB_LRH_LEN;
     }
+
+    ucs_trace("iface %p on %s:%d latency is %.0f + N * %.0f ns", iface,
+              uct_ib_device_name(dev), iface->config.port_num,
+              iface_attr->latency.c * 1e9, iface_attr->latency.m * 1e9);
+
 
     iface_attr->bandwidth.shared    = ucs_min((wire_speed * mtu) / (mtu + extra_pkt_len), md->pci_bw);
     iface_attr->bandwidth.dedicated = 0;
