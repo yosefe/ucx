@@ -76,6 +76,7 @@ static void *mem_alloc(ucs_memory_type_t mem_type, size_t size)
             return NULL;
         }
         cudaMemset(ptr, 'c', size);
+        cudaHostRegister(ptr, size, cudaHostRegisterPortable);
         return ptr;
 #endif
     default:

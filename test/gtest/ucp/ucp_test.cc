@@ -209,7 +209,6 @@ void ucp_test::disconnect(entity& e) {
     }
 }
 
-<<<<<<< HEAD
 ucp_tag_message_h ucp_test::message_wait(entity& e, ucp_tag_t tag,
                                          ucp_tag_t tag_mask,
                                          ucp_tag_recv_info_t *info, int remove,
@@ -226,11 +225,8 @@ ucp_tag_message_h ucp_test::message_wait(entity& e, ucp_tag_t tag,
     return message;
 }
 
-ucs_status_t ucp_test::request_process(void *req, int worker_index, bool wait)
-=======
 ucs_status_t
 ucp_test::request_process(void *req, int worker_index, bool wait, bool release)
->>>>>>> f1109fd70 (WIP proto v86)
 {
     if (req == NULL) {
         return UCS_OK;
