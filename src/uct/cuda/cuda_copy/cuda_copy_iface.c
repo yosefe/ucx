@@ -288,34 +288,47 @@ static void uct_cuda_copy_event_desc_cleanup(ucs_mpool_t *mp, void *obj)
 static ucs_status_t
 uct_cuda_copy_estimate_perf(uct_iface_h iface, uct_perf_attr_t *perf_attr)
 {
+    uct_ep_operation_t operation = UCS_PARAM_VALUE(UCT_PERF_ATTR_FIELD,
+                                                   perf_attr, operation,
+                                                   OPERATION, UCT_OP_LAST);
+
     if (perf_attr->field_mask & UCT_PERF_ATTR_FIELD_BANDWIDTH) {
         perf_attr->bandwidth.dedicated = 0;
-        if (!(perf_attr->field_mask & UCT_PERF_ATTR_FIELD_OPERATION)) {
+        switch (operation) {
+        case UCT_OP_GET_SHORT:
+            perf_attr->bandwidth.shared = 9320.0 * UCS_MBYTE;
+            break;
+        case UCT_OP_GET_ZCOPY:
+            perf_attr->bandwidth.shared = 11660.0 * UCS_MBYTE;
+            break;
+        case UCT_OP_PUT_SHORT:
+            perf_attr->bandwidth.shared = 8110.0 * UCS_MBYTE;
+            break;
+        case UCT_OP_PUT_ZCOPY:
+            perf_attr->bandwidth.shared = 9980.0 * UCS_MBYTE;
+            break;
+        default:
             perf_attr->bandwidth.shared = UCT_CUDA_COPY_IFACE_DEFAULT_BANDWIDTH;
-        } else {
-            switch (perf_attr->operation) {
-            case UCT_OP_GET_SHORT:
-                perf_attr->bandwidth.shared = 9320.0 * UCS_MBYTE;
-                break;
-            case UCT_OP_GET_ZCOPY:
-                perf_attr->bandwidth.shared = 11660.0 * UCS_MBYTE;
-                break;
-            case UCT_OP_PUT_SHORT:
-                perf_attr->bandwidth.shared = 8110.0 * UCS_MBYTE;
-                break;
-            case UCT_OP_PUT_ZCOPY:
-                perf_attr->bandwidth.shared = 9980.0 * UCS_MBYTE;
-                break;
-            default:
-                perf_attr->bandwidth.shared =
-                        UCT_CUDA_COPY_IFACE_DEFAULT_BANDWIDTH;
-                break;
-            }
+            break;
         }
     }
 
     if (perf_attr->field_mask & UCT_PERF_ATTR_FIELD_OVERHEAD) {
         perf_attr->overhead = UCT_CUDA_COPY_IFACE_OVERHEAD;
+    }
+
+    if (perf_attr->field_mask & UCT_PERF_ATTR_FIELD_LATENCY) {
+        switch (operation) {
+        case UCT_OP_GET_ZCOPY:
+            perf_attr->latency = ucs_linear_func_make(1.09e-5, 0);
+            break;
+        case UCT_OP_PUT_ZCOPY:
+            perf_attr->latency = ucs_linear_func_make(1.21e-5, 0);
+            break;
+        default:
+            perf_attr->latency = ucs_linear_func_make(8e-6, 0);
+            break;
+        }
     }
 
     return UCS_OK;

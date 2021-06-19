@@ -293,7 +293,7 @@ ucp_proto_rndv_rtr_mtcopy_init(const ucp_proto_init_params_t *init_params)
 
     unpack_time = ucp_proto_common_get_pack_time(
             init_params->worker, init_params->select_param->mem_type, frag_size,
-            0, 0, "rtr/mtcopy");
+            0, 0, 0);
 
     return ucp_proto_rndv_rtr_common_init(
             init_params, ucp_proto_rndv_rtr_mtcopy_data_received,

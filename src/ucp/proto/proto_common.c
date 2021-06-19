@@ -9,6 +9,7 @@
 #endif
 
 #include "proto_common.inl"
+#include <uct/api/v2/uct_v2.h>
 
 
 static ucp_rsc_index_t
@@ -513,7 +514,7 @@ ucp_proto_common_calc_latency(const ucp_proto_common_init_params_t *params,
     range->max_length = ucs_min(frag_size, params->max_length);
     range->perf       = ucs_linear_func_add(uct_time, recv_time);
     if (!(params->flags & UCP_PROTO_COMMON_INIT_FLAG_SEND_ZCOPY)) {
-        if ((op_attr_mask & UCP_OP_ATTR_FLAG_MULTI_SEND) ||
+        if ((op_attr_mask & UCP_OP_ATTR_FLAG_MULTI_SEND) &&
             (params->flags & UCP_PROTO_COMMON_INIT_FLAG_ASYNC_COPY)) {
             range->perf.m = ucs_max(range->perf.m, pack_time.m);
             range->perf.c += pack_time.c;
@@ -568,15 +569,17 @@ ucp_proto_common_calc_latency(const ucp_proto_common_init_params_t *params,
 ucs_linear_func_t
 ucp_proto_common_get_pack_time(ucp_worker_h worker, ucs_memory_type_t mem_type,
                                size_t frag_size, uint32_t op_attr_mask,
-                               int is_sync, const char *title)
+                               int is_sync, int is_pack)
 {
     ucp_context_h context            = worker->context;
     ucp_ep_h memtype_ep              = worker->mem_type_ep[mem_type];
     ucs_linear_func_t frag_time, pack_time;
-    const uct_iface_attr_t *iface_attr;
     const ucp_ep_config_t *ep_config;
     ucp_rsc_index_t rsc_index;
+    uct_perf_attr_t perf_attr;
     ucp_lane_index_t lane;
+    ucs_status_t status;
+    double bandwidth;
 
     if (memtype_ep == NULL) {
         return ucs_linear_func_make(0, 1.0 / context->config.ext.bcopy_bw);
@@ -587,37 +590,55 @@ ucp_proto_common_get_pack_time(ucp_worker_h worker, ucs_memory_type_t mem_type,
     lane       = is_sync ? ep_config->key.rma_lanes[0] :
                                  ep_config->key.rma_bw_lanes[0];
     rsc_index  = ep_config->key.lanes[lane].rsc_index;
-    iface_attr = ucp_worker_iface_get_attr(worker, rsc_index);
+
+    /* Use the v2 API to query overhead and BW */
+    perf_attr.field_mask         = UCT_PERF_ATTR_FIELD_OPERATION |
+                                   UCT_PERF_ATTR_FIELD_LOCAL_MEMORY_TYPE |
+                                   UCT_PERF_ATTR_FIELD_REMOTE_MEMORY_TYPE |
+                                   UCT_PERF_ATTR_FIELD_OVERHEAD |
+                                   UCT_PERF_ATTR_FIELD_BANDWIDTH |
+                                   UCT_PERF_ATTR_FIELD_LATENCY;
+    perf_attr.local_memory_type  = UCS_MEMORY_TYPE_HOST;
+    perf_attr.remote_memory_type = mem_type;
+    if (is_sync) {
+        perf_attr.operation = is_pack ? UCT_OP_PUT_SHORT : UCT_OP_GET_SHORT;
+    } else {
+        perf_attr.operation = is_pack ? UCT_OP_PUT_ZCOPY : UCT_OP_GET_ZCOPY;
+    }
+
+    status = uct_iface_estimate_perf(ucp_worker_iface(worker, rsc_index)->iface,
+                                     &perf_attr);
+    ucs_assert_always(status == UCS_OK);
+
+    bandwidth = ucp_tl_iface_bandwidth(context, &perf_attr.bandwidth);
 
     /* Calculate single fragment data transfer time for memtype copy */
     if (op_attr_mask & UCP_OP_ATTR_FLAG_MULTI_SEND) {
         frag_time.c = 0;
     } else  {
-        frag_time.c = ucp_tl_iface_latency(context, &iface_attr->latency);
+        frag_time.c = ucp_tl_iface_latency(context, &perf_attr.latency);
     }
-    frag_time.m = 1.0 / ucp_tl_iface_bandwidth(context, &iface_attr->bandwidth);
+    frag_time.m = 1.0 / bandwidth;
 
     /* Calculate multi-fragment pack time */
     pack_time.m = frag_time.m + (frag_time.c / frag_size);
     if (is_sync) {
         /* Synchronous packing: overhead is added to each fragment's time */
-        pack_time.c = frag_time.c + iface_attr->overhead;
+        pack_time.c = frag_time.c + perf_attr.overhead;
         pack_time.m = frag_time.m + (pack_time.c / frag_size);
     } else {
         /* Asynchronous packing: take the maximum of fragment's overhead and its
            packing time */
-        pack_time.c = ucs_max(frag_time.c, iface_attr->overhead);
-        pack_time.m = ucs_max(frag_time.m, iface_attr->overhead / frag_size);
+        pack_time.c = ucs_max(frag_time.c, perf_attr.overhead);
+        pack_time.m = ucs_max(frag_time.m, perf_attr.overhead / frag_size);
     }
 
     ucs_debug("%s %s on " UCT_TL_RESOURCE_DESC_FMT ", %s memory, "
               "frag_size %zu: " UCP_PROTO_PERF_FUNC_FMT " raw bw: %.2f MB/s",
-              is_sync ? "sync" : "async", title,
+              is_sync ? "sync" : "async", is_pack ? "pack" : "unpack",
               UCT_TL_RESOURCE_DESC_ARG(&context->tl_rscs[rsc_index].tl_rsc),
               ucs_memory_type_names[mem_type], frag_size,
-              UCP_PROTO_PERF_FUNC_ARG(&pack_time),
-              ucp_tl_iface_bandwidth(context, &iface_attr->bandwidth) /
-                      UCS_MBYTE);
+              UCP_PROTO_PERF_FUNC_ARG(&pack_time), bandwidth / UCS_MBYTE);
     return pack_time;
 }
 
@@ -656,11 +677,12 @@ void ucp_proto_common_init_caps(const ucp_proto_common_init_params_t *params,
     op_attr_mask  = ucp_proto_select_op_attr_from_flags(select_param->op_flags);
     uct_time      = ucs_linear_func_make(perf->latency + perf->sys_latency,
                                          1.0 / perf->bandwidth);
-    is_sync_pack  = !(params->flags & UCP_PROTO_COMMON_INIT_FLAG_ASYNC_COPY);
+    is_sync_pack  = !(params->flags & UCP_PROTO_COMMON_INIT_FLAG_ASYNC_COPY) ||
+                    !(op_attr_mask & UCP_OP_ATTR_FLAG_MULTI_SEND);
     pack_time     = ucp_proto_common_get_pack_time(params->super.worker,
                                                    select_param->mem_type,
                                                    frag_size, op_attr_mask,
-                                                   is_sync_pack, "pack");
+                                                   is_sync_pack, 1);
     extra_time    = ucp_proto_common_get_reg_cost(params, reg_md_map);
     extra_time.c += perf->overhead;
 
@@ -680,7 +702,7 @@ void ucp_proto_common_init_caps(const ucp_proto_common_init_params_t *params,
         unpack_time = ucp_proto_common_get_pack_time(params->super.worker,
                                                      recv_mem_type, frag_size,
                                                      op_attr_mask, is_sync_pack,
-                                                     "unpack");
+                                                     0);
         recv_time   = ucp_proto_common_recv_time(params, perf->overhead,
                                                  unpack_time);
         ucs_trace("unpack_time: " UCP_PROTO_PERF_FUNC_FMT

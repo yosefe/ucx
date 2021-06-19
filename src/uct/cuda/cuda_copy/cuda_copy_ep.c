@@ -60,7 +60,9 @@ uct_cuda_copy_post_cuda_async_copy(uct_ep_h tl_ep, void *dst, void *src, size_t 
 {
     uct_cuda_copy_iface_t *iface = ucs_derived_of(tl_ep->iface, uct_cuda_copy_iface_t);
     uct_cuda_copy_event_desc_t *cuda_event;
+    size_t start_offset, end_offset;
     ucs_status_t status;
+    int i, num_ops;
 
     if (!length) {
         return UCS_OK;
@@ -74,10 +76,30 @@ uct_cuda_copy_post_cuda_async_copy(uct_ep_h tl_ep, void *dst, void *src, size_t 
 
     UCT_CUDA_COPY_CHECK_AND_CREATE_STREAM(iface, id);
 
-    status = UCT_CUDAR_CALL_LOG_ERR(cudaMemcpyAsync, dst, src, length,
-                                    direction, iface->stream[id]);
-    if (UCS_OK != status) {
-        return UCS_ERR_IO_ERROR;
+    // TODO
+    if (ucs_queue_is_empty(&iface->outstanding_event_q[id]) &&
+        (length > (128 * UCS_KBYTE))) {
+        num_ops = 2;
+    } else {
+        num_ops = 1;
+    }
+
+    num_ops = 2;
+    for (i = 0; i < num_ops; ++i) {
+        start_offset = (i * length) / num_ops;
+        end_offset   = ((i + 1) * length) / num_ops;
+
+        status = UCT_CUDAR_CALL_LOG_ERR(cudaMemcpyAsync,
+                                        UCS_PTR_BYTE_OFFSET(dst, start_offset),
+                                        UCS_PTR_BYTE_OFFSET(src, start_offset),
+                                        end_offset - start_offset, direction,
+                                        iface->stream[id]);
+        if (UCS_OK != status) {
+            return UCS_ERR_IO_ERROR;
+        }
+
+        ucs_trace_data("cuda async issued: %p dst:%p, src:%p offset %zu..%zu",
+                       cuda_event, dst, src, start_offset, end_offset);
     }
 
     status = UCT_CUDAR_CALL_LOG_ERR(cudaEventRecord, cuda_event->event,
@@ -88,8 +110,6 @@ uct_cuda_copy_post_cuda_async_copy(uct_ep_h tl_ep, void *dst, void *src, size_t 
     ucs_queue_push(&iface->outstanding_event_q[id], &cuda_event->queue);
     cuda_event->comp = comp;
 
-    ucs_trace_data("cuda async issued :%p dst:%p, src:%p len:%ld", cuda_event,
-                   dst, src, length);
     return UCS_INPROGRESS;
 }
 

@@ -220,6 +220,6 @@ void ucp_proto_set_wjh(ucp_request_t *req,
 ucs_linear_func_t
 ucp_proto_common_get_pack_time(ucp_worker_h worker, ucs_memory_type_t mem_type,
                                size_t frag_size, uint32_t op_attr_mask,
-                               int is_sync, const char *title);
+                               int is_sync, int is_pack);
 
 #endif

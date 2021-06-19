@@ -87,7 +87,7 @@ UCS_PROFILE_FUNC(ucs_status_t, uct_cuda_copy_mem_reg,
 
     result = cuPointerGetAttribute(&memType, CU_POINTER_ATTRIBUTE_MEMORY_TYPE,
                                    (CUdeviceptr)(address));
-    if ((result == CUDA_SUCCESS) && ((memType == CU_MEMORYTYPE_HOST)    ||
+    if ((result == CUDA_SUCCESS) && (0*(memType == CU_MEMORYTYPE_HOST)    ||
                                      (memType == CU_MEMORYTYPE_UNIFIED) ||
                                      (memType == CU_MEMORYTYPE_DEVICE))) {
         /* only host memory not allocated by cuda needs to be registered */
@@ -156,7 +156,7 @@ static ucs_status_t uct_cuda_copy_mem_alloc(uct_md_h md, size_t *length_p,
         status = UCT_CUDADRV_FUNC_LOG_ERR(cuMemAlloc((CUdeviceptr*)address_p,
                                                      *length_p));
     } else {
-        status = 
+        status =
             UCT_CUDADRV_FUNC_LOG_ERR(cuMemAllocManaged((CUdeviceptr*)address_p,
                                                        *length_p,
                                                        CU_MEM_ATTACH_GLOBAL));
