@@ -299,13 +299,13 @@ uct_cuda_copy_estimate_perf(uct_iface_h iface, uct_perf_attr_t *perf_attr)
             perf_attr->bandwidth.shared = 9320.0 * UCS_MBYTE;
             break;
         case UCT_OP_GET_ZCOPY:
-            perf_attr->bandwidth.shared = 11660.0 * UCS_MBYTE;
+            perf_attr->bandwidth.shared = 12950.0 * UCS_MBYTE;
             break;
         case UCT_OP_PUT_SHORT:
             perf_attr->bandwidth.shared = 8110.0 * UCS_MBYTE;
             break;
         case UCT_OP_PUT_ZCOPY:
-            perf_attr->bandwidth.shared = 9980.0 * UCS_MBYTE;
+            perf_attr->bandwidth.shared = 12000.0 * UCS_MBYTE;
             break;
         default:
             perf_attr->bandwidth.shared = UCT_CUDA_COPY_IFACE_DEFAULT_BANDWIDTH;
@@ -323,7 +323,7 @@ uct_cuda_copy_estimate_perf(uct_iface_h iface, uct_perf_attr_t *perf_attr)
             perf_attr->latency = ucs_linear_func_make(1.09e-5, 0);
             break;
         case UCT_OP_PUT_ZCOPY:
-            perf_attr->latency = ucs_linear_func_make(1.21e-5, 0);
+            perf_attr->latency = ucs_linear_func_make(1.19e-5, 0);
             break;
         default:
             perf_attr->latency = ucs_linear_func_make(8e-6, 0);

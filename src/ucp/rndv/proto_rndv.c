@@ -239,6 +239,7 @@ ucp_proto_rndv_ctrl_init(const ucp_proto_rndv_ctrl_init_params_t *params)
         perf_range->perf = ucs_linear_func_compose(
                 ucs_linear_func_make(0, 1.0 - params->perf_bias),
                 ucs_linear_func_add(xfer_time, send_overheads));
+        perf_range->pperf = perf_range->perf;
 
         ++caps->num_ranges;
     } while ((remote_range++)->super.max_length < params->super.max_length);

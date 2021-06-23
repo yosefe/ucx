@@ -64,15 +64,19 @@ static void *mem_alloc(ucs_memory_type_t mem_type, size_t size)
     cudaError_t cu_err;
 #endif
     void *ptr;
+    int ret;
 
     switch (mem_type) {
     case UCS_MEMORY_TYPE_HOST:
-        size = ucs_align_up_pow2(size, ucs_get_page_size());
-        ptr  = mmap(NULL, size, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS,
-                    -1, 0);
-        if (ptr == MAP_FAILED) {
+        size = ucs_align_up_pow2(size, ucs_get_huge_page_size());
+        // ptr  = mmap(NULL, size, PROT_READ | PROT_WRITE,
+        //             MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        ptr = NULL;
+        ret  = posix_memalign(&ptr, ucs_get_huge_page_size(), size);
+        if (ret != 0) {
             return NULL;
         }
+        madvise(ptr, size, MADV_HUGEPAGE);
         memset(ptr, 'h', size);
 #ifdef HAVE_CUDA
         cu_err = cudaHostRegister(ptr, size, cudaHostRegisterPortable);
@@ -273,7 +277,7 @@ void print_sys_info()
                                  256 * UCS_MBYTE);
         print_memcpy_performance(UCS_MEMORY_TYPE_CUDA, UCS_MEMORY_TYPE_HOST,
                                  256 * UCS_MBYTE);
-        print_memcpy_performance(UCS_MEMORY_TYPE_CUDA, UCS_MEMORY_TYPE_CUDA,
-                                 4 * UCS_GBYTE);
+        // print_memcpy_performance(UCS_MEMORY_TYPE_CUDA, UCS_MEMORY_TYPE_CUDA,
+        //                          4 * UCS_GBYTE);
     }
 }

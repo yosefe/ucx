@@ -19,7 +19,7 @@
 
 
 /* Maximal number of protocol performance ranges */
-#define UCP_PROTO_MAX_PERF_RANGES   32
+#define UCP_PROTO_MAX_PERF_RANGES   24
 
 
 /* Maximal size of protocol private data */
@@ -108,6 +108,7 @@ typedef struct {
     size_t                  max_length; /* Maximal message size */
     ucs_linear_func_t       perf;       /* Estimated time in seconds, as a
                                            function of message size in bytes */
+    ucs_linear_func_t       pperf;
 } ucp_proto_perf_range_t;
 
 

@@ -691,6 +691,7 @@ void ucp_proto_common_init_caps(const ucp_proto_common_init_params_t *params,
         /* Calculate time to complete the send operation locally */
         ucp_proto_common_calc_completion(params, frag_size, uct_time,
                                          pack_time);
+        unpack_time = ucs_linear_func_make(0, 0);
     } else {
         /* Calculate the time for message data transfer */
         if (params->super.rkey_config_key == NULL) {
@@ -722,6 +723,23 @@ void ucp_proto_common_init_caps(const ucp_proto_common_init_params_t *params,
     }
 
     ucp_proto_common_add_perf(&params->super, extra_time);
+
+    {
+        unsigned i;
+
+        for (i = 0; i < caps->num_ranges; ++i) {
+            caps->ranges[i].pperf.c = 0;
+            caps->ranges[i].pperf.m = uct_time.m;
+            // if (!(params->flags & UCP_PROTO_COMMON_INIT_FLAG_SEND_ZCOPY)) {
+            //     caps->ranges[i].pperf.m = ucs_max(caps->ranges[i].pperf.m,
+            //                                       pack_time.m);
+            // }
+            // if (!(params->flags & UCP_PROTO_COMMON_INIT_FLAG_RECV_ZCOPY)) {
+            //     caps->ranges[i].pperf.m = ucs_max(caps->ranges[i].pperf.m,
+            //                                       unpack_time.m);
+            // }
+        }
+    }
 
     if (0 && op_attr_mask & UCP_OP_ATTR_FLAG_MULTI_SEND) {
         ucp_proto_perf_range_t *range;

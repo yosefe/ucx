@@ -283,11 +283,12 @@ ucp_proto_rndv_ats_init(const ucp_proto_init_params_t *params)
     /* Support only 0-length messages */
     *params->priv_size                 = sizeof(ucp_proto_rndv_ack_priv_t);
     params->caps->cfg_thresh           = 0;
-    params->caps->cfg_priority         = 1;
+    params->caps->cfg_priority         = 0;
     params->caps->min_length           = 0;
     params->caps->num_ranges           = 1;
     params->caps->ranges[0].max_length = 0;
     params->caps->ranges[0].perf       = ucp_proto_rndv_ack_time(params);
+    params->caps->ranges[0].pperf      = ucp_proto_rndv_ack_time(params);
     return UCS_OK;
 }
 

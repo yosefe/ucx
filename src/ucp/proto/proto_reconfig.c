@@ -95,6 +95,7 @@ ucp_proto_reconfig_init(const ucp_proto_init_params_t *init_params)
     init_params->caps->num_ranges           = 1;
     init_params->caps->ranges[0].max_length = SIZE_MAX;
     init_params->caps->ranges[0].perf       = ucs_linear_func_make(INFINITY, 0);
+    init_params->caps->ranges[0].pperf      = ucs_linear_func_make(INFINITY, 0);
 
     return UCS_OK;
 }

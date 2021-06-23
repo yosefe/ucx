@@ -84,7 +84,7 @@ uct_cuda_copy_post_cuda_async_copy(uct_ep_h tl_ep, void *dst, void *src, size_t 
         num_ops = 1;
     }
 
-    num_ops = 2;
+    num_ops = 1;
     for (i = 0; i < num_ops; ++i) {
         start_offset = (i * length) / num_ops;
         end_offset   = ((i + 1) * length) / num_ops;

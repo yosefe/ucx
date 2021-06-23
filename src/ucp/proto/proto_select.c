@@ -87,6 +87,15 @@ ucp_proto_thresholds_append(ucs_array_t(ucp_proto_thresh) *thresh_list,
     return UCS_OK;
 }
 
+static int
+ucp_proto_select_range_is_equal(const ucp_proto_select_range_t *range_elem1,
+                                const ucp_proto_select_range_t *range_elem2)
+{
+    return ucs_linear_func_is_equal(range_elem1->super.perf,
+                                    range_elem2->super.perf, 1e-15) &&
+           (range_elem1->cfg_thresh == range_elem2->cfg_thresh);
+}
+
 static ucs_status_t
 ucp_proto_perf_append(ucs_array_t(ucp_proto_select_range) *range_list,
                       const ucp_proto_select_range_t *new_elem)
@@ -97,9 +106,7 @@ ucp_proto_perf_append(ucs_array_t(ucp_proto_select_range) *range_list,
     if (!ucs_array_is_empty(range_list)) {
         range_elem = ucs_array_last(range_list);
         ucs_assert(new_elem->super.max_length > range_elem->super.max_length);
-        if (ucs_linear_func_is_equal(range_elem->super.perf,
-                                     new_elem->super.perf, 1e-15) &&
-            (range_elem->cfg_thresh == new_elem->cfg_thresh)) {
+        if (ucp_proto_select_range_is_equal(range_elem, new_elem)) {
             range_elem->super.max_length = new_elem->super.max_length;
             return UCS_OK;
         }
@@ -129,7 +136,7 @@ static void ucp_proto_select_perf_str(const ucs_linear_func_t *perf,
 
 static ucs_status_t ucp_proto_thresholds_select_best(
         ucp_proto_id_mask_t proto_mask, const ucp_proto_caps_t *proto_caps,
-        const ucs_linear_func_t *proto_perf,
+        const ucp_proto_perf_range_t *proto_perf,
         ucs_array_t(ucp_proto_thresh) *thresh_list,
         ucs_array_t(ucp_proto_select_range) *range_list, size_t start,
         size_t end)
@@ -146,7 +153,7 @@ static ucs_status_t ucp_proto_thresholds_select_best(
 
     ucs_trace("  %-16s %-20s %-18s", "PROTOCOL", "TIME", "BANDWIDTH (MB/s)");
     ucs_for_each_bit(curr.proto_id, proto_mask) {
-        ucp_proto_select_perf_str(&proto_perf[curr.proto_id], time_str,
+        ucp_proto_select_perf_str(&proto_perf[curr.proto_id].perf, time_str,
                                   sizeof(time_str), bw_str, sizeof(bw_str));
         ucs_trace("  %-16s %-20s %-18s",
                   ucp_proto_id_field(curr.proto_id, name), time_str, bw_str);
@@ -159,7 +166,7 @@ static ucs_status_t ucp_proto_thresholds_select_best(
         best.result   = DBL_MAX;
         best.proto_id = UCP_PROTO_ID_INVALID;
         ucs_for_each_bit(curr.proto_id, proto_mask) {
-            curr.result = ucs_linear_func_apply(proto_perf[curr.proto_id],
+            curr.result = ucs_linear_func_apply(proto_perf[curr.proto_id].perf,
                                                 start + UCP_PROTO_MSGLEN_EPSILON);
             ucs_assert(curr.result != DBL_MAX);
             if ((best.proto_id == UCP_PROTO_ID_INVALID) ||
@@ -183,8 +190,8 @@ static ucs_status_t ucp_proto_thresholds_select_best(
         midpoint    = end;
         proto_mask &= ~UCS_BIT(best.proto_id);
         ucs_for_each_bit(curr.proto_id, proto_mask) {
-            status = ucs_linear_func_intersect(proto_perf[curr.proto_id],
-                                               proto_perf[best.proto_id],
+            status = ucs_linear_func_intersect(proto_perf[curr.proto_id].perf,
+                                               proto_perf[best.proto_id].perf,
                                                &x_intersect);
             if ((status == UCS_OK) && (x_intersect > start)) {
                 /* We care only if the intersection is after 'start', since
@@ -210,8 +217,8 @@ static ucs_status_t ucp_proto_thresholds_select_best(
             return status;
         }
 
+        range_elem.super            = proto_perf[best.proto_id];
         range_elem.super.max_length = midpoint;
-        range_elem.super.perf       = proto_perf[best.proto_id];
         range_elem.cfg_thresh       = proto_caps[best.proto_id].cfg_thresh;
         status = ucp_proto_perf_append(range_list, &range_elem);
         if (status != UCS_OK) {
@@ -235,7 +242,7 @@ ucp_proto_thresholds_select_next(ucp_proto_id_mask_t proto_mask,
                                  size_t msg_length, size_t *max_length_p)
 {
     ucp_proto_id_mask_t valid_proto_mask, disabled_proto_mask;
-    ucs_linear_func_t proto_perf[UCP_PROTO_MAX_COUNT];
+    ucp_proto_perf_range_t proto_perf[UCP_PROTO_MAX_COUNT];
     ucp_proto_id_t max_prio_proto_id;
     const ucp_proto_caps_t *caps;
     unsigned max_cfg_priority;
@@ -270,7 +277,7 @@ ucp_proto_thresholds_select_next(ucp_proto_id_mask_t proto_mask,
             /* Find first (and only) range which contains 'msg_length' */
             if (msg_length <= caps->ranges[i].max_length) {
                 valid_proto_mask    |= UCS_BIT(proto_id);
-                proto_perf[proto_id] = caps->ranges[i].perf;
+                proto_perf[proto_id] = caps->ranges[i];
                 max_length           = ucs_min(max_length,
                                                caps->ranges[i].max_length);
                 break;

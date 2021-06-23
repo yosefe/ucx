@@ -77,13 +77,17 @@ ucp_proto_rndv_ppln_init(const ucp_proto_init_params_t *init_params)
         /* Pipeline bandwidth: worst between bandwidth and amortized overhead */
         perf_m = ucs_max(frag_range->super.perf.c /
                                  frag_range->super.max_length,
-                         frag_range->super.perf.m);
+                         frag_range->super.pperf.m);
+        ucs_assertv(perf_m > 1.0 / (15000 * UCS_MBYTE), "perf_m=%e se=%p",
+                    perf_m, select_elem);
+
         if ((frag_range == select_elem->ranges) ||
             (perf_m < best_perf_m)) {
             best_perf_m     = perf_m;
             best_perf_range = frag_range;
         }
     } while ((frag_range++)->super.max_length != SIZE_MAX);
+
 
     /* Initialize private data */
     *init_params->priv_size = sizeof(*rpriv);
@@ -101,6 +105,7 @@ ucp_proto_rndv_ppln_init(const ucp_proto_init_params_t *init_params)
     caps->ranges[0].max_length = SIZE_MAX;
     caps->ranges[0].perf.c     = best_perf_range->super.perf.c + 50e-9;
     caps->ranges[0].perf.m     = best_perf_m;
+    caps->ranges[0].pperf      = caps->ranges[0].perf;
 
     return UCS_OK;
 }
