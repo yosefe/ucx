@@ -558,12 +558,6 @@ double UcxContext::get_time()
     return get_time(tv);
 }
 
-UcxConnection& UcxContext::get_connection(uint64_t id) const {
-    conn_map_t::const_iterator it = _conns.find(id);
-    assert(it != _conns.end());
-    return *it->second;
-}
-
 void UcxContext::destroy_listener()
 {
     if (_listener) {
