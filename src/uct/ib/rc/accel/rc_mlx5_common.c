@@ -79,23 +79,6 @@ ucs_config_field_t uct_rc_mlx5_common_config_table[] = {
   {NULL}
 };
 
-static void
-uct_rc_mlx5_iface_common_send_keepalive(uct_rc_mlx5_iface_common_t *iface)
-{
-     uct_rc_mlx5_ep_t *ep;
-
-     ucs_spin_lock(&iface->super.ep_list_lock);
-     ucs_list_for_each(ep, &iface->super.ep_list, super.list) {
-         ucs_trace("send keepalive grant on ep %p", ep);
-         uct_rc_ep_fc_send_grant(&ep->super);
-     }
-     ucs_spin_unlock(&iface->super.ep_list_lock);
-
-     uct_rc_mlx5_iface_print(iface, "keepalive");
-
-     iface->ka_time = ucs_get_time() + iface->config.ka_interval;
-}
-
 unsigned uct_rc_mlx5_iface_srq_post_recv(uct_rc_mlx5_iface_common_t *iface)
 {
     uct_ib_mlx5_srq_t *srq   = &iface->rx.srq;
@@ -158,10 +141,6 @@ out:
         ucs_memory_cpu_store_fence();
         *srq->db                    = htonl(srq->sw_pi);
         ucs_assert(uct_ib_mlx5_srq_get_wqe(srq, srq->mask)->srq.next_wqe_index == 0);
-    }
-
-    if (ucs_unlikely(ucs_get_time() > iface->ka_time)) {
-        uct_rc_mlx5_iface_common_send_keepalive(iface);
     }
 
     return count;

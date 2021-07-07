@@ -371,7 +371,11 @@ typedef struct uct_rc_mlx5_iface_common {
         void                           *pref_ptr;
     } rx;
     uct_ib_mlx5_cq_t                   cq[UCT_IB_DIR_NUM];
-    ucs_time_t                         ka_time;
+    struct {
+        ucs_time_t                     time;
+        unsigned                       iter_count;
+        uct_worker_cb_id_t             prog_id;
+    } keepalive;
     struct {
         uct_rc_mlx5_cmd_wq_t           cmd_wq;
         uct_rc_mlx5_tag_entry_t        *head;
