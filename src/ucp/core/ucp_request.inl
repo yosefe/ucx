@@ -79,6 +79,28 @@
     }
 
 
+#define ucp_request_send_check_status(_status, _ret, _done) \
+    if (ucs_likely((_status) != UCS_ERR_NO_RESOURCE)) { \
+        _ret = UCS_STATUS_PTR(_status); /* UCS_OK also goes here */ \
+        _done; \
+    }
+
+
+#define ucp_request_get_param(_worker, _param, _failed) \
+    ({ \
+        ucp_request_t *__req; \
+        if (!((_param)->op_attr_mask & UCP_OP_ATTR_FIELD_REQUEST)) { \
+            __req = ucp_request_get(_worker); \
+            if (ucs_unlikely((__req) == NULL)) { \
+                _failed; \
+            } \
+        } else { \
+            __req = ((ucp_request_t*)(_param)->request) - 1; \
+        } \
+        __req; \
+    })
+
+
 static UCS_F_ALWAYS_INLINE void
 ucp_request_put(ucp_request_t *req)
 {
@@ -97,7 +119,7 @@ ucp_request_complete_send(ucp_request_t *req, ucs_status_t status)
                   req, req + 1, UCP_REQUEST_FLAGS_ARG(req->flags),
                   ucs_status_string(status));
     UCS_PROFILE_REQUEST_EVENT(req, "complete_send", status);
-    ucp_request_complete(req, send.cb, status);
+    ucp_request_complete(req, send.cb, status, req->user_data);
 }
 
 static UCS_F_ALWAYS_INLINE void
