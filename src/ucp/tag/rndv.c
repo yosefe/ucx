@@ -1113,7 +1113,7 @@ UCS_PROFILE_FUNC_VOID(ucp_rndv_matched, (worker, rreq, rndv_rts_hdr, rts_seq),
     rreq->flags                   |= UCP_REQUEST_FLAG_RNDV_MATCHED;
 
     ep = ucp_worker_get_ep_by_ptr(worker, rndv_rts_hdr->sreq.ep_ptr);
-    if (ep == NULL) {
+    if ((ep == NULL) || (ep->flags & UCP_EP_FLAG_FAILED)) {
         ucp_request_complete_tag_recv(worker, rreq, UCS_ERR_CANCELED, "rndv_no_ep");
         goto out;
     }
