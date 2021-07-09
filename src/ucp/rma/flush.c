@@ -187,7 +187,7 @@ static int ucp_flush_check_completion(ucp_request_t *req)
     return 1;
 }
 
-static unsigned ucp_ep_flush_resume_slow_path_callback(void *arg)
+unsigned ucp_ep_flush_resume_slow_path_callback(void *arg)
 {
     ucp_request_t *req = arg;
 

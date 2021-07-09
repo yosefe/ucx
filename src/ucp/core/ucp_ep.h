@@ -518,4 +518,6 @@ void ucp_ep_invoke_err_cb(ucp_ep_h ep, ucs_status_t status);
 
 int ucp_ep_config_test_rndv_support(const ucp_ep_config_t *config);
 
+unsigned ucp_ep_flush_resume_slow_path_callback(void *arg);
+
 #endif

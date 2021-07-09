@@ -900,6 +900,21 @@ static void ucp_ep_cleanup_unexp(ucp_ep_h ep)
 
 }
 
+static int ucp_ep_flush_resume_remove_filter(const ucs_callbackq_elem_t *elem,
+                                             void *arg)
+{
+    ucp_request_t *req = elem->arg;
+
+    if ((elem->cb == ucp_ep_flush_resume_slow_path_callback) &&
+        (req->send.ep == arg)) {
+        req->send.state.uct_comp.func(&req->send.state.uct_comp,
+                                      UCS_ERR_CANCELED);
+        return 1;
+    }
+
+    return 0;
+}
+
 /* Must be called with async lock held */
 void ucp_ep_disconnected(ucp_ep_h ep, int force)
 {
@@ -910,6 +925,10 @@ void ucp_ep_disconnected(ucp_ep_h ep, int force)
     /* remove pending slow-path function it wasn't removed yet */
     ucs_callbackq_remove_if(&ep->worker->uct->progress_q,
                             ucp_listener_accept_cb_remove_filter, ep);
+
+    /* remove pending slow-path function it wasn't removed yet */
+    ucs_callbackq_remove_if(&ep->worker->uct->progress_q,
+                            ucp_ep_flush_resume_remove_filter, ep);
 
     ucp_ep_cm_slow_cbq_cleanup(ep);
 
