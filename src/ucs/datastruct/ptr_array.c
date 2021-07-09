@@ -83,6 +83,7 @@ static void ucs_ptr_array_clear(ucs_ptr_array_t *ptr_array)
     ptr_array->start            = NULL;
     ptr_array->size             = 0;
     ptr_array->freelist         = UCS_PTR_ARRAY_SENTINEL;
+    ptr_array->name             = NULL;
 }
 
 void ucs_ptr_array_init(ucs_ptr_array_t *ptr_array, uint32_t init_placeholder,
@@ -90,9 +91,6 @@ void ucs_ptr_array_init(ucs_ptr_array_t *ptr_array, uint32_t init_placeholder,
 {
     ptr_array->init_placeholder = init_placeholder;
     ucs_ptr_array_clear(ptr_array);
-#ifdef ENABLE_MEMTRACK
-    ucs_snprintf_zero(ptr_array->name, sizeof(ptr_array->name), "%s", name);
-#endif
 }
 
 void ucs_ptr_array_cleanup(ucs_ptr_array_t *ptr_array)
@@ -115,7 +113,7 @@ void ucs_ptr_array_cleanup(ucs_ptr_array_t *ptr_array)
     ucs_ptr_array_clear(ptr_array);
 }
 
-static void ucs_ptr_array_grow(ucs_ptr_array_t *ptr_array UCS_MEMTRACK_ARG)
+static void ucs_ptr_array_grow(ucs_ptr_array_t *ptr_array)
 {
     ucs_ptr_array_elem_t *new_array;
     unsigned curr_size, new_size;
@@ -129,7 +127,8 @@ static void ucs_ptr_array_grow(ucs_ptr_array_t *ptr_array UCS_MEMTRACK_ARG)
     }
 
     /* Allocate new array */
-    new_array = ucs_malloc(new_size * sizeof(ucs_ptr_array_elem_t) UCS_MEMTRACK_VAL);
+    new_array = ucs_malloc(new_size * sizeof(ucs_ptr_array_elem_t),
+                           ptr_array->name);
     ucs_assert_always(new_array != NULL);
     memcpy(new_array, ptr_array->start, curr_size * sizeof(ucs_ptr_array_elem_t));
 
@@ -168,7 +167,7 @@ unsigned ucs_ptr_array_insert(ucs_ptr_array_t *ptr_array, void *value,
     ucs_assert_always(((uintptr_t)value & UCS_PTR_ARRAY_FLAG_FREE) == 0);
 
     if (ptr_array->freelist == UCS_PTR_ARRAY_SENTINEL) {
-        ucs_ptr_array_grow(ptr_array UCS_MEMTRACK_NAME(ptr_array->name));
+        ucs_ptr_array_grow(ptr_array);
     }
 
     /* Get the first item on the free list */

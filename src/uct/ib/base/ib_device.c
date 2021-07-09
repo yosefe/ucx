@@ -12,7 +12,7 @@
 #include "ib_md.h"
 
 #include <ucs/arch/bitops.h>
-#include <ucs/debug/memtrack.h>
+#include <ucs/debug/memtrack_int.h>
 #include <ucs/debug/log.h>
 #include <ucs/async/async.h>
 #include <ucs/sys/compiler.h>
@@ -464,8 +464,8 @@ uct_ib_device_init_nb_close_ctx(int fd, uct_ib_device_nb_close_ctx **ctx_p)
     ctx->buff_size = ucs_get_page_size() * 2;
     ctx->cmd_fd    = fd;
 
-    status = ucs_mmap_alloc(&ctx->buff_size, &ctx->buff, 0
-                            UCS_MEMTRACK_NAME("ibv cleanup buff"));
+    status = ucs_mmap_alloc(&ctx->buff_size, &ctx->buff, 0,
+                            "ibv cleanup buff");
     if (status != UCS_OK) {
         ucs_error("cleanup buffer allocation failed");
         goto err_alloc;
