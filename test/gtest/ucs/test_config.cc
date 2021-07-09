@@ -498,7 +498,7 @@ UCS_TEST_F(test_config, unused) {
         scoped_log_handler log_handler(config_error_handler);
         car_opts opts(UCS_DEFAULT_ENV_PREFIX, NULL);
 
-        ucs_config_parser_warn_unused_env_vars_once(UCS_DEFAULT_ENV_PREFIX);
+        ucs_config_parser_print_env_vars_once(UCS_DEFAULT_ENV_PREFIX);
 
         config_err_exp_str.pop_back();
     }
@@ -512,7 +512,7 @@ UCS_TEST_F(test_config, unused) {
         scoped_log_handler log_handler(config_error_handler);
         car_opts opts("TEST_", NULL);
 
-        ucs_config_parser_warn_unused_env_vars_once("TEST_");
+        ucs_config_parser_print_env_vars_once("TEST_");
 
         config_err_exp_str.pop_back();
     }
