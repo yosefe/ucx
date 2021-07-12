@@ -292,8 +292,10 @@ ucs_status_t uct_rc_mlx5_iface_create_qp(uct_rc_mlx5_iface_common_t *iface,
 
     uct_ib_iface_fill_attr(ib_iface, attr);
 #if HAVE_DECL_MLX5DV_QP_CREATE_ALLOW_SCATTER_TO_CQE
-    dv_attr.comp_mask    = MLX5DV_QP_INIT_ATTR_MASK_QP_CREATE_FLAGS;
-    dv_attr.create_flags = MLX5DV_QP_CREATE_ALLOW_SCATTER_TO_CQE;
+    if (ib_iface->config.max_inl_resp != 0) {
+        dv_attr.comp_mask   |= MLX5DV_QP_INIT_ATTR_MASK_QP_CREATE_FLAGS;
+        dv_attr.create_flags = MLX5DV_QP_CREATE_ALLOW_SCATTER_TO_CQE;
+    }
 #endif
     qp->verbs.qp = mlx5dv_create_qp(dev->ibv_context, &attr->ibv, &dv_attr);
     if (qp->verbs.qp == NULL) {
