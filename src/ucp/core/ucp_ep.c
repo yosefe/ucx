@@ -907,9 +907,9 @@ static int ucp_ep_flush_resume_remove_filter(const ucs_callbackq_elem_t *elem,
 
     if ((elem->cb == ucp_ep_flush_resume_slow_path_callback) &&
         (req->send.ep == arg)) {
+        /* completion func removes the callback */
         req->send.state.uct_comp.func(&req->send.state.uct_comp,
                                       UCS_ERR_CANCELED);
-        return 1;
     }
 
     return 0;
