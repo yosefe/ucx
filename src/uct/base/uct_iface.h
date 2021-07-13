@@ -15,6 +15,7 @@
 #include <ucs/datastruct/arbiter.h>
 #include <ucs/datastruct/mpool.h>
 #include <ucs/datastruct/queue.h>
+#include <ucs/debug/debug.h>
 #include <ucs/debug/log.h>
 #include <ucs/stats/stats.h>
 #include <ucs/sys/compiler.h>
@@ -630,8 +631,12 @@ uct_iface_invoke_am(uct_base_iface_t *iface, uint8_t id, void *data,
 
     handler = &iface->am[id];
     status = handler->cb(handler->arg, data, length, flags);
-    ucs_assert((status == UCS_OK) ||
-               ((status == UCS_INPROGRESS) && (flags & UCT_CB_PARAM_FLAG_DESC)));
+    ucs_assertv((status == UCS_OK) ||
+                ((status == UCS_INPROGRESS) && (flags &
+                                                UCT_CB_PARAM_FLAG_DESC)),
+                "%s(arg=%p data=%p length=%u flags=0x%x) returned %s",
+                ucs_debug_get_symbol_name((void*)handler->cb), handler->arg,
+                data, length, flags, ucs_status_string(status));
     return status;
 }
 
