@@ -8,7 +8,7 @@
 #define PTR_ARRAY_H_
 
 #include <ucs/sys/math.h>
-#include <ucs/debug/memtrack.h>
+#include <ucs/debug/memtrack_int.h>
 
 
 /*
@@ -35,9 +35,7 @@ typedef struct ucs_ptr_array {
     ucs_ptr_array_elem_t     *start;
     unsigned                 freelist;
     unsigned                 size;
-#ifdef ENABLE_MEMTRACK
-    char                     name[64];
-#endif
+    const char               *name;
 } ucs_ptr_array_t;
 
 

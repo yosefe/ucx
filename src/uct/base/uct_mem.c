@@ -165,8 +165,8 @@ ucs_status_t uct_mem_alloc(void *addr, size_t min_length, unsigned flags,
                 break;
             }
 
-            ret = ucs_posix_memalign(&address, huge_page_size, alloc_length
-                                     UCS_MEMTRACK_VAL);
+            ret = ucs_posix_memalign(&address, huge_page_size, alloc_length,
+                                     alloc_name);
             if (ret != 0) {
                 ucs_trace("failed to allocate %zu bytes using THP: %m", alloc_length);
             } else {
@@ -192,7 +192,7 @@ ucs_status_t uct_mem_alloc(void *addr, size_t min_length, unsigned flags,
 
             alloc_length = min_length;
             ret = ucs_posix_memalign(&address, UCS_SYS_CACHE_LINE_SIZE,
-                                     alloc_length UCS_MEMTRACK_VAL);
+                                     alloc_length, alloc_name);
             if (ret == 0) {
                 goto allocated_without_md;
             }
@@ -206,8 +206,7 @@ ucs_status_t uct_mem_alloc(void *addr, size_t min_length, unsigned flags,
             address      = addr;
 
             status = ucs_mmap_alloc(&alloc_length, &address,
-                                    uct_mem_get_mmap_flags(flags)
-                                    UCS_MEMTRACK_VAL);
+                                    uct_mem_get_mmap_flags(flags), alloc_name);
             if (status== UCS_OK) {
                 goto allocated_without_md;
             }

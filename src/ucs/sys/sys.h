@@ -16,7 +16,7 @@
 #include <ucs/sys/compiler.h>
 #include <ucs/type/status.h>
 #include <ucs/type/cpu_set.h>
-#include <ucs/debug/memtrack.h>
+#include <ucs/debug/memtrack_int.h>
 #include <ucs/config/types.h>
 
 #include <errno.h>
@@ -271,7 +271,7 @@ ucs_status_t ucs_sysv_free(void *address);
  * @param flags     Flags to pass to the mmap() system call
  */
 ucs_status_t ucs_mmap_alloc(size_t *size, void **address_p,
-                            int flags UCS_MEMTRACK_ARG);
+                            int flags, const char* alloc_name);
 
 /**
  * Release memory allocated via mmap API.
