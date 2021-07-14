@@ -12,10 +12,13 @@
 #include <string.h>
 #include <assert.h>
 #include <sys/types.h>
+#include <malloc.h>
 
 #include <unistd.h>
 #include <algorithm>
 #include <limits>
+
+#include <ucs/debug/memtrack.h>
 
 struct ucx_request {
     UcxCallback                  *callback;
@@ -577,6 +580,32 @@ void UcxContext::destroy_worker()
     }
 
     ucp_worker_destroy(_worker);
+}
+
+void *UcxContext::malloc(size_t size, const char *name)
+{
+    void *ptr;
+
+    ptr = ::malloc(size);
+    ucs_memtrack_allocated(ptr, size, name);
+
+    return ptr;
+}
+
+void *UcxContext::memalign(size_t alignment, size_t size, const char *name)
+{
+    void *ptr;
+
+    ptr = ::memalign(alignment, size);
+    ucs_memtrack_allocated(ptr, size, name);
+
+    return ptr;
+}
+
+void UcxContext::free(void *ptr)
+{
+    ucs_memtrack_releasing(ptr);
+    ::free(ptr);
 }
 
 

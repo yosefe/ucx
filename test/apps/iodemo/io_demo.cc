@@ -121,6 +121,10 @@ public:
         return _num_allocated;
     }
 
+    const std::string& name() const {
+        return _name;
+    }
+
 private:
     inline T* get_free() {
         T* item;
@@ -258,15 +262,16 @@ protected:
     class Buffer {
     public:
         Buffer(size_t size, MemoryPool<Buffer, true>& pool) :
-            _capacity(size), _buffer(memalign(ALIGNMENT, size)), _size(0),
-            _pool(pool) {
+            _capacity(size),
+            _buffer(UcxContext::memalign(ALIGNMENT, size, pool.name().c_str())),
+            _size(0), _pool(pool) {
             if (_buffer == NULL) {
                 throw std::bad_alloc();
             }
         }
 
         ~Buffer() {
-            free(_buffer);
+            UcxContext::free(_buffer);
         }
 
         void release() {
@@ -378,8 +383,8 @@ protected:
     class IoMessage : public UcxCallback {
     public:
         IoMessage(size_t io_msg_size, MemoryPool<IoMessage>& pool) :
-            _buffer(malloc(io_msg_size)), _pool(pool),
-            _io_msg_size(io_msg_size) {
+            _buffer(UcxContext::malloc(io_msg_size, pool.name().c_str())),
+            _pool(pool), _io_msg_size(io_msg_size) {
 
             if (_buffer == NULL) {
                 throw std::bad_alloc();
@@ -400,7 +405,7 @@ protected:
         }
 
         ~IoMessage() {
-            free(_buffer);
+            UcxContext::free(_buffer);
         }
 
         virtual void operator()(ucs_status_t status) {
@@ -936,7 +941,8 @@ public:
             MemoryPool<IoReadResponseCallback>& pool) :
             _comp_counter(0), _client(NULL),
             _server_index(std::numeric_limits<size_t>::max()),
-            _sn(0), _iov(NULL), _buffer(malloc(buffer_size)),
+            _sn(0), _iov(NULL),
+            _buffer(UcxContext::malloc(buffer_size, pool.name().c_str())),
             _buffer_size(buffer_size), _pool(pool) {
 
             if (_buffer == NULL) {
@@ -956,7 +962,7 @@ public:
         }
 
         ~IoReadResponseCallback() {
-            free(_buffer);
+            UcxContext::free(_buffer);
         }
 
         virtual void operator()(ucs_status_t status) {
