@@ -140,8 +140,9 @@ ucs_status_t uct_rdmacm_cm_ep_conn_notify(uct_ep_h ep)
                   cep, ucs_sockaddr_str(remote_addr, ip_port_str,
                                         UCS_SOCKADDR_STRING_LEN));
         remote_data.field_mask = 0;
-        uct_rdmacm_cm_ep_set_failed(cep, &remote_data, UCS_ERR_IO_ERROR);
-        return UCS_ERR_IO_ERROR;
+        uct_rdmacm_cm_ep_set_failed(cep, &remote_data,
+                                    UCS_ERR_CONNECTION_RESET);
+        return UCS_ERR_CONNECTION_RESET;
     }
 
     return UCS_OK;
@@ -350,7 +351,7 @@ static ucs_status_t uct_rdamcm_cm_ep_server_init(uct_rdmacm_cm_ep_t *cep,
                   event->id, ucs_sockaddr_str(rdma_get_peer_addr(event->id),
                                               ip_port_str, UCS_SOCKADDR_STRING_LEN));
         uct_rdmacm_cm_ep_destroy_dummy_qp(cep);
-        status = UCS_ERR_IO_ERROR;
+        status = UCS_ERR_CONNECTION_RESET;
         goto err;
     }
 
