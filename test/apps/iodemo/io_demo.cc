@@ -1319,8 +1319,9 @@ public:
             elapsed_time = curr_time - start_time;
             if (elapsed_time > _test_opts.client_timeout) {
                 dump_timeout_waiting_for_replies_info();
-                disconnect_uncompleted_servers("timeout for replies");
+                // disconnect_uncompleted_servers("timeout for replies");
                 timer_finished = true;
+                timer_started  = false; /* restart timer to keep this running */
             }
             check_time_limit(curr_time);
         }
