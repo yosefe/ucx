@@ -739,6 +739,7 @@ bool UcxConnection::recv_data(void *buffer, size_t length, uint32_t sn,
                               UcxCallback* callback)
 {
     if (_ep == NULL) {
+        (*callback)(UCS_ERR_CANCELED);
         return false;
     }
 
@@ -940,6 +941,7 @@ bool UcxConnection::send_common(const void *buffer, size_t length, ucp_tag_t tag
                                 UcxCallback* callback)
 {
     if (_ep == NULL) {
+        (*callback)(UCS_ERR_CANCELED);
         return false;
     }
 
