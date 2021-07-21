@@ -69,6 +69,7 @@ typedef struct {
     size_t                   num_offcache_buffers;
     bool                     verbose;
     bool                     validate;
+    size_t                   rndv_thresh;
 } options_t;
 
 #define LOG_PREFIX  "[DEMO]"
@@ -482,7 +483,8 @@ protected:
     }
 
     P2pDemoCommon(const options_t& test_opts) :
-        UcxContext(test_opts.iomsg_size, test_opts.connect_timeout),
+        UcxContext(test_opts.iomsg_size, test_opts.connect_timeout,
+                   test_opts.rndv_thresh),
         _test_opts(test_opts),
         _io_msg_pool(test_opts.iomsg_size, "io messages"),
         _send_callback_pool(0, "send callbacks"),
@@ -1895,9 +1897,10 @@ static int parse_args(int argc, char **argv, options_t *test_opts)
     test_opts->random_seed           = std::time(NULL) ^ getpid();
     test_opts->verbose               = false;
     test_opts->validate              = false;
+    test_opts->rndv_thresh           = UcxContext::rndv_thresh_auto;
 
     while ((c = getopt(argc, argv,
-                       "p:c:r:d:b:i:w:a:k:o:t:n:l:s:y:vqHP:L:")) != -1) {
+                       "p:c:r:d:b:i:w:a:k:o:t:n:l:s:y:vqHP:L:R:")) != -1) {
         switch (c) {
         case 'p':
             test_opts->port_num = atoi(optarg);
@@ -2018,6 +2021,9 @@ static int parse_args(int argc, char **argv, options_t *test_opts)
         case 'P':
             test_opts->print_interval = atof(optarg);
             break;
+        case 'R':
+            test_opts->rndv_thresh = strtol(optarg, NULL, 0);
+            break;
         case 'h':
         default:
             std::cout << "Usage: io_demo [options] [server_address]" << std::endl;
@@ -2050,6 +2056,7 @@ static int parse_args(int argc, char **argv, options_t *test_opts)
             std::cout << "  -H                         Use human-readable timestamps" << std::endl;
             std::cout << "  -L <logger life-time>      Set life time of logger object, if log message print takes longer, warning will be printed" << std::endl;
             std::cout << "  -P <interval>              Set report printing interval"  << std::endl;
+            std::cout << "  -R <rndv-thresh>           Rendezvous threshold used to force eager or rendezvous protocol";
             std::cout << "" << std::endl;
             return -1;
         }

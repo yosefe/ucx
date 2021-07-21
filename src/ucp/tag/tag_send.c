@@ -307,6 +307,7 @@ UCS_PROFILE_FUNC(ucs_status_ptr_t, ucp_tag_send_nbx,
                  ucp_tag_t tag, const ucp_request_param_t *param)
 {
     size_t contig_length = 0;
+    uint32_t flags       = ucp_request_param_flags(param);
     ucs_status_t status;
     ucp_request_t *req;
     ucs_status_ptr_t ret;
@@ -314,9 +315,17 @@ UCS_PROFILE_FUNC(ucs_status_ptr_t, ucp_tag_send_nbx,
     uint32_t attr_mask;
     ucp_worker_h worker;
     ucp_send_nbx_callback_t cb;
+    size_t rndv_rma_thresh;
+    size_t rndv_am_thresh;
 
     UCP_CONTEXT_CHECK_FEATURE_FLAGS(ep->worker->context, UCP_FEATURE_TAG,
                                     return UCS_STATUS_PTR(UCS_ERR_INVALID_PARAM));
+    if (ENABLE_PARAMS_CHECK &&
+        ucs_test_all_flags(flags, UCP_EP_TAG_SEND_FLAG_EAGER |
+                                  UCP_EP_TAG_SEND_FLAG_RNDV)) {
+        return UCS_STATUS_PTR(UCS_ERR_INVALID_PARAM);
+    }
+
     UCP_WORKER_THREAD_CS_ENTER_CONDITIONAL(ep->worker);
 
     ucs_trace_req("send_nbx buffer %p count %zu tag %" PRIx64 " to %s",
@@ -363,10 +372,18 @@ UCS_PROFILE_FUNC(ucs_status_ptr_t, ucp_tag_send_nbx,
         cb = NULL;
     }
 
+    if (flags & UCP_EP_TAG_SEND_FLAG_EAGER) {
+        rndv_am_thresh = rndv_rma_thresh = SIZE_MAX;
+    } else if (flags & UCP_EP_TAG_SEND_FLAG_RNDV) {
+        rndv_am_thresh = rndv_rma_thresh = 0;
+    } else {
+        rndv_rma_thresh = ucp_ep_config(ep)->tag.rndv.rma_thresh;
+        rndv_am_thresh  = ucp_ep_config(ep)->tag.rndv.am_thresh;
+    }
+
     ucp_tag_send_req_init(req, ep, buffer, datatype, count, tag, 0);
     ret = ucp_tag_send_req(req, count, &ucp_ep_config(ep)->tag.eager,
-                           ucp_ep_config(ep)->tag.rndv.rma_thresh,
-                           ucp_ep_config(ep)->tag.rndv.am_thresh,
+                           rndv_rma_thresh, rndv_am_thresh,
                            cb, ucp_ep_config(ep)->tag.proto,
                            !(param->op_attr_mask & UCP_OP_ATTR_FLAG_FAST_CMPL));
 
