@@ -555,6 +555,13 @@ typedef enum {
 } ucp_op_attr_t;
 
 
+typedef enum {
+    UCP_EP_TAG_SEND_FLAG_EAGER = UCS_BIT(0), /**< force use eager protocol
+                                                  to transfer data */
+    UCP_EP_TAG_SEND_FLAG_RNDV  = UCS_BIT(1)  /**< force use rndv protocol
+                                                  to transfer data */
+} ucp_ep_tag_send_flags_t;
+
 /**
  * @ingroup UCP_DATATYPE
  * @brief Generate an identifier for contiguous data type.
@@ -2742,7 +2749,11 @@ ucs_status_ptr_t ucp_tag_send_sync_nb(ucp_ep_h ep, const void *buffer, size_t co
  * @param [in]  buffer      Pointer to the message buffer (payload).
  * @param [in]  count       Number of elements to send
  * @param [in]  tag         Message tag.
- * @param [in]  param       Operation parameters, see @ref ucp_request_param_t
+ * @param [in]  param       Operation parameters, see @ref ucp_request_param_t.
+ *                          This operation supports specific flags, which can be
+ *                          passed in @a param by @ref ucp_request_param_t.flags.
+ *                          The exact set of flags is defined
+ *                          by @ref ucp_ep_tag_send_flags_t.
  *
  * @return UCS_OK               - The send operation was completed immediately.
  * @return UCS_PTR_IS_ERR(_ptr) - The send operation failed.

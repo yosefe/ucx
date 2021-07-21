@@ -120,9 +120,11 @@ void UcxContext::UcxDisconnectCallback::operator()(ucs_status_t status)
     delete this;
 }
 
-UcxContext::UcxContext(size_t iomsg_size, double connect_timeout) :
+UcxContext::UcxContext(size_t iomsg_size, double connect_timeout,
+                       size_t rndv_thresh) :
     _context(NULL), _worker(NULL), _listener(NULL), _iomsg_recv_request(NULL),
-    _iomsg_buffer(iomsg_size, '\0'), _connect_timeout(connect_timeout)
+    _iomsg_buffer(iomsg_size, '\0'), _connect_timeout(connect_timeout),
+    _rndv_thresh(rndv_thresh)
 {
 }
 
@@ -940,14 +942,24 @@ void UcxConnection::established(ucs_status_t status)
 bool UcxConnection::send_common(const void *buffer, size_t length, ucp_tag_t tag,
                                 UcxCallback* callback)
 {
+    ucp_request_param_t params;
+
     if (_ep == NULL) {
         (*callback)(UCS_ERR_CANCELED);
         return false;
     }
 
-    ucs_status_ptr_t ptr_status = ucp_tag_send_nb(_ep, buffer, length,
-                                                  ucp_dt_make_contig(1), tag,
-                                                  common_request_callback);
+    params.op_attr_mask = UCP_OP_ATTR_FIELD_CALLBACK;
+    params.cb.send      = (ucp_send_nbx_callback_t)common_request_callback;
+    if (_context.rndv_thresh() != UcxContext::rndv_thresh_auto) {
+        params.op_attr_mask |= UCP_OP_ATTR_FIELD_FLAGS;
+        params.flags         = (length >= _context.rndv_thresh()) ?
+                               UCP_EP_TAG_SEND_FLAG_RNDV :
+                               UCP_EP_TAG_SEND_FLAG_EAGER;
+    }
+
+    ucs_status_ptr_t ptr_status = ucp_tag_send_nbx(_ep, buffer, length, tag,
+                                                   &params);
     return process_request("ucp_tag_send_nb", ptr_status, callback);
 }
 

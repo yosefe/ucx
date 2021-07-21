@@ -106,7 +106,9 @@ public:
         unsigned long evictions;
     } memory_pin_stats_t;
 
-    UcxContext(size_t iomsg_size, double connect_timeout);
+    static const size_t rndv_thresh_auto = (size_t)-2;
+
+    UcxContext(size_t iomsg_size, double connect_timeout, size_t rndv_thresh);
 
     virtual ~UcxContext();
 
@@ -209,6 +211,11 @@ private:
 
     void destroy_worker();
 
+    size_t rndv_thresh() const
+    {
+        return _rndv_thresh;
+    }
+
     typedef std::map<uint64_t, UcxConnection*>              conn_map_t;
     typedef std::vector<std::pair<double, UcxConnection*> > timeout_conn_t;
 
@@ -223,6 +230,7 @@ private:
     ucx_request                 *_iomsg_recv_request;
     std::string                 _iomsg_buffer;
     double                      _connect_timeout;
+    size_t                      _rndv_thresh;
 };
 
 
