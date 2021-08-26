@@ -100,6 +100,38 @@
         __req; \
     })
 
+#define ucp_request_id_check(_req, _cmp, _id) \
+    ucs_assertv((_req)->id _cmp (_id), "req=%p req->id=0x%" PRIx64 " id=0x%" \
+                PRIx64, \
+                (_req), (_req)->id, (_id))
+
+#define ucp_request_put_param(_param, _req) \
+    if (!((_param)->op_attr_mask & UCP_OP_ATTR_FIELD_REQUEST)) { \
+        ucp_request_put(_req); \
+    } else { \
+        ucp_request_id_check(_req, ==, UCS_PTR_MAP_KEY_INVALID); \
+    }
+
+
+#define ucp_request_cb_param(_param, _req, _cb, ...) \
+    if ((_param)->op_attr_mask & UCP_OP_ATTR_FIELD_CALLBACK) { \
+        param->cb._cb(req + 1, (_req)->status, ##__VA_ARGS__, param->user_data); \
+    }
+
+
+#define ucp_request_imm_cmpl_param(_param, _req, _cb, ...) \
+    if ((_param)->op_attr_mask & UCP_OP_ATTR_FLAG_NO_IMM_CMPL) { \
+        ucp_request_cb_param(_param, _req, _cb, ##__VA_ARGS__); \
+        ucs_trace_req("request %p completed, but immediate completion is " \
+                      "prohibited, status %s", _req, \
+                      ucs_status_string((_req)->status)); \
+        return (_req) + 1; \
+    } \
+    { \
+        ucs_status_t _status = (_req)->status; \
+        ucp_request_put_param(_param, _req); \
+        return UCS_STATUS_PTR(_status); \
+    }
 
 static UCS_F_ALWAYS_INLINE void
 ucp_request_put(ucp_request_t *req)
@@ -109,6 +141,7 @@ ucp_request_put(ucp_request_t *req)
     req->send.cb        = NULL;
     req->recv.tag.cb    = NULL;
     req->recv.stream.cb = NULL;
+    req->memh           = NULL;
     ucs_mpool_put_inline(req);
 }
 
@@ -143,7 +176,7 @@ ucp_request_complete_tag_recv(ucp_worker_h worker, ucp_request_t *req,
      }
 
     UCS_PROFILE_REQUEST_EVENT(req, "complete_recv", status);
-    ucp_request_complete(req, recv.tag.cb, status, &req->recv.tag.info);
+    ucp_request_complete(req, recv.tag.cb, status, &req->recv.tag.info, req->user_data);
 }
 
 static UCS_F_ALWAYS_INLINE void
@@ -642,6 +675,20 @@ ucp_request_param_flags(const ucp_request_param_t *param)
 {
     return (param->op_attr_mask & UCP_OP_ATTR_FIELD_FLAGS) ?
            param->flags : 0;
+}
+
+static UCS_F_ALWAYS_INLINE ucp_datatype_t
+ucp_request_param_datatype(const ucp_request_param_t *param)
+{
+    return (param->op_attr_mask & UCP_OP_ATTR_FIELD_DATATYPE) ?
+           param->datatype : ucp_dt_make_contig(1);
+}
+
+static UCS_F_ALWAYS_INLINE ucp_mem_h
+ucp_request_param_memh(const ucp_request_param_t *param)
+{
+    return (param->op_attr_mask & UCP_OP_ATTR_FIELD_MEMH) ?
+           param->memh : NULL;
 }
 
 #endif

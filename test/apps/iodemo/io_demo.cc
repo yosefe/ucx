@@ -129,12 +129,16 @@ public:
         return _name;
     }
 
+    virtual T* construct() {
+        return new T(_buffer_size, *this);
+    }
+
 private:
     inline T* get_free() {
         T* item;
 
         if (_free_stack.empty()) {
-            item = new T(_buffer_size, *this);
+            item = construct();
             _num_allocated++;
         } else {
             item = _free_stack.back();
@@ -147,8 +151,28 @@ private:
     std::vector<T*> _free_stack;
     std::queue<T*>  _offcache_queue;
     uint32_t        _num_allocated;
+protected:
     size_t          _buffer_size;
+private:
     std::string     _name;
+};
+
+template<typename BufferType>
+class ContextMemoryPool : public MemoryPool<BufferType, true> {
+public:
+    ContextMemoryPool(size_t buffer_size, const std::string& name, UcxContext* context) :
+            MemoryPool<BufferType, true>(buffer_size, name),
+            _context(context)
+    {
+    }
+
+    virtual BufferType* construct()
+    {
+        return new BufferType(this->_buffer_size, *this, _context);
+    }
+
+private:
+    UcxContext* _context;
 };
 
 /**
@@ -272,17 +296,26 @@ protected:
 
     class Buffer {
     public:
-        Buffer(size_t size, MemoryPool<Buffer, true>& pool) :
+        Buffer(size_t size, MemoryPool<Buffer, true>& pool, UcxContext* context=NULL) :
             _capacity(size),
-            _buffer(UcxContext::memalign(ALIGNMENT, size, pool.name().c_str())),
-            _size(0), _pool(pool) {
+            _buffer(NULL), _memh(NULL),
+            _size(0), _pool(pool), _context(context) {
+            if (_context == NULL) {
+                _buffer = UcxContext::memalign(ALIGNMENT, size, pool.name().c_str());
+            } else {
+                _context->alloc_mapped_buffer(size, &_buffer, &_memh, 0);
+            }
             if (_buffer == NULL) {
                 throw std::bad_alloc();
             }
         }
 
         ~Buffer() {
-            UcxContext::free(_buffer);
+            if (_context == NULL) {
+                UcxContext::free(_buffer);
+            } else {
+                assert(_context->free_mapped_buffer(_memh) == UCS_OK);
+            }
         }
 
         void release() {
@@ -291,6 +324,10 @@ protected:
 
         inline void *buffer(size_t offset = 0) const {
             return (uint8_t*)_buffer + offset;
+        }
+
+        inline ucp_mem_h memh() {
+            return _memh;
         }
 
         inline void resize(size_t size) {
@@ -307,8 +344,10 @@ protected:
 
     private:
         void*                     _buffer;
+        ucp_mem_h                 _memh;
         size_t                    _size;
         MemoryPool<Buffer, true>& _pool;
+        UcxContext*               _context;
     };
 
     class BufferIov {
@@ -494,7 +533,8 @@ protected:
         _data_buffers_pool(get_chunk_cnt(test_opts.max_data_size,
                                          test_opts.chunk_size), "data iovs"),
         _data_chunks_pool(test_opts.chunk_size, "data chunks",
-                          test_opts.num_offcache_buffers)
+                          test_opts.num_offcache_buffers),
+        _mapped_chunks_pool(test_opts.chunk_size, "mapped chunks", this)
     {
         _status                  = OK;
 
@@ -531,9 +571,9 @@ protected:
                         UcxCallback* callback = EmptyCallback::get()) {
         for (size_t i = 0; i < iov.size(); ++i) {
             if (send_recv_data == XFER_TYPE_SEND) {
-                conn->send_data(iov[i].buffer(), iov[i].size(), sn, callback);
+                conn->send_data(iov[i].buffer(), iov[i].memh(), iov[i].size(), sn, callback);
             } else {
-                conn->recv_data(iov[i].buffer(), iov[i].size(), sn, callback);
+                conn->recv_data(iov[i].buffer(), iov[i].memh(), iov[i].size(), sn, callback);
             }
         }
     }
@@ -599,7 +639,7 @@ private:
         /* send IO_READ_COMP as a data since the transaction must be matched
          * by sn on receiver side */
         if (msg->msg()->op == IO_READ_COMP) {
-            return conn->send_data(msg->buffer(), opts().iomsg_size,
+            return conn->send_data(msg->buffer(), NULL, opts().iomsg_size,
                                    msg->msg()->sn, msg);
         } else {
             return conn->send_io_message(msg->buffer(), opts().iomsg_size, msg);
@@ -612,6 +652,7 @@ protected:
     MemoryPool<SendCompleteCallback> _send_callback_pool;
     MemoryPool<BufferIov>            _data_buffers_pool;
     MemoryPool<Buffer, true>         _data_chunks_pool;
+    ContextMemoryPool<Buffer>        _mapped_chunks_pool;
     static status_t                  _status;
 };
 
@@ -802,7 +843,7 @@ public:
         SendCompleteCallback *cb  = _send_callback_pool.get();
         ConnectionStat &conn_stat = _conn_stat_map.find(conn)->second;
 
-        iov->init(msg->data_size, _data_chunks_pool, msg->sn, opts().validate);
+        iov->init(msg->data_size, _mapped_chunks_pool, msg->sn, opts().validate);
         cb->init(iov, &conn_stat.completions<IO_READ>());
 
         conn_stat.bytes<IO_READ>() += msg->data_size;
@@ -821,7 +862,7 @@ public:
         IoWriteResponseCallback *w = _callback_pool.get();
         ConnectionStat &conn_stat  = _conn_stat_map.find(conn)->second;
 
-        iov->init(msg->data_size, _data_chunks_pool, msg->sn, opts().validate);
+        iov->init(msg->data_size, _mapped_chunks_pool, msg->sn, opts().validate);
         w->init(this, conn, msg->sn, iov, &conn_stat.completions<IO_WRITE>());
 
         conn_stat.bytes<IO_WRITE>() += msg->data_size;
@@ -1133,11 +1174,11 @@ public:
 
         commit_operation(server_index, IO_READ, data_size);
 
-        iov->init(data_size, _data_chunks_pool, sn, validate);
+        iov->init(data_size, _mapped_chunks_pool, sn, validate);
         r->init(this, server_index, sn, validate, iov);
 
         recv_data(server_info.conn, *iov, sn, r);
-        server_info.conn->recv_data(r->buffer(), opts().iomsg_size, sn, r);
+        server_info.conn->recv_data(r->buffer(), NULL, opts().iomsg_size, sn, r);
 
         return data_size;
     }
@@ -1157,7 +1198,7 @@ public:
 
         commit_operation(server_index, IO_WRITE, data_size);
 
-        iov->init(data_size, _data_chunks_pool, sn, validate);
+        iov->init(data_size, _mapped_chunks_pool, sn, validate);
         cb->init(iov, NULL);
 
         VERBOSE_LOG << "sending data " << iov << " size "

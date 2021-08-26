@@ -69,8 +69,12 @@ ucs_status_t ucp_mem_rereg_mds(ucp_context_h context, ucp_md_map_t reg_md_map,
             /* memh not needed and registered, deregister it */
             ucs_trace("de-registering memh[%d]=%p from md[%d]", memh_index,
                       uct_memh[memh_index], md_index);
-            status = uct_md_mem_dereg(context->tl_mds[md_index].md,
-                                      uct_memh[memh_index]);
+            if (uct_flags & UCT_MD_MEM_FLAG_MEMH) {
+                status = UCS_OK;
+            } else {
+                status = uct_md_mem_dereg(context->tl_mds[md_index].md,
+                                          uct_memh[memh_index]);
+            }
             if (status != UCS_OK) {
                 ucs_warn("failed to dereg from md[%d]=%s: %s", md_index,
                          context->tl_mds[md_index].rsc.md_name,
@@ -112,8 +116,13 @@ ucs_status_t ucp_mem_rereg_mds(ucp_context_h context, ucp_md_map_t reg_md_map,
                 ucs_assert(address && length);
 
                 /* MD supports registration, register new memh on it */
-                status = uct_md_mem_reg(context->tl_mds[md_index].md, address,
-                        length, uct_flags, &uct_memh[memh_index]);
+                if (uct_flags & UCT_MD_MEM_FLAG_MEMH) {
+                    uct_memh[memh_index] = ucp_memh2uct(address, md_index);
+                    status = UCS_OK;
+                } else {
+                    status = uct_md_mem_reg(context->tl_mds[md_index].md, address,
+                            length, uct_flags, &uct_memh[memh_index]);
+                }
             }
 
             if (status == UCS_OK) {

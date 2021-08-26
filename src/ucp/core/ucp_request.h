@@ -111,6 +111,7 @@ struct ucp_request {
     ucs_status_t                  status;  /* Operation status */
     uint32_t                      flags;   /* Request flags */
     void                          *user_data;
+    ucp_mem_h                     memh;    /* Memory handler for pre-registered buffer */
 
     union {
 
@@ -279,7 +280,7 @@ struct ucp_request {
                     ucp_tag_t               tag;      /* Expected tag */
                     ucp_tag_t               tag_mask; /* Expected tag mask */
                     uint64_t                sn;       /* Tag match sequence */
-                    ucp_tag_recv_callback_t cb;       /* Completion callback */
+                    ucp_tag_recv_nbx_callback_t cb;       /* Completion callback */
                     ucp_tag_recv_info_t     info;     /* Completion info to fill */
                     ssize_t                 remaining; /* How much more data to be received */
 

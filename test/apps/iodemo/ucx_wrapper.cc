@@ -645,6 +645,43 @@ void UcxContext::free(void *ptr)
     ::free(ptr);
 }
 
+ucs_status_t UcxContext::alloc_mapped_buffer(size_t length,
+                         void **address_p, ucp_mem_h *memh, int non_blk_flag)
+{
+    ucp_mem_map_params_t mem_map_params;
+    ucp_mem_attr_t mem_attr;
+    ucs_status_t status;
+
+    mem_map_params.field_mask = UCP_MEM_MAP_PARAM_FIELD_ADDRESS |
+                                UCP_MEM_MAP_PARAM_FIELD_LENGTH |
+                                UCP_MEM_MAP_PARAM_FIELD_FLAGS;
+    mem_map_params.address    = *address_p;
+    mem_map_params.length     = length;
+    mem_map_params.flags      = UCP_MEM_MAP_ALLOCATE;
+    mem_map_params.flags |= non_blk_flag;
+
+    status = ucp_mem_map(_context, &mem_map_params, memh);
+    if (status != UCS_OK) {
+        goto err;
+    }
+
+    mem_attr.field_mask = UCP_MEM_ATTR_FIELD_ADDRESS;
+    status = ucp_mem_query(*memh, &mem_attr);
+    if (status != UCS_OK) {
+        goto err;
+    }
+
+    *address_p = mem_attr.address;
+    return UCS_OK;
+
+err:
+    return status;
+}
+
+ucs_status_t UcxContext::free_mapped_buffer(ucp_mem_h memh)
+{
+    return ucp_mem_unmap(_context, memh);
+}
 
 #define UCX_CONN_LOG UcxLog(_log_prefix, true)
 
@@ -768,17 +805,17 @@ bool UcxConnection::send_io_message(const void *buffer, size_t length,
                                     UcxCallback* callback)
 {
     ucp_tag_t tag = make_iomsg_tag(_remote_conn_id, 0);
-    return send_common(buffer, length, tag, callback);
+    return send_common(buffer, NULL, length, tag, callback);
 }
 
-bool UcxConnection::send_data(const void *buffer, size_t length, uint32_t sn,
+bool UcxConnection::send_data(const void *buffer, ucp_mem_h memh, size_t length, uint32_t sn,
                               UcxCallback* callback)
 {
     ucp_tag_t tag = make_data_tag(_remote_conn_id, sn);
-    return send_common(buffer, length, tag, callback);
+    return send_common(buffer, memh, length, tag, callback);
 }
 
-bool UcxConnection::recv_data(void *buffer, size_t length, uint32_t sn,
+bool UcxConnection::recv_data(void *buffer, ucp_mem_h memh, size_t length, uint32_t sn,
                               UcxCallback* callback)
 {
     if (_ep == NULL) {
@@ -788,11 +825,20 @@ bool UcxConnection::recv_data(void *buffer, size_t length, uint32_t sn,
 
     ucp_tag_t tag      = make_data_tag(_conn_id, sn);
     ucp_tag_t tag_mask = std::numeric_limits<ucp_tag_t>::max();
-    ucs_status_ptr_t ptr_status = ucp_tag_recv_nb(_context.worker(), buffer,
-                                                  length, ucp_dt_make_contig(1),
-                                                  tag, tag_mask,
-                                                  data_recv_callback);
-    return process_request("ucp_tag_recv_nb", ptr_status, callback);
+    ucp_request_param_t param;
+    param.op_attr_mask = UCP_OP_ATTR_FIELD_DATATYPE |
+                        UCP_OP_ATTR_FIELD_CALLBACK |
+                        UCP_OP_ATTR_FLAG_NO_IMM_CMPL;
+    param.datatype     = ucp_dt_make_contig(1);
+    param.cb.recv      = (ucp_tag_recv_nbx_callback_t)data_recv_callback;
+    if (memh) {
+        param.op_attr_mask |= UCP_OP_ATTR_FIELD_MEMH;
+        param.memh = memh;
+    }
+
+    ucs_status_ptr_t ptr_status = ucp_tag_recv_nbx(_context.worker(), buffer,
+                                                  length, tag, tag_mask, &param);
+    return process_request("ucp_tag_recv_nbx", ptr_status, callback);
 }
 
 void UcxConnection::cancel_all()
@@ -988,7 +1034,7 @@ void UcxConnection::established(ucs_status_t status)
     invoke_callback(_establish_cb, status);
 }
 
-bool UcxConnection::send_common(const void *buffer, size_t length, ucp_tag_t tag,
+bool UcxConnection::send_common(const void *buffer, ucp_mem_h memh, size_t length, ucp_tag_t tag,
                                 UcxCallback* callback)
 {
     ucp_request_param_t params;
@@ -1005,6 +1051,10 @@ bool UcxConnection::send_common(const void *buffer, size_t length, ucp_tag_t tag
         params.flags         = (length >= _context.rndv_thresh()) ?
                                UCP_EP_TAG_SEND_FLAG_RNDV :
                                UCP_EP_TAG_SEND_FLAG_EAGER;
+    }
+    if (memh) {
+        params.op_attr_mask |= UCP_OP_ATTR_FIELD_MEMH;
+        params.memh = memh;
     }
 
     assert(_ucx_status == UCS_OK);

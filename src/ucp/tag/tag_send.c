@@ -382,6 +382,7 @@ UCS_PROFILE_FUNC(ucs_status_ptr_t, ucp_tag_send_nbx,
     }
 
     ucp_tag_send_req_init(req, ep, buffer, datatype, count, tag, 0);
+    req->memh = ucp_request_param_memh(param);
     ret = ucp_tag_send_req(req, count, &ucp_ep_config(ep)->tag.eager,
                            rndv_rma_thresh, rndv_am_thresh,
                            cb, ucp_ep_config(ep)->tag.proto,

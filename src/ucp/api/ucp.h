@@ -536,6 +536,7 @@ typedef enum {
     UCP_OP_ATTR_FIELD_USER_DATA     = UCS_BIT(2),  /**< user_data field */
     UCP_OP_ATTR_FIELD_DATATYPE      = UCS_BIT(3),  /**< datatype field */
     UCP_OP_ATTR_FIELD_FLAGS         = UCS_BIT(4),  /**< operation-specific flags */
+    UCP_OP_ATTR_FIELD_MEMH          = UCS_BIT(5),  /**< memh field */
 
     UCP_OP_ATTR_FLAG_NO_IMM_CMPL    = UCS_BIT(16), /**< deny immediate completion */
     UCP_OP_ATTR_FLAG_FAST_CMPL      = UCS_BIT(17), /**< expedite local completion,
@@ -1287,6 +1288,12 @@ typedef struct {
      * default datatype ucp_dt_make_contig(1)
      */
     ucp_datatype_t datatype;
+
+    /**
+     * Memory handler for pre-registered buffer.
+     * Only consider contiguous buffer.
+     */
+    ucp_mem_h memh;
 
     /**
      * Pointer to user data passed to callback function.
@@ -3041,6 +3048,41 @@ ucs_status_ptr_t ucp_tag_recv_nbx(ucp_worker_h worker, void *buffer, size_t coun
 ucp_tag_message_h ucp_tag_probe_nb(ucp_worker_h worker, ucp_tag_t tag,
                                    ucp_tag_t tag_mask, int remove,
                                    ucp_tag_recv_info_t *info);
+
+
+/**
+ * @ingroup UCP_COMM
+ * @brief Non-blocking receive operation for a probed message.
+ *
+ * This routine receives a message that is described by the local address @a
+ * buffer, size @a count, and @a message handle on the @a worker.
+ * The @a message handle can be obtained by calling the @ref
+ * ucp_tag_probe_nb "ucp_tag_probe_nb()" routine. The @ref ucp_tag_msg_recv_nbx
+ * "ucp_tag_msg_recv_nbx()" routine is non-blocking and therefore returns
+ * immediately. The receive operation is considered completed when the message
+ * is delivered to the @a buffer. In order to notify the application about
+ * completion of the receive operation the UCP library will invoke the
+ * call-back @a cb when the received message is in the receive buffer and ready
+ * for application access. If the receive operation cannot be started the
+ * routine returns an error.
+ *
+ * @param [in]  worker      UCP worker that is used for the receive operation.
+ * @param [in]  buffer      Pointer to the buffer that will receive the data.
+ * @param [in]  count       Number of elements to receive
+ * @param [in]  message     Message handle.
+ * @param [in]  param       Operation parameters, see @ref ucp_request_param_t
+ *
+ * @return UCS_PTR_IS_ERR(_ptr) - The receive operation failed.
+ * @return otherwise            - Operation was scheduled for receive. The request
+ *                                handle is returned to the application in order
+ *                                to track progress of the operation. The
+ *                                application is responsible for releasing the
+ *                                handle using @ref ucp_request_free
+ *                                "ucp_request_free()" routine.
+ */
+ucs_status_ptr_t ucp_tag_msg_recv_nbx(ucp_worker_h worker, void *buffer,
+                                      size_t count, ucp_tag_message_h message,
+                                      const ucp_request_param_t *param);
 
 
 /**

@@ -210,7 +210,7 @@ static void ucp_request_dt_dereg(ucp_context_t *context, ucp_dt_reg_t *dt_reg,
     for (i = 0; i < count; ++i) {
         ucp_trace_req(req_dbg, "mem dereg buffer %ld/%ld md_map 0x%"PRIx64,
                       i, count, dt_reg[i].md_map);
-        ucp_mem_rereg_mds(context, 0, NULL, 0, 0, NULL, UCS_MEMORY_TYPE_HOST, NULL,
+        ucp_mem_rereg_mds(context, 0, NULL, 0, req_dbg->memh ? UCT_MD_MEM_FLAG_MEMH : 0, NULL, UCS_MEMORY_TYPE_HOST, NULL,
                           dt_reg[i].memh, &dt_reg[i].md_map);
         ucs_assert(dt_reg[i].md_map == 0);
     }
@@ -237,6 +237,10 @@ UCS_PROFILE_FUNC(ucs_status_t, ucp_request_memory_reg,
     switch (datatype & UCP_DATATYPE_CLASS_MASK) {
     case UCP_DATATYPE_CONTIG:
         ucs_assert(ucs_popcount(md_map) <= UCP_MAX_OP_MDS);
+        if (req_dbg->memh) {
+            buffer = req_dbg->memh;
+            flags |= UCT_MD_MEM_FLAG_MEMH;
+        }
         status = ucp_mem_rereg_mds(context, md_map, buffer, length, flags,
                                    NULL, mem_type, NULL, state->dt.contig.memh,
                                    &state->dt.contig.md_map);

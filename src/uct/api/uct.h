@@ -666,6 +666,9 @@ enum uct_md_mem_flags {
                                                    In some cases registration failure
                                                    is not an error (e. g. for merged
                                                    memory regions). */
+    UCT_MD_MEM_FLAG_MEMH        = UCS_BIT(4), /**< Indicates pre-registered buffer
+                                                   instead of buffer to be registered
+                                                   */
 
     /* memory access flags */
     UCT_MD_MEM_ACCESS_REMOTE_PUT    = UCS_BIT(5), /**< enable remote put access */

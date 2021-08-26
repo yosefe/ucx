@@ -855,6 +855,7 @@ static void ucp_rndv_req_send_rma_get(ucp_request_t *rndv_req, ucp_request_t *rr
     rndv_req->send.rndv_get.remote_address = rndv_rts_hdr->address;
     rndv_req->send.rndv_get.rreq           = rreq;
     rndv_req->send.datatype                = rreq->recv.datatype;
+    rndv_req->memh                         = rreq->memh;
 
     status = ucp_ep_rkey_unpack(rndv_req->send.ep, rndv_rts_hdr + 1,
                                 &rndv_req->send.rndv_get.rkey);
@@ -1126,6 +1127,7 @@ UCS_PROFILE_FUNC_VOID(ucp_rndv_matched, (worker, rreq, rndv_rts_hdr, rts_seq),
         goto out;
     }
 
+    rndv_req->memh              = NULL;
     rndv_req->send.ep           = ep;
     rndv_req->flags             = 0;
     rndv_req->send.mdesc        = NULL;

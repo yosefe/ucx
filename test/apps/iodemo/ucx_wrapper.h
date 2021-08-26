@@ -134,6 +134,10 @@ public:
 
     static void free(void *ptr);
 
+    ucs_status_t alloc_mapped_buffer(size_t length, void **address_p, ucp_mem_h *memh, int non_blk_flag);
+
+    ucs_status_t free_mapped_buffer(ucp_mem_h memh);
+
 protected:
 
     // Called when new IO message is received
@@ -268,10 +272,10 @@ public:
     bool send_io_message(const void *buffer, size_t length,
                          UcxCallback* callback = EmptyCallback::get());
 
-    bool send_data(const void *buffer, size_t length, uint32_t sn,
+    bool send_data(const void *buffer, ucp_mem_h memh, size_t length, uint32_t sn,
                    UcxCallback* callback = EmptyCallback::get());
 
-    bool recv_data(void *buffer, size_t length, uint32_t sn,
+    bool recv_data(void *buffer, ucp_mem_h memh, size_t length, uint32_t sn,
                    UcxCallback* callback = EmptyCallback::get());
 
     void cancel_all();
@@ -333,7 +337,7 @@ private:
 
     void established(ucs_status_t status);
 
-    bool send_common(const void *buffer, size_t length, ucp_tag_t tag,
+    bool send_common(const void *buffer, ucp_mem_h memh, size_t length, ucp_tag_t tag,
                      UcxCallback* callback);
 
     void request_started(ucx_request *r);
