@@ -95,6 +95,7 @@ static void usage()
            "                       endpoint in client/server mode\n");
     printf("  -6                   IPv6 address specified with option -A\n");
     printf("  -T                   Print system topology\n");
+    printf("  -x <d1>,<d2>         Print system distance between d1 and d2\n");
     printf("  -M                   Print memory copy bandwidth\n");
     printf("  -h                   Show this help message\n");
     printf("\n");
@@ -119,8 +120,10 @@ int main(int argc, char **argv)
     uint64_t ucp_features;
     size_t ucp_num_eps;
     size_t ucp_num_ppn;
-    unsigned print_opts;
+    int print_opts;
+    const char *dev1, *dev2;
     char *tl_name, *mem_spec;
+    char devbuf[128];
     const char *f;
     int c;
 
@@ -135,8 +138,11 @@ int main(int argc, char **argv)
     proc_placement           = PROCESS_PLACEMENT_SELF;
     ucp_ep_params.field_mask = 0;
     ip_addr_family           = AF_INET;
+    dev1                     = NULL;
+    dev2                     = NULL;
 
-    while ((c = getopt(argc, argv, "fahvc6ydbswpeCt:n:u:D:P:m:N:A:TM")) != -1) {
+    while ((c = getopt(argc, argv, "fahvc6ydbswpeCt:n:u:D:P:m:N:A:Tx:M")) !=
+           -1) {
         switch (c) {
         case 'f':
             print_flags |= UCS_CONFIG_PRINT_CONFIG | UCS_CONFIG_PRINT_HEADER | UCS_CONFIG_PRINT_DOC;
@@ -257,6 +263,17 @@ int main(int argc, char **argv)
         case 'T':
             print_opts |= PRINT_SYS_TOPO;
             break;
+        case 'x':
+            ucs_strncpy_safe(devbuf, optarg, sizeof(devbuf));
+            dev1 = strtok(devbuf, ",");
+            dev2 = strtok(NULL, ",");
+            if ((dev1 == NULL) || (dev2 == NULL)) {
+                usage();
+                return -1;
+            }
+
+            print_opts |= PRINT_DEV_DISTANCE;
+            break;
         case 'M':
             print_opts |= PRINT_MEMCPY_BW;
             break;
@@ -286,7 +303,7 @@ int main(int argc, char **argv)
         print_type_info(tl_name);
     }
 
-    if ((print_opts & (PRINT_DEVICES | PRINT_SYS_TOPO)) ||
+    if ((print_opts & (PRINT_DEVICES | PRINT_SYS_TOPO | PRINT_DEV_DISTANCE)) ||
         (print_flags & UCS_CONFIG_PRINT_CONFIG)) {
         /* if UCS_CONFIG_PRINT_CONFIG is ON, trigger loading UCT modules by
          * calling print_uct_info()->uct_component_query()
@@ -294,8 +311,9 @@ int main(int argc, char **argv)
         print_uct_info(print_opts, print_flags, tl_name);
     }
 
-    if (print_opts & (PRINT_SYS_INFO | PRINT_MEMCPY_BW | PRINT_SYS_TOPO)) {
-        print_sys_info(print_opts);
+    if (print_opts & (PRINT_SYS_INFO | PRINT_MEMCPY_BW | PRINT_DEV_DISTANCE |
+                      PRINT_SYS_TOPO)) {
+        print_sys_info(print_opts, dev1, dev2);
     }
 
     if (print_flags & UCS_CONFIG_PRINT_CONFIG) {

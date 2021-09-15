@@ -198,8 +198,27 @@ static double measure_timer_accuracy()
            ucs_max(elapsed, elapsed_accurate);
 }
 
-void print_sys_info(int print_opts)
+static ucs_sys_device_t find_sys_device(const char *name)
 {
+    ucs_sys_device_t sys_dev;
+
+    for (sys_dev = 0; sys_dev < ucs_topo_num_devices(); ++sys_dev) {
+        if (!strcmp(name, ucs_topo_sys_device_get_name(sys_dev))) {
+            return sys_dev;
+        }
+    }
+
+    return UCS_SYS_DEVICE_ID_UNKNOWN;
+}
+
+void print_sys_info(int print_opts, const char *dev1, const char *dev2)
+{
+    char bdf_str1[UCS_SYS_BDF_NAME_MAX];
+    char bdf_str2[UCS_SYS_BDF_NAME_MAX];
+    ucs_sys_device_t sys_dev1, sys_dev2;
+    ucs_sys_dev_distance_t distance;
+    char distance_str[64];
+    ucs_status_t status;
     size_t size;
 
     if (print_opts & PRINT_SYS_INFO) {
@@ -209,6 +228,21 @@ void print_sys_info(int print_opts)
         printf("# CPU vendor: %s\n",
                cpu_vendor_names[ucs_arch_get_cpu_vendor()]);
         printf("# CPU model: %s\n", cpu_model_names[ucs_arch_get_cpu_model()]);
+    }
+
+    if (print_opts & PRINT_DEV_DISTANCE) {
+        sys_dev1 = find_sys_device(dev1);
+        sys_dev2 = find_sys_device(dev2);
+        status   = ucs_topo_get_distance(sys_dev1, sys_dev2, &distance);
+        ucs_assert_always(status == UCS_OK);
+        ucs_topo_distance_str(&distance, distance_str, sizeof(distance_str));
+        printf("# Distance between '%s' (%s) and '%s' (%s) is: %s\n", dev1,
+               ucs_topo_sys_device_bdf_name(sys_dev1, bdf_str1,
+                                            sizeof(bdf_str1)),
+               dev2,
+               ucs_topo_sys_device_bdf_name(sys_dev2, bdf_str2,
+                                            sizeof(bdf_str2)),
+               distance_str);
     }
 
     if (print_opts & PRINT_SYS_TOPO) {
