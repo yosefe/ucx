@@ -307,6 +307,11 @@ ucs_stats_serialize_binary(FILE *stream, ucs_stats_node_t *root,
 
         filter_node           = elem->filter_node;
         num_counters_filtered = ucs_popcount(elem->filter_node->counters_bitmask);
+
+        /* FIXME it can fail if two classes have same name, which causes them
+           to share filter_node */
+        ucs_assert(filter_node->counters_bitmask <= UCS_MASK(cls->num_counters));
+
         FWRITE_ONE(&num_counters_filtered, stream);
 
         ucs_for_each_bit(counter, filter_node->counters_bitmask) {

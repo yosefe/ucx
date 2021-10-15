@@ -196,7 +196,7 @@ static ucs_config_field_t uct_ib_md_config_table[] = {
 
 #ifdef ENABLE_STATS
 static ucs_stats_class_t uct_ib_md_stats_class = {
-    .name          = "",
+    .name          = "ib_md",
     .num_counters  = UCT_IB_MD_STAT_LAST,
     .class_id      = UCS_STATS_CLASS_ID_INVALID,
     .counter_names = {
