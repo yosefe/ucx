@@ -265,6 +265,11 @@ static void ucs_stats_node_init_root(const char *name, ...)
     ucs_status_t status;
     va_list ap;
 
+    ucs_stats_context.root_node.parent = NULL;
+    ucs_stats_context.root_node.filter_node =
+            &ucs_stats_context.root_filter_node;
+    ucs_stats_filter_node_init_root();
+
     if (!ucs_stats_is_active()) {
         return;
     }
@@ -274,11 +279,6 @@ static void ucs_stats_node_init_root(const char *name, ...)
                                  &ucs_stats_root_node_class, name, ap);
     ucs_assert_always(status == UCS_OK);
     va_end(ap);
-
-    ucs_stats_context.root_node.parent = NULL;
-    ucs_stats_context.root_node.filter_node = &ucs_stats_context.root_filter_node;
-
-    ucs_stats_filter_node_init_root();
 }
 
 static ucs_status_t ucs_stats_node_new(ucs_stats_class_t *cls, ucs_stats_node_t **p_node)
@@ -848,6 +848,7 @@ void ucs_stats_init()
 {
     ucs_assert(ucs_stats_context.flags == 0);
     ucs_stats_open_dest();
+    ucs_stats_node_init_root("%s:%d", ucs_get_host_name(), getpid());
 
     if (!ucs_stats_is_active()) {
         ucs_trace("statistics disabled");
@@ -855,7 +856,6 @@ void ucs_stats_init()
     }
 
     UCS_STATS_START_TIME(ucs_stats_context.start_time);
-    ucs_stats_node_init_root("%s:%d", ucs_get_host_name(), getpid());
     ucs_stats_set_trigger();
     kh_init_inplace(ucs_stats_cls, &ucs_stats_context.cls);
 

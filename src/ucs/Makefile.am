@@ -208,10 +208,11 @@ libucs_la_SOURCES += \
 	stats/serialization.c \
 	stats/libstats.c
 
-bin_PROGRAMS            += ucs_stats_parser
+bin_PROGRAMS             += ucs_stats_parser
 ucs_stats_parser_CPPFLAGS = $(BASE_CPPFLAGS)
-ucs_stats_parser_LDADD   = libucs.la
-ucs_stats_parser_SOURCES = stats/stats_parser.c
+ucs_stats_parser_CFLAGS   = $(BASE_CFLAGS)
+ucs_stats_parser_LDADD    = libucs.la
+ucs_stats_parser_SOURCES  = stats/stats_parser.c
 endif
 
 all-local: $(objdir)/$(modulesubdir)

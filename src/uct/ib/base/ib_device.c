@@ -74,7 +74,7 @@ KHASH_IMPL(uct_ib_async_event, uct_ib_async_event_t, uct_ib_async_event_val_t, 1
 
 #ifdef ENABLE_STATS
 static ucs_stats_class_t uct_ib_device_stats_class = {
-    .name          = "",
+    .name          = "ib_device",
     .num_counters  = UCT_IB_DEVICE_STAT_LAST,
     .class_id      = UCS_STATS_CLASS_ID_INVALID,
     .counter_names = {
