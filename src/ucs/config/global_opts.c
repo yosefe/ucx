@@ -185,7 +185,7 @@ static ucs_config_field_t ucs_global_opts_table[] = {
 
 #endif
 
- {"VFS_ENABLE", "y",
+ {"VFS_ENABLE", "n",
   "Enable virtual monitoring filesystem",
   ucs_offsetof(ucs_global_opts_t, vfs_enable), UCS_CONFIG_TYPE_BOOL},
 
