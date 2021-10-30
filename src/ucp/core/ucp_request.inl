@@ -16,7 +16,7 @@
 #include <ucs/datastruct/mpool.inl>
 #include <ucs/datastruct/mpool_set.inl>
 #include <ucs/datastruct/ptr_map.inl>
-#include <ucs/debug/debug_int.h>
+#include <ucs/debug/backtrace/base/backtrace.h>
 #include <ucp/dt/dt.inl>
 #include <inttypes.h>
 

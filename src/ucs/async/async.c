@@ -11,7 +11,7 @@
 #include "async_int.h"
 
 #include <ucs/arch/atomic.h>
-#include <ucs/debug/debug_int.h>
+#include <ucs/debug/backtrace/base/backtrace.h>
 #include <ucs/datastruct/khash.h>
 #include <ucs/sys/stubs.h>
 

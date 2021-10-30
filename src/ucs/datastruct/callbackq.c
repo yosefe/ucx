@@ -14,7 +14,7 @@
 #include <ucs/arch/bitops.h>
 #include <ucs/async/async.h>
 #include <ucs/debug/assert.h>
-#include <ucs/debug/debug_int.h>
+#include <ucs/debug/backtrace/base/backtrace.h>
 #include <ucs/sys/sys.h>
 
 #include "callbackq.h"
@@ -592,7 +592,7 @@ void ucs_callbackq_remove_if(ucs_callbackq_t *cbq, ucs_callbackq_predicate_t pre
      * harmful */
     ucs_callbackq_purge_fast(cbq);
 
-    /* Remove slow-path elements */ 
+    /* Remove slow-path elements */
     for (elem = priv->slow_elems;
          elem < (priv->slow_elems + priv->num_slow_elems); ++elem) {
         if (pred(elem, arg)) {

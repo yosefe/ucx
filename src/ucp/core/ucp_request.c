@@ -18,7 +18,7 @@
 #include <ucp/tag/tag_rndv.h>
 
 #include <ucs/datastruct/mpool.inl>
-#include <ucs/debug/debug_int.h>
+#include <ucs/debug/backtrace/base/backtrace.h>
 #include <ucs/debug/log.h>
 
 

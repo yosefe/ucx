@@ -21,7 +21,7 @@ AC_CHECK_LIB([rt], [timer_create], [], AC_MSG_ERROR([librt not found]))
 #
 AC_CHECK_HEADERS([libgen.h])
 AC_CHECK_DECLS([asprintf, basename, fmemopen], [],
-				AC_MSG_ERROR([GNU string extensions not found]), 
+				AC_MSG_ERROR([GNU string extensions not found]),
 				[#define _GNU_SOURCE 1
 				 #include <string.h>
 				 #include <stdio.h>
@@ -32,11 +32,11 @@ AC_CHECK_DECLS([asprintf, basename, fmemopen], [],
 
 
 #
-# CPU-sets 
+# CPU-sets
 #
 AC_CHECK_HEADERS([sys/cpuset.h])
-AC_CHECK_DECLS([CPU_ZERO, CPU_ISSET], [], 
-				AC_MSG_ERROR([CPU_ZERO/CPU_ISSET not found]), 
+AC_CHECK_DECLS([CPU_ZERO, CPU_ISSET], [],
+				AC_MSG_ERROR([CPU_ZERO/CPU_ISSET not found]),
 				[#define _GNU_SOURCE 1
 				 #include <sys/types.h>
 				 #include <sched.h>
@@ -113,13 +113,14 @@ AC_CHECK_DECL([__ppc_get_timebase_freq],
 # PowerPC query for getting TB.
 # Note: AC_CHECK_FUNCS doesn't work for checking __ppc_get_timebase()
 #
+AC_MSG_CHECKING([__ppc_get_timebase])
 AC_LINK_IFELSE([AC_LANG_SOURCE([[
                 #include <sys/platform/ppc.h>
                 int main(int argc, char** argv) {
                     __ppc_get_timebase();
                     return 0;
                 } ]])],
-                [AC_MSG_RESULT([no])
+                [AC_MSG_RESULT([yes])
                  AC_DEFINE([HAVE___PPC_GET_TIMEBASE], [1],
                            [__ppc_get_timebase is defined in ppc.h])],
                 [AC_MSG_RESULT([no])])
@@ -142,7 +143,7 @@ AC_ARG_WITH([valgrind],
 )
 AS_IF([test "x$with_valgrind" = xno],
       [AC_DEFINE([NVALGRIND], 1, [Define to 1 to disable Valgrind annotations.])],
-      [AS_IF([test ! -d $with_valgrind], 
+      [AS_IF([test ! -d $with_valgrind],
               [AC_MSG_NOTICE([Valgrind path was not defined, guessing ...])
                with_valgrind=/usr], [:])
         AC_CHECK_HEADER([$with_valgrind/include/valgrind/memcheck.h], [],

@@ -5,7 +5,12 @@
 # See file LICENSE for terms.
 #
 
-SUBDIRS = vfs/sock . vfs/fuse
+SUBDIRS = \
+	vfs/sock \
+	. \
+	debug/backtrace/bfd \
+	debug/backtrace/unwind \
+	vfs/fuse
 
 AUTOMAKE_OPTIONS    = nostdinc # avoid collision with built-in debug.h
 lib_LTLIBRARIES     = libucs.la
@@ -102,6 +107,7 @@ noinst_HEADERS = \
 	datastruct/conn_match.h \
 	datastruct/ptr_map.h \
 	datastruct/ptr_map.inl \
+	debug/backtrace/base/backtrace.h \
 	debug/assert.h \
 	debug/debug_int.h \
 	debug/log.h \
@@ -160,6 +166,7 @@ libucs_la_SOURCES = \
 	datastruct/string_buffer.c \
 	datastruct/string_set.c \
 	datastruct/conn_match.c \
+	debug/backtrace/base/backtrace.c \
 	debug/assert.c \
 	debug/debug.c \
 	debug/log.c \

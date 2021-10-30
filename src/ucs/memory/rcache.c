@@ -126,8 +126,7 @@ typedef struct {
 
 static ucs_rcache_global_context_t ucs_rcache_global_context = {
     .lock = PTHREAD_MUTEX_INITIALIZER,
-    .list = UCS_LIST_INITIALIZER(&ucs_rcache_global_context.list,
-             &ucs_rcache_global_context.list),
+    .list = UCS_LIST_INITIALIZER(&ucs_rcache_global_context.list),
     .pipe = UCS_ASYNC_PIPE_INITIALIZER
 };
 

@@ -9,124 +9,25 @@
 #endif
 
 #include "debug_int.h"
+#include "debug.h"
 #include "log.h"
 
+#include <ucs/debug/backtrace/base/backtrace.h>
 #include <ucs/datastruct/khash.h>
 #include <ucs/profile/profile.h>
 #include <ucs/sys/checker.h>
 #include <ucs/sys/string.h>
-#include <ucs/sys/math.h>
 #include <ucs/sys/sys.h>
 #include <ucs/type/spinlock.h>
 #include <sys/wait.h>
-#include <execinfo.h>
-#include <dlfcn.h>
 #include <link.h>
 #include <dirent.h>
-#ifdef HAVE_DETAILED_BACKTRACE
-#  include <bfd.h>
-#endif /* HAVE_DETAILED_BACKTRACE */
 
 
-KHASH_MAP_INIT_INT64(ucs_debug_symbol, char*);
+#define UCS_GDB_MAX_ARGS 32
+
 KHASH_MAP_INIT_INT(ucs_signal_orig_action, struct sigaction*);
 
-#define UCS_GDB_MAX_ARGS         32
-#define BACKTRACE_MAX            64
-#define UCS_DEBUG_UNKNOWN_SYM    "???"
-
-#ifdef HAVE_DETAILED_BACKTRACE
-#    define UCS_DEBUG_BACKTRACE_LINE_FMT "%2d 0x%016lx %s()  %s:%u\n"
-#    define UCS_DEBUG_BACKTRACE_LINE_ARG(_n, _line) \
-         _n, (_line)->address, \
-         (_line)->function ? (_line)->function : "??", \
-         (_line)->file ? (_line)->file : "??", \
-         (_line)->lineno
-#else
-#    define UCS_DEBUG_BACKTRACE_LINE_FMT "%2d  %s\n"
-#    define UCS_DEBUG_BACKTRACE_LINE_ARG(_n, _line) _n, (_line)->symbol
-#endif
-
-struct dl_address_search {
-    unsigned long            address;
-    const char               *filename;
-    unsigned long            base;
-};
-
-#ifdef HAVE_DETAILED_BACKTRACE
-
-#if HAVE_DECL_BFD_GET_SECTION_FLAGS
-#  define ucs_debug_bfd_section_flags(_abfd, _section) \
-    bfd_get_section_flags(_abfd, _section)
-#elif HAVE_DECL_BFD_SECTION_FLAGS
-#  define ucs_debug_bfd_section_flags(_abfd, _section) \
-    bfd_section_flags(_section)
-#else
-#  error "Unsupported BFD API"
-#endif
-
-#if HAVE_DECL_BFD_GET_SECTION_VMA
-#  define ucs_debug_bfd_section_vma(_abfd, _section) \
-    bfd_get_section_vma(_abfd, _section)
-#elif HAVE_DECL_BFD_SECTION_VMA
-#  define ucs_debug_bfd_section_vma(_abfd, _section) \
-    bfd_section_vma(_section)
-#else
-#  error "Unsupported BFD API"
-#endif
-
-#if HAVE_1_ARG_BFD_SECTION_SIZE
-#  define ucs_debug_bfd_section_size(_abfd, _section) \
-    bfd_section_size(_section)
-#else
-#  define ucs_debug_bfd_section_size(_abfd, _section) \
-    bfd_section_size(_abfd, _section);
-#endif
-
-struct backtrace_line {
-    unsigned long            address;
-    char                     *file;
-    char                     *function;
-    unsigned                 lineno;
-};
-
-struct backtrace_file {
-    struct dl_address_search dl;
-    bfd                      *abfd;
-    asymbol                  **syms;
-};
-
-struct backtrace {
-    struct backtrace_line    lines[BACKTRACE_MAX];
-    int                      size;
-    int                      position;
-};
-
-struct backtrace_search {
-    int                      count;
-    struct backtrace_file    *file;
-    int                      backoff; /* search the line where the function call
-                                         took place, instead of return address */
-    struct backtrace_line    *lines;
-    int                      max_lines;
-};
-
-#else /* HAVE_DETAILED_BACKTRACE */
-
-struct backtrace_line {
-    void                     *address;
-    char                     *symbol;
-};
-
-struct backtrace {
-    char                     **symbols;
-    void                     *addresses[BACKTRACE_MAX];
-    int                      size;
-    int                      position;
-    struct backtrace_line    line;
-};
-
-#endif /* HAVE_DETAILED_BACKTRACE */
 
 #define UCS_SYS_SIGNAME(signame) [SIG ## signame] = #signame
 const char *ucs_signal_names[] = {
@@ -175,23 +76,16 @@ const char *ucs_signal_names[] = {
 #endif
 };
 
-#if HAVE_SIGACTION_SA_RESTORER
-static void    *ucs_debug_signal_restorer = &ucs_debug_signal_restorer;
-#endif
+
 static stack_t  ucs_debug_signal_stack    = {NULL, 0, 0};
 
-static khash_t(ucs_debug_symbol) ucs_debug_symbols_cache;
 static khash_t(ucs_signal_orig_action) ucs_signal_orig_action_map;
 
 static ucs_recursive_spinlock_t ucs_kh_lock;
 
 static int ucs_debug_initialized = 0;
 
-#ifdef HAVE_CPLUS_DEMANGLE
-extern char *cplus_demangle(const char *, int);
-#endif
 
-static int ucs_debug_backtrace_is_excluded(void *address, const char *symbol);
 static int orig_sigaction(int signum, const struct sigaction *act,
                           struct sigaction *oact);
 
@@ -207,515 +101,6 @@ static char *ucs_debug_strdup(const char *str)
         strncpy(newstr, str, length);
     }
     return newstr;
-}
-
-#ifdef HAVE_DETAILED_BACKTRACE
-
-static int dl_match_address(struct dl_phdr_info *info, size_t size, void *data)
-{
-    struct dl_address_search *dl = data;
-    const ElfW(Phdr) *phdr;
-    ElfW(Addr) load_base = info->dlpi_addr;
-    long n;
-
-    phdr = info->dlpi_phdr;
-    for (n = info->dlpi_phnum; --n >= 0; phdr++) {
-        if (phdr->p_type == PT_LOAD) {
-            ElfW(Addr) vbaseaddr = phdr->p_vaddr + load_base;
-            if (dl->address >= vbaseaddr && dl->address < vbaseaddr + phdr->p_memsz) {
-                dl->filename = info->dlpi_name;
-                dl->base     = info->dlpi_addr;
-            }
-        }
-    }
-    return 0;
-}
-
-static int dl_lookup_address(struct dl_address_search *dl)
-{
-    dl->filename = NULL;
-    dl->base     = 0;
-
-    dl_iterate_phdr(dl_match_address, dl);
-    if (dl->filename == NULL) {
-        return 0;
-    }
-
-    if (strlen(dl->filename) == 0) {
-        dl->filename = ucs_get_exe();
-    }
-    return 1;
-}
-
-/*
- * The dl member in file should be initialized
- */
-static int load_file(struct backtrace_file *file)
-{
-    long symcount;
-    unsigned int size;
-    char **matching;
-
-    file->syms = NULL;
-    file->abfd = bfd_openr(file->dl.filename, NULL);
-    if (!file->abfd) {
-        goto err;
-    }
-
-    if (bfd_check_format(file->abfd, bfd_archive)) {
-        goto err_close;
-    }
-
-    if (!bfd_check_format_matches(file->abfd, bfd_object, &matching)) {
-        goto err_close;
-    }
-
-    if ((bfd_get_file_flags(file->abfd) & HAS_SYMS) == 0) {
-        goto err_close;
-    }
-
-    symcount = bfd_read_minisymbols(file->abfd, 0, (PTR)&file->syms, &size);
-    if (symcount == 0) {
-        free(file->syms);
-        symcount = bfd_read_minisymbols(file->abfd, 1, (PTR)&file->syms, &size);
-    }
-    if (symcount < 0) {
-        goto err_close;
-    }
-
-    return 1;
-
-err_close:
-    bfd_close(file->abfd);
-err:
-    return 0;
-}
-
-static void unload_file(struct backtrace_file *file)
-{
-    free(file->syms);
-    bfd_close(file->abfd);
-}
-
-static char *ucs_debug_demangle(const char *name)
-{
-    char *demangled = NULL;
-#ifdef HAVE_CPLUS_DEMANGLE
-    demangled = cplus_demangle(name, 0);
-#endif
-    return demangled ? demangled : strdup(name);
-}
-
-static void find_address_in_section(bfd *abfd, asection *section, void *data)
-{
-    struct backtrace_search *search = data;
-    bfd_size_type size;
-    bfd_vma vma;
-    unsigned long address;
-    const char *filename, *function;
-    unsigned lineno;
-    int found;
-
-    if ((search->count > 0) || (search->max_lines == 0) ||
-        ((ucs_debug_bfd_section_flags(abfd, section) & SEC_ALLOC) == 0)) {
-        return;
-    }
-
-    address = search->file->dl.address - search->file->dl.base;
-    vma = ucs_debug_bfd_section_vma(abfd, section);
-    if (address < vma) {
-        return;
-    }
-
-    size = ucs_debug_bfd_section_size(abfd, section);
-    if (address >= vma + size) {
-        return;
-    }
-
-    /* Search in address-1 to get the calling line instead of return address */
-    found = bfd_find_nearest_line(abfd, section, search->file->syms,
-                                  address - vma - search->backoff,
-                                  &filename, &function, &lineno);
-    do {
-        search->lines[search->count].address  = address;
-        search->lines[search->count].file     = strdup(filename ? filename :
-                                                       UCS_DEBUG_UNKNOWN_SYM);
-        search->lines[search->count].function = function ?
-                                                ucs_debug_demangle(function) :
-                                                strdup(UCS_DEBUG_UNKNOWN_SYM);
-        search->lines[search->count].lineno   = lineno;
-        if (search->count == 0) {
-            /* To get the inliner info, search at the original address */
-            bfd_find_nearest_line(abfd, section, search->file->syms, address - vma,
-                                  &filename, &function, &lineno);
-        }
-
-        ++search->count;
-        found = bfd_find_inliner_info(abfd, &filename, &function, &lineno);
-    } while (found && (search->count < search->max_lines));
-}
-
-static int get_line_info(struct backtrace_file *file, int backoff,
-                         struct backtrace_line *lines, int max)
-{
-    struct backtrace_search search;
-
-    search.file      = file;
-    search.backoff   = backoff;
-    search.count     = 0;
-    search.lines     = lines;
-    search.max_lines = max;
-    bfd_map_over_sections(file->abfd, find_address_in_section, &search);
-    return search.count;
-}
-
-/**
- * Create a backtrace from the calling location.
- *
- * @param bckt          Backtrace object.
- * @param strip         How many frames to strip.
-*/
-ucs_status_t ucs_debug_backtrace_create(backtrace_h *bckt, int strip)
-{
-    size_t size = sizeof(**bckt);
-    struct backtrace_file file;
-    void *addresses[BACKTRACE_MAX];
-    int i, num_addresses;
-    ucs_status_t status;
-
-    *bckt  = NULL;
-    status = ucs_mmap_alloc(&size, (void**)bckt, 0, "debug backtrace object");
-    if (status != UCS_OK) {
-        return status;
-    }
-
-    num_addresses = backtrace(addresses, BACKTRACE_MAX);
-
-    (*bckt)->size     = 0;
-    (*bckt)->position = strip;
-    for (i = 0; i < num_addresses; ++i) {
-        file.dl.address = (unsigned long)addresses[i];
-        if (dl_lookup_address(&file.dl) && load_file(&file)) {
-            (*bckt)->size += get_line_info(&file, 1,
-                                           (*bckt)->lines + (*bckt)->size,
-                                           BACKTRACE_MAX - (*bckt)->size);
-            unload_file(&file);
-        }
-    }
-
-    return UCS_OK;
-}
-
-/**
- * Destroy a backtrace and free all memory.
- *
- * @param bckt          Backtrace object.
- */
-void ucs_debug_backtrace_destroy(backtrace_h bckt)
-{
-    int i;
-
-    for (i = 0; i < bckt->size; ++i) {
-        free(bckt->lines[i].function);
-        free(bckt->lines[i].file);
-    }
-    bckt->size = 0;
-    ucs_mmap_free(bckt, sizeof(*bckt));
-}
-
-static ucs_status_t
-ucs_debug_get_line_info(const char *filename, unsigned long base,
-                        unsigned long address, ucs_debug_address_info_t *info)
-{
-    struct backtrace_file file;
-    struct backtrace_line line;
-    int count;
-
-    file.dl.filename = filename;
-    file.dl.base     = base;
-    file.dl.address  = address;
-
-    if (!load_file(&file)) {
-        goto err;
-    }
-
-    count = get_line_info(&file, 0, &line, 1);
-    if (count == 0) {
-        goto err_unload;
-    }
-
-    if (line.function) {
-        ucs_strncpy_zero(info->function, line.function, sizeof(info->function));
-    } else {
-        strcpy(info->function, UCS_DEBUG_UNKNOWN_SYM);
-    }
-    if (line.file) {
-        ucs_strncpy_zero(info->source_file, line.file, sizeof(info->source_file));
-    } else {
-        strcpy(info->function, UCS_DEBUG_UNKNOWN_SYM);
-    }
-    info->line_number = line.lineno;
-
-    free(line.function);
-    free(line.file);
-    unload_file(&file);
-    return UCS_OK;
-
-err_unload:
-    unload_file(&file);
-err:
-    strcpy(info->function,    UCS_DEBUG_UNKNOWN_SYM);
-    strcpy(info->source_file, UCS_DEBUG_UNKNOWN_SYM);
-    info->line_number = 0;
-    return UCS_ERR_NO_ELEM;
-}
-
-ucs_status_t ucs_debug_lookup_address(void *address, ucs_debug_address_info_t *info)
-{
-    struct dl_address_search dl;
-
-    dl.address = (unsigned long)address;
-    if (!dl_lookup_address(&dl)) {
-        return UCS_ERR_NO_ELEM;
-    }
-
-    memset(info, 0, sizeof(*info));
-    info->file.base = dl.base;
-    ucs_expand_path(dl.filename, info->file.path, sizeof(info->file.path));
-    return ucs_debug_get_line_info(dl.filename, dl.base, dl.address, info);
-}
-
-/**
- * Walk to the next backtrace line information.
- *
- * @param bckt          Backtrace object.
- * @param line          Filled with backtrace frame info.
- *
- * NOTE: the line remains valid as long as the backtrace object is not destroyed.
- */
-int ucs_debug_backtrace_next(backtrace_h bckt, backtrace_line_h *line)
-{
-    backtrace_line_h ln;
-
-    do {
-        if (bckt->position >= bckt->size) {
-            return 0;
-        }
-
-        ln = &bckt->lines[bckt->position++];
-    } while (ucs_debug_backtrace_is_excluded((void*)ln->address, ln->function));
-
-    *line = ln;
-    return 1;
-}
-
-static void ucs_debug_print_source_file(const char *file, unsigned line,
-                                        const char *function, FILE *stream)
-{
-    static const int context = 3;
-    char srcline[256];
-    unsigned n;
-    FILE *f;
-
-    f = fopen(file, "r");
-    if (f == NULL) {
-        return;
-    }
-
-    n = 1;
-    fprintf(stream, "\n");
-    fprintf(stream, "%s: [ %s() ]\n", file, function);
-    if (line > context) {
-        fprintf(stream, "      ...\n");
-    }
-    while (fgets(srcline, sizeof(srcline), f) != NULL) {
-        if (abs((int)line - (int)n) <= context) {
-            fprintf(stream, "%s %5u %s",
-                    (n == line) ? "==>" : "   ", n, srcline);
-        }
-        ++n;
-    }
-    fprintf(stream, "\n");
-
-    fclose(f);
-}
-
-static void ucs_debug_show_innermost_source_file(FILE *stream)
-{
-    backtrace_h bckt;
-    backtrace_line_h bckt_line;
-    ucs_status_t status;
-
-    status = ucs_debug_backtrace_create(&bckt, 0);
-    if (status != UCS_OK) {
-        return;
-    }
-
-    if (ucs_debug_backtrace_next(bckt, &bckt_line)) {
-        ucs_debug_print_source_file(bckt_line->file, bckt_line->lineno,
-                                    bckt_line->function, stream);
-    }
-    ucs_debug_backtrace_destroy(bckt);
-}
-
-#else /* HAVE_DETAILED_BACKTRACE */
-
-ucs_status_t ucs_debug_lookup_address(void *address, ucs_debug_address_info_t *info)
-{
-    Dl_info dl_info;
-    int ret;
-
-    ret = dladdr(address, &dl_info);
-    if (!ret) {
-        return UCS_ERR_NO_ELEM;
-    }
-
-    ucs_strncpy_safe(info->file.path, dl_info.dli_fname, sizeof(info->file.path));
-    info->file.base = (uintptr_t)dl_info.dli_fbase;
-    ucs_strncpy_safe(info->function,
-                     (dl_info.dli_sname != NULL) ? dl_info.dli_sname : UCS_DEBUG_UNKNOWN_SYM,
-                     sizeof(info->function));
-    ucs_strncpy_safe(info->source_file, UCS_DEBUG_UNKNOWN_SYM, sizeof(info->source_file));
-    info->line_number = 0;
-
-    return UCS_OK;
-}
-
-/**
- * Create a backtrace from the calling location.
- */
-ucs_status_t ucs_debug_backtrace_create(backtrace_h *bckt, int strip)
-{
-    size_t size = sizeof(**bckt);
-    ucs_status_t status;
-
-    *bckt  = NULL;
-    status = ucs_mmap_alloc(&size, (void**)bckt, 0, "debug backtrace object");
-    if (status != UCS_OK) {
-        return status;
-    }
-
-    (*bckt)->size     = backtrace((*bckt)->addresses, BACKTRACE_MAX);
-    (*bckt)->symbols  = backtrace_symbols((*bckt)->addresses, (*bckt)->size);
-    (*bckt)->position = strip;
-
-    return UCS_OK;
-}
-
-/**
- * Destroy a backtrace and free all memory.
- *
- * @param bckt          Backtrace object.
- */
-void ucs_debug_backtrace_destroy(backtrace_h bckt)
-{
-    free(bckt->symbols);
-    ucs_mmap_free(bckt, sizeof(*bckt));
-}
-
-/**
- * Walk to the next backtrace line information.
- *
- * @param bckt          Backtrace object.
- * @param line          Filled with backtrace frame info.
- *
- * NOTE: the line remains valid as long as the backtrace object is not destroyed.
- */
-int ucs_debug_backtrace_next(backtrace_h bckt, backtrace_line_h *line)
-{
-    while (bckt->position < bckt->size) {
-        bckt->line.address = bckt->addresses[bckt->position];
-        bckt->line.symbol  = bckt->symbols[bckt->position];
-        bckt->position++;
-
-        if (!ucs_debug_backtrace_is_excluded(bckt->line.address,
-                                             bckt->line.symbol)) {
-            *line = &bckt->line;
-            return 1;
-        }
-    }
-
-    return 0;
-}
-
-static void ucs_debug_show_innermost_source_file(FILE *stream)
-{
-}
-
-#endif /* HAVE_DETAILED_BACKTRACE */
-
-/*
- * Filter specific functions from the head of the backtrace.
- */
-void ucs_debug_print_backtrace(FILE *stream, int strip)
-{
-    backtrace_h bckt;
-    backtrace_line_h bckt_line;
-    int i;
-
-    ucs_debug_backtrace_create(&bckt, strip);
-    fprintf(stream, "==== backtrace (tid:%7d) ====\n", ucs_get_tid());
-    for (i = 0; ucs_debug_backtrace_next(bckt, &bckt_line); ++i) {
-         fprintf(stream, UCS_DEBUG_BACKTRACE_LINE_FMT,
-                 UCS_DEBUG_BACKTRACE_LINE_ARG(i, bckt_line));
-    }
-    fprintf(stream, "=================================\n");
-
-    ucs_debug_backtrace_destroy(bckt);
-}
-
-/*
- * Filter specific functions from the head of the backtrace.
- */
-void ucs_debug_print_backtrace_line(char *buffer, size_t maxlen,
-                                    int frame_num,
-                                    backtrace_line_h line)
-{
-    snprintf(buffer, maxlen, UCS_DEBUG_BACKTRACE_LINE_FMT,
-             UCS_DEBUG_BACKTRACE_LINE_ARG(frame_num, line));
-}
-
-const char *ucs_debug_get_symbol_name(void *address)
-{
-    static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
-    static ucs_debug_address_info_t info;
-    int hash_extra_status;
-    ucs_status_t status;
-    khiter_t hash_it;
-    size_t length;
-    char *sym;
-
-    pthread_mutex_lock(&lock);
-    hash_it = kh_put(ucs_debug_symbol, &ucs_debug_symbols_cache,
-                     (uintptr_t)address, &hash_extra_status);
-    if (hash_extra_status == 0) {
-         sym = kh_value(&ucs_debug_symbols_cache, hash_it);
-    } else {
-        status = ucs_debug_lookup_address(address, &info);
-        if (status == UCS_OK) {
-            if (hash_extra_status == -1) {
-                /* could not add to hash, return pointer to the static buffer */
-                sym = info.function;
-                goto out;
-            }
-
-            /* add new symbol to hash */
-            ucs_assert_always(hash_it != kh_end(&ucs_debug_symbols_cache));
-            length = strlen(info.function);
-            sym = ucs_malloc(length + 1, "debug_symbol");
-            if (sym != NULL) {
-                ucs_strncpy_safe(sym, info.function, length + 1);
-            }
-        } else {
-            /* could not resolve symbol */
-            sym = NULL;
-        }
-        kh_value(&ucs_debug_symbols_cache, hash_it) = sym;
-    }
-
-out:
-    pthread_mutex_unlock(&lock);
-    return sym ? sym : UCS_DEBUG_UNKNOWN_SYM;
 }
 
 static void ucs_debugger_attach()
@@ -878,8 +263,8 @@ static void ucs_debug_send_mail(const char *message)
     fprintf(stream, "%s\n", message);
     fprintf(stream, "\n");
 
-    ucs_debug_show_innermost_source_file(stream);
-    ucs_debug_print_backtrace(stream, 2);
+    ucs_debug_print_backtrace(stream, 2,
+                              UCS_DEBUG_BACKTRACE_PRINT_FLAG_SHOW_SOURCE);
 
     if (strlen(ucs_global_opts.error_mail_footer)) {
         fprintf(stream, "\n");
@@ -1079,8 +464,8 @@ void ucs_handle_error(const char *message)
         ucs_debugger_attach();
     } else {
         if (ucs_global_opts.handle_errors & UCS_BIT(UCS_HANDLE_ERROR_BACKTRACE)) {
-            ucs_debug_show_innermost_source_file(stderr);
-            ucs_debug_print_backtrace(stderr, 2);
+            ucs_debug_print_backtrace(
+                    stderr, 2, UCS_DEBUG_BACKTRACE_PRINT_FLAG_SHOW_SOURCE);
         }
         if (ucs_global_opts.handle_errors & UCS_BIT(UCS_HANDLE_ERROR_FREEZE)) {
             ucs_error_freeze(message);
@@ -1188,7 +573,6 @@ static void ucs_debug_set_signal_alt_stack()
 
     ucs_debug_signal_stack.ss_size = SIGSTKSZ +
                                      (2 * ucs_log_get_buffer_size()) +
-                                     (sizeof(void*) * BACKTRACE_MAX) +
                                      (128 * UCS_KBYTE);
     ucs_debug_signal_stack.ss_sp =
                     ucs_sys_realloc(NULL, 0, ucs_debug_signal_stack.ss_size);
@@ -1260,33 +644,11 @@ static void ucs_set_signal_handler(void (*handler)(int, siginfo_t*, void *))
                      ucs_global_opts.error_signals.signals[i]);
         }
 #if HAVE_SIGACTION_SA_RESTORER
-        ucs_debug_signal_restorer = old_action.sa_restorer;
+        ucs_debug_set_sa_restorer(old_action.sa_restorer);
 #endif
-        ucs_debug_save_original_sighandler(ucs_global_opts.error_signals.signals[i], &old_action);
+        ucs_debug_save_original_sighandler(
+                ucs_global_opts.error_signals.signals[i], &old_action);
     }
-}
-
-static int ucs_debug_backtrace_is_excluded(void *address, const char *symbol)
-{
-    return
-#if HAVE_SIGACTION_SA_RESTORER
-           address == ucs_debug_signal_restorer ||
-#endif
-           !strcmp(symbol, "ucs_handle_error") ||
-           !strcmp(symbol, "ucs_fatal_error_format") ||
-           !strcmp(symbol, "ucs_fatal_error_message") ||
-           !strcmp(symbol, "ucs_error_freeze") ||
-           !strcmp(symbol, "ucs_error_signal_handler") ||
-           !strcmp(symbol, "ucs_debug_handle_error_signal") ||
-           !strcmp(symbol, "ucs_debug_backtrace_create") ||
-           !strcmp(symbol, "ucs_debug_show_innermost_source_file") ||
-           !strcmp(symbol, "ucs_debug_print_backtrace") ||
-           !strcmp(symbol, "ucs_log_default_handler") ||
-           !strcmp(symbol, "__ucs_abort") ||
-           !strcmp(symbol, "ucs_log_dispatch") ||
-           !strcmp(symbol, "__ucs_log") ||
-           !strcmp(symbol, "ucs_debug_send_mail") ||
-           (strstr(symbol, "_L_unlock_") == symbol);
 }
 
 void ucs_debug_init()
@@ -1294,7 +656,6 @@ void ucs_debug_init()
     ucs_recursive_spinlock_init(&ucs_kh_lock, 0);
 
     kh_init_inplace(ucs_signal_orig_action, &ucs_signal_orig_action_map);
-    kh_init_inplace(ucs_debug_symbol, &ucs_debug_symbols_cache);
 
     if (ucs_debug_is_handle_errors()) {
         ucs_debug_set_signal_alt_stack();
@@ -1309,28 +670,25 @@ void ucs_debug_init()
         ucs_debug_save_original_sighandler(ucs_global_opts.debug_signo, &old_action);
     }
 
-#ifdef HAVE_DETAILED_BACKTRACE
-    bfd_init();
-#endif
+    ucs_debug_backtrace_init();
 
     ucs_debug_initialized = 1;
 }
 
 void ucs_debug_cleanup(int on_error)
 {
-    char *sym;
-    int signum;
     struct sigaction *hndl;
+    int signum;
 
     ucs_debug_initialized = 0;
+
+    ucs_debug_backtrace_cleanup();
 
     kh_foreach_key(&ucs_signal_orig_action_map, signum,
                    ucs_debug_disable_signal(signum));
 
     if (!on_error) {
-        kh_foreach_value(&ucs_debug_symbols_cache, sym, ucs_free(sym));
         kh_foreach_value(&ucs_signal_orig_action_map, hndl, ucs_free(hndl));
-        kh_destroy_inplace(ucs_debug_symbol, &ucs_debug_symbols_cache);
         kh_destroy_inplace(ucs_signal_orig_action, &ucs_signal_orig_action_map);
     }
 

@@ -12,15 +12,16 @@
 
 BEGIN_C_DECLS
 
-#define UCS_LIST_INITIALIZER(_prev, _next) \
-    { (_prev), (_next) }
+
+#define UCS_LIST_INITIALIZER(_elem) \
+    { (_elem), (_elem) }
 
 
 /**
  * Declare an empty list
  */
-#define UCS_LIST_HEAD(name) \
-    ucs_list_link_t name = UCS_LIST_INITIALIZER(&(name), &(name))
+#define UCS_LIST_HEAD(_name) \
+    ucs_list_link_t _name = UCS_LIST_INITIALIZER(&(_name))
 
 
 /**

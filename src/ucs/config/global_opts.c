@@ -55,6 +55,7 @@ ucs_global_opts_t ucs_global_opts = {
     .module_dir            = UCX_MODULE_DIR, /* defined in Makefile.am */
     .module_log_level      = UCS_LOG_LEVEL_TRACE,
     .modules               = { {NULL, 0}, UCS_CONFIG_ALLOW_LIST_ALLOW_ALL },
+    .backtrace_methods     = { NULL, 0 },
     .arch                  = UCS_ARCH_GLOBAL_OPTS_INITALIZER
 };
 
@@ -182,6 +183,12 @@ static ucs_config_field_t ucs_global_opts_table[] = {
   " *     - load all modules\n"
   " ^cu*  - do not load modules that begin with 'cu'",
   ucs_offsetof(ucs_global_opts_t, modules), UCS_CONFIG_TYPE_ALLOW_LIST},
+
+ {"BACKTRACE_METHODS", "bfd,unwind,default",
+  "Comma-separated list of methods of obtaining stack trace in case of a fatal\n"
+  "error in the program. The list order specifies the priority, if some of the\n"
+  "methods are not available",
+  ucs_offsetof(ucs_global_opts_t, backtrace_methods), UCS_CONFIG_TYPE_STRING_ARRAY},
 
  {NULL}
 };

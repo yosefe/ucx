@@ -183,7 +183,7 @@ struct uct_component {
  * Helper macro to initialize component's transport list head.
  */
 #define UCT_COMPONENT_TL_LIST_INITIALIZER(_component) \
-    UCS_LIST_INITIALIZER(&(_component)->tl_list, &(_component)->tl_list)
+    UCS_LIST_INITIALIZER(&(_component)->tl_list)
 
 
 ucs_status_t uct_config_read(uct_config_bundle_t **bundle,

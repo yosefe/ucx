@@ -123,7 +123,7 @@ static void ucm_event_call_orig(ucm_event_type_t event_type, ucm_event_t *event,
  * list so that initially it will be the single element on that list.
  */
 static ucm_event_handler_t ucm_event_orig_handler = {
-    .list     = UCS_LIST_INITIALIZER(&ucm_event_handlers, &ucm_event_handlers),
+    .list     = UCS_LIST_INITIALIZER(&ucm_event_handlers),
     .events   = UCM_EVENT_MMAP | UCM_EVENT_MUNMAP | UCM_EVENT_MREMAP |
                 UCM_EVENT_SHMAT | UCM_EVENT_SHMDT | UCM_EVENT_SBRK |
                 UCM_EVENT_MADVISE | UCM_EVENT_BRK,             /* All events */
@@ -131,8 +131,7 @@ static ucm_event_handler_t ucm_event_orig_handler = {
     .cb       = ucm_event_call_orig
 };
 static ucs_list_link_t ucm_event_handlers =
-                UCS_LIST_INITIALIZER(&ucm_event_orig_handler.list,
-                                     &ucm_event_orig_handler.list);
+                UCS_LIST_INITIALIZER(&ucm_event_orig_handler.list);
 
 
 void ucm_event_dispatch(ucm_event_type_t event_type, ucm_event_t *event)

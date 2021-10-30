@@ -136,6 +136,9 @@ typedef struct {
     /* which modules to load */
     ucs_config_allow_list_t    modules;
 
+   /* Counters to be included in statistics summary */
+    ucs_config_names_array_t   backtrace_methods;
+
     /* arch-specific global options */
     ucs_arch_global_opts_t     arch;
 

@@ -69,9 +69,6 @@ SpaceAfterCStyleCast: false
 SortIncludes: false
 ForEachMacros: ['_UCS_BITMAP_FOR_EACH_WORD',
                 'FOR_EACH_ENTITY',
-                'kh_foreach',
-                'kh_foreach_key',
-                'kh_foreach_value',
                 'ucp_unpacked_address_for_each',
                 'ucs_array_for_each',
                 'UCS_BITMAP_FOR_EACH_BIT',
@@ -97,7 +94,9 @@ ForEachMacros: ['_UCS_BITMAP_FOR_EACH_WORD',
                 'UCS_INIT_ONCE',
                 'UCS_TEST_F',
                 'UCX_PERF_TEST_FOREACH']
-StatementMacros : []
+StatementMacros: ['kh_foreach',
+                  'kh_foreach_key',
+                  'kh_foreach_value']
 TypenameMacros: ['khash_t', 'ucs_array_t']
 WhitespaceSensitiveMacros: []
 

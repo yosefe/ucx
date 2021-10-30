@@ -16,7 +16,7 @@
 #include <ucs/datastruct/mpool.h>
 #include <ucs/datastruct/queue.h>
 #include <ucs/debug/log.h>
-#include <ucs/debug/debug_int.h>
+#include <ucs/debug/backtrace/base/backtrace.h>
 #include <ucs/stats/stats.h>
 #include <ucs/sys/compiler.h>
 #include <ucs/sys/uid.h>
