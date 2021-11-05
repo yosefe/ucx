@@ -1196,8 +1196,8 @@ uct_rc_mlx5_iface_print_eps(uct_rc_mlx5_iface_common_t *mlx5_iface,
     uct_rc_mlx5_ep_t *ep;
 
     ucs_list_for_each(ep, &mlx5_iface->super.ep_list, super.list) {
-        ucs_log(log_level, "ep %p: txq [qpn 0x%x n 0x%x avail %d unsig %u]",
-                ep, ep->tx.wq.super.qp_num, ep->tx.wq.bb_max,
+        ucs_log(log_level, "ep %p: txq [qpn 0x%x rqpn 0x%x n 0x%x avail %d unsig %u]",
+                ep, ep->tx.wq.super.qp_num, ep->super.remove_qpn, ep->tx.wq.bb_max,
                 ep->super.txqp.available, ep->super.txqp.unsignaled);
     }
 }
