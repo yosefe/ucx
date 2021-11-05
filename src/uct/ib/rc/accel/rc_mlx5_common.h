@@ -765,6 +765,6 @@ uct_rc_mlx5_common_iface_init_rx(uct_rc_mlx5_iface_common_t *iface,
 void uct_rc_mlx5_destroy_srq(uct_ib_mlx5_srq_t *srq);
 
 void uct_rc_mlx5_iface_print(uct_rc_mlx5_iface_common_t *mlx5_iface,
-                             const char *title);
+                             int print_all_eps, const char *title);
 
 #endif

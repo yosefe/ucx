@@ -498,7 +498,8 @@ UCS_CLASS_INIT_FUNC(uct_base_iface_t, uct_iface_ops_t *ops, uct_md_h md,
         alloc_methods_bitmap |= UCS_BIT(method);
     }
 
-    self->config.failure_level = (ucs_log_level_t)config->failure;
+    self->config.failure_level = (ucs_log_level_t)config->failure_log_level;
+    self->config.trace_level   = (ucs_log_level_t)config->trace_log_level;
     self->config.max_num_eps   = config->max_num_eps;
 
     return UCS_STATS_NODE_ALLOC(&self->stats, &uct_iface_stats_class,
@@ -623,7 +624,13 @@ ucs_config_field_t uct_iface_config_table[] = {
 
   {"FAILURE", "error",
    "Level of network failure reporting",
-   ucs_offsetof(uct_iface_config_t, failure), UCS_CONFIG_TYPE_ENUM(ucs_log_level_names)},
+   ucs_offsetof(uct_iface_config_t, failure_log_level),
+   UCS_CONFIG_TYPE_ENUM(ucs_log_level_names)},
+
+  {"TRACE", "trace",
+   "Level of periodic traces",
+   ucs_offsetof(uct_iface_config_t, trace_log_level),
+   UCS_CONFIG_TYPE_ENUM(ucs_log_level_names)},
 
   {"MAX_NUM_EPS", "inf",
    "Maximum number of endpoints that the transport interface is able to create",

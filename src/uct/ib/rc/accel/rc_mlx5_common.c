@@ -149,7 +149,7 @@ out:
 void uct_rc_mlx5_iface_common_prepost_recvs(uct_rc_mlx5_iface_common_t *iface)
 {
     /* prepost recvs only if quota available (recvs were not preposted
-     * before) */ 
+     * before) */
     if (iface->super.rx.srq.quota == 0) {
         return;
     }
@@ -1189,16 +1189,57 @@ void uct_rc_mlx5_iface_commom_cq_clean_tx(uct_rc_mlx5_iface_common_t *iface,
     uct_rc_mlx5_common_iface_cq_available_check(iface);
 }
 
-void uct_rc_mlx5_iface_print(uct_rc_mlx5_iface_common_t *mlx5_iface,
-                             const char *title)
+void UCS_F_NOINLINE
+uct_rc_mlx5_iface_print_eps(uct_rc_mlx5_iface_common_t *mlx5_iface,
+                            ucs_log_level_t log_level)
 {
-    ucs_trace("%s: txcq [n 0x%x avail %d ci 0x%x] rcxq [n 0x%x ci 0x%x] "
-            "srq [n 0x%x avail %d]", title,
-            mlx5_iface->cq[UCT_IB_DIR_TX].cq_num,
-            mlx5_iface->super.tx.cq_available,
+    uct_rc_mlx5_ep_t *ep;
+
+    ucs_list_for_each(ep, &mlx5_iface->super.ep_list, super.list) {
+        ucs_log(log_level, "ep %p: txq [qpn 0x%x n 0x%x avail %d unsig %u]",
+                ep, ep->tx.wq.super.qp_num, ep->tx.wq.bb_max,
+                ep->super.txqp.available, ep->super.txqp.unsignaled);
+    }
+}
+
+void uct_rc_mlx5_iface_print(uct_rc_mlx5_iface_common_t *mlx5_iface,
+                             int print_all_eps, const char *title)
+{
+    ucs_log_level_t log_level = mlx5_iface->super.super.super.config.trace_level;
+    unsigned total_outstanding, cq_credits_used;
+    uct_rc_mlx5_ep_t *ep;
+    unsigned cq_max;
+
+    if (!ucs_log_is_enabled(log_level)) {
+        return;
+    }
+
+    cq_max = mlx5_iface->super.config.tx_cq_len - 2;
+    ucs_log(log_level, "%s: iface %p txcq [n 0x%x avail %d(+%d)/%d ci 0x%x] rcxq [n 0x%x ci 0x%x] "
+            "srq [n 0x%x avail %d fidx %u ridx %u swpi %u]",
+            title, mlx5_iface, mlx5_iface->cq[UCT_IB_DIR_TX].cq_num,
+            mlx5_iface->super.tx.cq_available, mlx5_iface->super.tx.cq_free,
+            cq_max,
             mlx5_iface->cq[UCT_IB_DIR_TX].cq_ci,
             mlx5_iface->cq[UCT_IB_DIR_RX].cq_num,
-            mlx5_iface->cq[UCT_IB_DIR_RX].cq_ci,
-            mlx5_iface->rx.srq.srq_num,
-            mlx5_iface->super.rx.srq.available);
+            mlx5_iface->cq[UCT_IB_DIR_RX].cq_ci, mlx5_iface->rx.srq.srq_num,
+            mlx5_iface->super.rx.srq.available, mlx5_iface->rx.srq.free_idx,
+            mlx5_iface->rx.srq.ready_idx, mlx5_iface->rx.srq.sw_pi);
+
+    total_outstanding = 0;
+    cq_credits_used = cq_max - mlx5_iface->super.tx.cq_available -
+                      mlx5_iface->super.tx.cq_free;
+    ucs_list_for_each(ep, &mlx5_iface->super.ep_list, super.list) {
+        total_outstanding += ep->tx.wq.bb_max - ep->super.txqp.available;
+    }
+
+    if (cq_credits_used > total_outstanding) {
+        uct_rc_mlx5_iface_print_eps(mlx5_iface, UCS_LOG_LEVEL_DIAG);
+        ucs_warn("iface %p: detected CQ resource leak: cq_credits_used %d total_outstanding %d",
+                    mlx5_iface, cq_credits_used, total_outstanding);
+    }
+
+    if ((mlx5_iface->super.tx.cq_available == 0) || print_all_eps) {
+        uct_rc_mlx5_iface_print_eps(mlx5_iface, log_level);
+    }
 }

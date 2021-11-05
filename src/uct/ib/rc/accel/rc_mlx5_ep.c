@@ -891,7 +891,7 @@ UCS_CLASS_INIT_FUNC(uct_rc_mlx5_ep_t, const uct_ep_params_t *params)
     uct_ib_qp_attr_t attr = {};
     ucs_status_t status;
 
-    uct_rc_mlx5_iface_print(iface, "ep_create");
+    uct_rc_mlx5_iface_print(iface, 0, "ep_create");
 
     self->connected = 0;
 
