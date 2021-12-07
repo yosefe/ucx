@@ -23,6 +23,18 @@ static ucs_config_field_t uct_rdmacm_md_config_table[] = {
   {NULL}
 };
 
+static ucs_config_field_t uct_rdmacm_cm_config_table[] = {
+    {"CM_", "", NULL,
+     ucs_offsetof(uct_rdmacm_cm_config_t, super), UCS_CONFIG_TYPE_TABLE(uct_cm_config_table)},
+
+    {"SOURCE_ADDRESS", "",
+     "If non-empty, specify the local source address (IPv4 or IPv6) to use \n"
+     "when creating a client connection",
+     ucs_offsetof(uct_rdmacm_cm_config_t, src_addr), UCS_CONFIG_TYPE_STRING},
+
+    {NULL}
+};
+
 static void uct_rdmacm_md_close(uct_md_h md);
 
 static uct_md_ops_t uct_rdmacm_md_ops = {
@@ -252,9 +264,9 @@ uct_component_t uct_rdmacm_component = {
     },
     .cm_config          = {
         .name           = "RDMA-CM connection manager",
-        .prefix         = "RDMACM_",
-        .table          = uct_cm_config_table,
-        .size           = sizeof(uct_cm_config_t),
+        .prefix         = "RDMA_CM_",
+        .table          = uct_rdmacm_cm_config_table,
+        .size           = sizeof(uct_rdmacm_cm_config_t),
     },
     .tl_list            = UCT_COMPONENT_TL_LIST_INITIALIZER(&uct_rdmacm_component),
 #if HAVE_RDMACM_QP_LESS

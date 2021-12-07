@@ -227,7 +227,8 @@ enum ucp_ep_params_field {
     UCP_EP_PARAM_FIELD_USER_DATA         = UCS_BIT(3), /**< User data pointer */
     UCP_EP_PARAM_FIELD_SOCK_ADDR         = UCS_BIT(4), /**< Socket address field */
     UCP_EP_PARAM_FIELD_FLAGS             = UCS_BIT(5), /**< Endpoint flags */
-    UCP_EP_PARAM_FIELD_CONN_REQUEST      = UCS_BIT(6)  /**< Connection request field */
+    UCP_EP_PARAM_FIELD_CONN_REQUEST      = UCS_BIT(6), /**< Connection request field */
+    UCP_EP_PARAM_FIELD_LOCAL_SOCK_ADDR   = UCS_BIT(7)  /**< Local socket Address */
 };
 
 

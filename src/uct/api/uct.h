@@ -798,7 +798,11 @@ enum uct_ep_params_field {
     UCT_EP_PARAM_FIELD_SOCKADDR_DISCONNECT_CB = UCS_BIT(10),
 
     /** Enables @ref uct_ep_params::path_index */
-    UCT_EP_PARAM_FIELD_PATH_INDEX             = UCS_BIT(11)
+    UCT_EP_PARAM_FIELD_PATH_INDEX             = UCS_BIT(11),
+
+    /** Enables @ref uct_ep_params::local_sockaddr */
+    UCT_EP_PARAM_FIELD_LOCAL_SOCKADDR         = UCS_BIT(12)
+
 };
 
 
@@ -1076,6 +1080,15 @@ struct uct_ep_params {
      * @ref UCT_IFACE_FLAG_CONNECT_TO_SOCKADDR capability.
      */
     const ucs_sock_addr_t             *sockaddr;
+
+    /**
+     * The sockaddr to bind locally. If set, @ref uct_ep_create
+     * will create an endpoint binding with this local sockaddr.
+     * To retrieve the endpoint's local_sockaddr, use @ref uct_ep_query.
+     * @note The interface in this routine requires the
+     * @ref UCT_IFACE_FLAG_CONNECT_TO_SOCKADDR capability.
+     */
+    const ucs_sock_addr_t             *local_sockaddr;
 
     /**
      * @ref uct_cb_flags to indicate @ref uct_ep_params_t::sockaddr_pack_cb

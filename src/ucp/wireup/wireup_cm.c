@@ -501,6 +501,12 @@ ucs_status_t ucp_ep_client_cm_connect_start(ucp_ep_h ucp_ep,
     cm_lane_params.sockaddr_pack_cb           = ucp_cm_client_priv_pack_cb;
     cm_lane_params.sockaddr_connect_cb.client = ucp_cm_client_connect_cb;
     cm_lane_params.disconnect_cb              = ucp_cm_disconnect_cb;
+
+    if (params->field_mask & UCP_EP_PARAM_FIELD_LOCAL_SOCK_ADDR) {
+        cm_lane_params.field_mask            |= UCT_EP_PARAM_FIELD_LOCAL_SOCKADDR;
+        cm_lane_params.local_sockaddr         = &params->local_sockaddr;
+    }
+
     ucs_assert_always(ucp_worker_num_cm_cmpts(worker) == 1);
     cm_lane_params.cm                         = worker->cms[0].cm;
 
