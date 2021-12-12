@@ -63,6 +63,12 @@ typedef cpuset_t ucs_sys_cpuset_t;
 #error "Port me"
 #endif
 
+#ifdef SHM_HUGETLB
+#  define UCS_SHM_HUGETLB SHM_HUGETLB
+#else
+#  define UCS_SHM_HUGETLB 0
+#endif
+
 
 BEGIN_C_DECLS
 
