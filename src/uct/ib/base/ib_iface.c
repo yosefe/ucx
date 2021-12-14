@@ -1594,6 +1594,7 @@ ucs_status_t uct_ib_iface_query(uct_ib_iface_t *iface, size_t xport_hdr_len,
         return status;
     }
 
+    iface_attr->latency.c += 150e-9; /* 1 switch hop TODO config */
     iface_attr->latency.c += numa_latency;
     iface_attr->latency.m  = 0;
 
@@ -1650,6 +1651,9 @@ uct_ib_iface_estimate_perf(uct_iface_h iface, uct_perf_attr_t *perf_attr)
 
     if (perf_attr->field_mask & UCT_PERF_ATTR_FIELD_SEND_PRE_OVERHEAD) {
         perf_attr->send_pre_overhead = send_pre_overhead;
+        if (uct_ep_op_is_bcopy(op)) {
+            perf_attr->send_pre_overhead += 10e-9; /* Allocate buffer */
+        }
     }
 
     if (perf_attr->field_mask & UCT_PERF_ATTR_FIELD_SEND_POST_OVERHEAD) {
@@ -1666,10 +1670,17 @@ uct_ib_iface_estimate_perf(uct_iface_h iface, uct_perf_attr_t *perf_attr)
 
     if (perf_attr->field_mask & UCT_PERF_ATTR_FIELD_BANDWIDTH) {
         perf_attr->bandwidth = iface_attr.bandwidth;
+        if (uct_ep_op_is_short(op)) {
+            perf_attr->bandwidth.shared = ucs_min(perf_attr->bandwidth.shared,
+                                                  3500.0 * UCS_MBYTE);
+        }
     }
 
     if (perf_attr->field_mask & UCT_PERF_ATTR_FIELD_LATENCY) {
         perf_attr->latency = iface_attr.latency;
+        if (uct_ep_op_is_bcopy(op) || uct_ep_op_is_zcopy(op)) {
+            perf_attr->latency.c += 350e-9; /* PCIe */
+        }
     }
 
     if (perf_attr->field_mask & UCT_PERF_ATTR_FIELD_MAX_INFLIGHT_EPS) {

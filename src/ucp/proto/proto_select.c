@@ -23,7 +23,6 @@
 /* Threshold for considering two performance values as equal */
 #define UCP_PROTO_PERF_EPSILON     1e-15
 
-
 /* Parameters structure for initializing protocols for a selection parameter */
 typedef struct {
     const ucp_proto_select_param_t *select_param; /* Protocol selection parameter */

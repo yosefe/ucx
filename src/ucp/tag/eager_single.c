@@ -49,8 +49,8 @@ ucp_proto_eager_short_init(const ucp_proto_init_params_t *init_params)
     const ucp_proto_select_param_t *select_param = init_params->select_param;
     ucp_proto_single_init_params_t params        = {
         .super.super         = *init_params,
-        .super.latency       = -150e-9, /* no extra mem access to fetch data */
-        .super.overhead      = 0,
+        .super.latency       = 0,
+        .super.overhead      = 10e-9,
         .super.cfg_thresh    = UCS_MEMUNITS_AUTO,
         .super.cfg_priority  = 0,
         .super.min_length    = 0,

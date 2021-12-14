@@ -19,8 +19,8 @@
 #include <ucs/arch/cpu.h>
 
 
-#define UCT_CUDA_COPY_IFACE_OVERHEAD 0
-#define UCT_CUDA_COPY_IFACE_LATENCY  ucs_linear_func_make(8e-6, 0)
+#define UCT_CUDA_COPY_IFACE_OVERHEAD 8e-6
+#define UCT_CUDA_COPY_IFACE_LATENCY  ucs_linear_func_make(300e-9, 0)
 
 
 static ucs_config_field_t uct_cuda_copy_iface_config_table[] = {
@@ -331,13 +331,13 @@ uct_cuda_copy_estimate_perf(uct_iface_h tl_iface, uct_perf_attr_t *perf_attr)
                 perf_attr->bandwidth.shared = 9320.0 * UCS_MBYTE;
                 break;
             case UCT_EP_OP_GET_ZCOPY:
-                perf_attr->bandwidth.shared = 11660.0 * UCS_MBYTE;
+                perf_attr->bandwidth.shared = 12950.0 * UCS_MBYTE;
                 break;
             case UCT_EP_OP_PUT_SHORT:
                 perf_attr->bandwidth.shared = 8110.0 * UCS_MBYTE;
                 break;
             case UCT_EP_OP_PUT_ZCOPY:
-                perf_attr->bandwidth.shared = 9980.0 * UCS_MBYTE;
+                perf_attr->bandwidth.shared = 12000.0 * UCS_MBYTE;
                 break;
             default:
                 perf_attr->bandwidth.shared = iface->config.bandwidth;

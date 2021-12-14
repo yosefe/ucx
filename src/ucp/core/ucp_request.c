@@ -22,7 +22,34 @@
 #include <ucs/debug/log.h>
 
 
-const ucp_request_param_t ucp_request_null_param = { .op_attr_mask = 0 };
+const ucp_request_param_t ucp_request_null_param = {
+    .op_attr_mask = 0
+};
+
+static const char *ucp_request_flag_names[] = {
+    [ucs_ilog2(UCP_REQUEST_FLAG_COMPLETED)]             = "cpml",
+    [ucs_ilog2(UCP_REQUEST_FLAG_RELEASED)]              = "rlsd",
+    [ucs_ilog2(UCP_REQUEST_FLAG_PROTO_SEND)]            = "p_send",
+    [ucs_ilog2(UCP_REQUEST_FLAG_SYNC_LOCAL_COMPLETED)]  = "s_loc_cmpl",
+    [ucs_ilog2(UCP_REQUEST_FLAG_SYNC_REMOTE_COMPLETED)] = "s_rm_cmpl",
+    [ucs_ilog2(UCP_REQUEST_FLAG_CALLBACK)]              = "cb",
+    [ucs_ilog2(UCP_REQUEST_FLAG_PROTO_INITIALIZED)]     = "p_init",
+    [ucs_ilog2(UCP_REQUEST_FLAG_SYNC)]                  = "sync",
+    [ucs_ilog2(UCP_REQUEST_FLAG_OFFLOADED)]             = "offld",
+    [ucs_ilog2(UCP_REQUEST_FLAG_BLOCK_OFFLOAD)]         = "blk_offld",
+    [ucs_ilog2(UCP_REQUEST_FLAG_STREAM_RECV_WAITALL)]   = "strm_r_wtall",
+    [ucs_ilog2(UCP_REQUEST_FLAG_SEND_AM)]               = "snd_am",
+    [ucs_ilog2(UCP_REQUEST_FLAG_SEND_TAG)]              = "snd_tag",
+    [ucs_ilog2(UCP_REQUEST_FLAG_RNDV_FRAG)]             = "rndv_fr",
+    [ucs_ilog2(UCP_REQUEST_FLAG_RECV_AM)]               = "rcv_am",
+    [ucs_ilog2(UCP_REQUEST_FLAG_RECV_TAG)]              = "rcv_tag",
+    [ucs_ilog2(UCP_REQUEST_FLAG_RKEY_INUSE)]            = "rk_use",
+#if UCS_ENABLE_ASSERT
+    [ucs_ilog2(UCP_REQUEST_FLAG_STREAM_RECV)]           = "strm_rcv",
+    [ucs_ilog2(UCP_REQUEST_DEBUG_FLAG_EXTERNAL)]        = "extrn",
+    [ucs_ilog2(UCP_REQUEST_FLAG_SUPER_VALID)]           = "spr_vld",
+#endif
+};
 
 static ucs_memory_type_t ucp_request_get_mem_type(ucp_request_t *req)
 {
@@ -48,7 +75,10 @@ ucp_request_str(ucp_request_t *req, ucs_string_buffer_t *strb, int recurse)
     ucp_ep_config_t *config;
     ucp_ep_h ep;
 
-    ucs_string_buffer_appendf(strb, "flags:0x%x ", req->flags);
+
+    ucs_string_buffer_appendf(strb, "{");
+    ucs_string_buffer_append_flags(strb, req->flags, ucp_request_flag_names);
+    ucs_string_buffer_appendf(strb, "} ");
 
     if (req->flags & UCP_REQUEST_FLAG_PROTO_SEND) {
         ucp_proto_config_info_str(req->send.ep->worker, req->send.proto_config,
