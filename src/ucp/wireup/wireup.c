@@ -485,8 +485,9 @@ ucp_wireup_process_pre_request(ucp_worker_h worker, ucp_ep_h ep,
     ucp_ep_update_remote_id(ep, msg->src_ep_id);
 
     /* initialize transport endpoints */
-    status = ucp_wireup_init_lanes(ep, ep_init_flags, &ucp_tl_bitmap_max,
-                                   remote_address, addr_indices);
+    status = ucp_wireup_init_lanes(ep, ep_init_flags, ucp_ep_scope_name(ep),
+                                   &ucp_tl_bitmap_max, remote_address,
+                                   addr_indices);
     if (status != UCS_OK) {
         goto err_ep_set_failed;
     }
@@ -578,8 +579,9 @@ ucp_wireup_process_request(ucp_worker_h worker, ucp_ep_h ep,
     }
 
     /* Initialize lanes (possible destroy existing lanes) */
-    status = ucp_wireup_init_lanes(ep, ep_init_flags, &ucp_tl_bitmap_max,
-                                   remote_address, addr_indices);
+    status = ucp_wireup_init_lanes(ep, ep_init_flags, ucp_ep_scope_name(ep),
+                                   &ucp_tl_bitmap_max, remote_address,
+                                   addr_indices);
     if (status != UCS_OK) {
         goto err_set_ep_failed;
     }
@@ -745,8 +747,9 @@ ucp_wireup_send_ep_removed(ucp_worker_h worker, const ucp_wireup_msg_t *msg,
     }
 
     /* Initialize lanes of the reply EP */
-    status = ucp_wireup_init_lanes(reply_ep, ep_init_flags, &ucp_tl_bitmap_max,
-                                   remote_address, addr_indices);
+    status = ucp_wireup_init_lanes(reply_ep, ep_init_flags, "send_ep_removed",
+                                   &ucp_tl_bitmap_max, remote_address,
+                                   addr_indices);
     if (status != UCS_OK) {
         goto out_delete_ep;
     }
@@ -1301,6 +1304,7 @@ ucp_wireup_check_config_intersect(ucp_ep_h ep, ucp_ep_config_key_t *new_key,
 }
 
 ucs_status_t ucp_wireup_init_lanes(ucp_ep_h ep, unsigned ep_init_flags,
+                                   const char *scope_name,
                                    const ucp_tl_bitmap_t *local_tl_bitmap,
                                    const ucp_unpacked_address_t *remote_address,
                                    unsigned *addr_indices)
@@ -1322,10 +1326,15 @@ ucs_status_t ucp_wireup_init_lanes(ucp_ep_h ep, unsigned ep_init_flags,
     ucs_assert(!UCS_BITMAP_IS_ZERO_INPLACE(&tl_bitmap));
 
     ucs_trace("ep %p: initialize lanes", ep);
+
     ucs_log_indent(1);
 
     ucp_ep_config_key_reset(&key);
     ucp_ep_config_key_set_err_mode(&key, ep_init_flags);
+
+    /* Copy scope name from endpoint create parameters */
+    ucs_assert(scope_name != NULL);
+    key.scope_name = (char*)scope_name;
 
     status = ucp_wireup_select_lanes(ep, ep_init_flags, tl_bitmap,
                                      remote_address, addr_indices, &key, 1);

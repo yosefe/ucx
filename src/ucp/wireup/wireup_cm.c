@@ -673,8 +673,9 @@ static unsigned ucp_cm_client_connect_progress(void *arg)
     dev_index = ucp_cm_tl_bitmap_get_dev_idx(worker->context, &tl_bitmap);
 
     ucp_context_dev_idx_tl_bitmap(context, dev_index, &tl_bitmap);
-    status    = ucp_wireup_init_lanes(ucp_ep, wireup_ep->ep_init_flags,
-                                      &tl_bitmap, &addr, addr_indices);
+    status = ucp_wireup_init_lanes(ucp_ep, wireup_ep->ep_init_flags,
+                                   ucp_ep_scope_name(ucp_ep), &tl_bitmap, &addr,
+                                   addr_indices);
     if (status != UCS_OK) {
         ucs_debug("ep %p: failed to initialize lanes: %s", ucp_ep,
                   ucs_status_string(status));
@@ -1061,7 +1062,8 @@ static unsigned ucp_cm_server_conn_request_progress(void *arg)
 
     ucs_assert(listener->accept_cb != NULL);
     UCS_ASYNC_BLOCK(&worker->async);
-    ucp_ep_create_server_accept(worker, conn_request, &ep);
+    ucp_ep_create_server_accept(worker, conn_request, ucp_ep_scope_default,
+                                &ep);
     UCS_ASYNC_UNBLOCK(&worker->async);
     return 1;
 }
@@ -1204,6 +1206,7 @@ err_reject:
 
 ucs_status_t
 ucp_ep_cm_server_create_connected(ucp_worker_h worker, unsigned ep_init_flags,
+                                  const char *scope_name,
                                   const ucp_unpacked_address_t *remote_addr,
                                   ucp_conn_request_h conn_request,
                                   ucp_ep_h *ep_p)
@@ -1233,7 +1236,7 @@ ucp_ep_cm_server_create_connected(ucp_worker_h worker, unsigned ep_init_flags,
 
     /* Create and connect TL part */
     status = ucp_ep_create_to_worker_addr(worker, &tl_bitmap, remote_addr,
-                                          ep_init_flags,
+                                          ep_init_flags, scope_name,
                                           "conn_request on uct_listener", &ep);
     if (status != UCS_OK) {
         ucs_warn("failed to create server ep and connect to worker address on "

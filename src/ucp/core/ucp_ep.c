@@ -78,6 +78,8 @@ extern const ucp_request_send_proto_t ucp_stream_am_proto;
 extern const ucp_request_send_proto_t ucp_am_proto;
 extern const ucp_request_send_proto_t ucp_am_reply_proto;
 
+char ucp_ep_scope_default[] = "";
+
 #ifdef ENABLE_STATS
 static ucs_stats_class_t ucp_ep_stats_class = {
     .name           = "ucp_ep",
@@ -160,6 +162,7 @@ void ucp_ep_config_key_reset(ucp_ep_config_key_t *key)
     key->reachable_md_map = 0;
     key->dst_md_cmpts     = NULL;
     key->err_mode         = UCP_ERR_HANDLING_MODE_NONE;
+    key->scope_name       = ucp_ep_scope_default;
     memset(key->am_bw_lanes,  UCP_NULL_LANE, sizeof(key->am_bw_lanes));
     memset(key->rma_lanes,    UCP_NULL_LANE, sizeof(key->rma_lanes));
     memset(key->rma_bw_lanes, UCP_NULL_LANE, sizeof(key->rma_bw_lanes));
@@ -611,7 +614,7 @@ ucs_status_t ucp_worker_mem_type_eps_create(ucp_worker_h worker)
     void *address_buffer;
     size_t address_length;
     ucp_tl_bitmap_t mem_access_tls;
-    char ep_name[UCP_WORKER_ADDRESS_NAME_MAX];
+    char debug_message[UCP_WORKER_ADDRESS_NAME_MAX];
 
     ucs_memory_type_for_each(mem_type) {
         ucp_context_get_mem_access_tls(context, mem_type, &mem_access_tls);
@@ -633,7 +636,7 @@ ucs_status_t ucp_worker_mem_type_eps_create(ucp_worker_h worker)
             goto err_free_address_buffer;
         }
 
-        ucs_snprintf_zero(ep_name, UCP_WORKER_ADDRESS_NAME_MAX,
+        ucs_snprintf_zero(debug_message, UCP_WORKER_ADDRESS_NAME_MAX,
                           "mem_type_ep:%s", ucs_memory_type_names[mem_type]);
 
         /* create memtype UCP EPs after blocking async context, because they set
@@ -643,7 +646,8 @@ ucs_status_t ucp_worker_mem_type_eps_create(ucp_worker_h worker)
                                               &local_address,
                                               UCP_EP_INIT_FLAG_MEM_TYPE |
                                               UCP_EP_INIT_FLAG_INTERNAL,
-                                              ep_name,
+                                              ucs_memory_type_names[mem_type],
+                                              debug_message,
                                               &worker->mem_type_ep[mem_type]);
         if (status != UCS_OK) {
             UCS_ASYNC_UNBLOCK(&worker->async);
@@ -742,8 +746,8 @@ ucs_status_t
 ucp_ep_create_to_worker_addr(ucp_worker_h worker,
                              const ucp_tl_bitmap_t *local_tl_bitmap,
                              const ucp_unpacked_address_t *remote_address,
-                             unsigned ep_init_flags, const char *message,
-                             ucp_ep_h *ep_p)
+                             unsigned ep_init_flags, const char *scope_name,
+                             const char *message, ucp_ep_h *ep_p)
 {
     unsigned addr_indices[UCP_MAX_LANES];
     ucp_tl_bitmap_t ep_tl_bitmap;
@@ -758,8 +762,9 @@ ucp_ep_create_to_worker_addr(ucp_worker_h worker,
     }
 
     /* initialize transport endpoints */
-    status = ucp_wireup_init_lanes(ep, ep_init_flags, local_tl_bitmap,
-                                   remote_address, addr_indices);
+    status = ucp_wireup_init_lanes(ep, ep_init_flags, scope_name,
+                                   local_tl_bitmap, remote_address,
+                                   addr_indices);
     if (status != UCS_OK) {
         goto err_delete;
     }
@@ -894,7 +899,7 @@ ucp_conn_request_unpack_sa_data(const ucp_conn_request_h conn_request,
  */
 ucs_status_t ucp_ep_create_server_accept(ucp_worker_h worker,
                                          const ucp_conn_request_h conn_request,
-                                         ucp_ep_h *ep_p)
+                                         const char *scope_name, ucp_ep_h *ep_p)
 {
     ucp_unpacked_address_t remote_addr;
     unsigned ep_init_flags;
@@ -933,10 +938,16 @@ ucs_status_t ucp_ep_create_server_accept(ucp_worker_h worker,
     }
 
     status = ucp_ep_cm_server_create_connected(worker, ep_init_flags,
-                                               &remote_addr, conn_request,
-                                               ep_p);
+                                               scope_name, &remote_addr,
+                                               conn_request, ep_p);
     ucs_free(remote_addr.address_list);
     return status;
+}
+
+static const char *ucp_ep_params_scope_name(const ucp_ep_params_t *params)
+{
+    return UCP_PARAM_VALUE(EP, params, scope_name, SCOPE_NAME,
+                           ucp_ep_scope_default);
 }
 
 static ucs_status_t
@@ -947,7 +958,8 @@ ucp_ep_create_api_conn_request(ucp_worker_h worker,
     ucp_ep_h           ep;
     ucs_status_t       status;
 
-    status = ucp_ep_create_server_accept(worker, conn_request, &ep);
+    status = ucp_ep_create_server_accept(worker, conn_request,
+                                         ucp_ep_params_scope_name(params), &ep);
     if (status != UCS_OK) {
         return status;
     }
@@ -1017,6 +1029,7 @@ ucp_ep_create_api_to_worker_addr(ucp_worker_h worker,
 
     status = ucp_ep_create_to_worker_addr(worker, &ucp_tl_bitmap_max,
                                           &remote_address, ep_init_flags,
+                                          ucp_ep_params_scope_name(params),
                                           "from api call", &ep);
     if (status != UCS_OK) {
         goto out_free_address;
@@ -1790,7 +1803,8 @@ int ucp_ep_config_is_equal(const ucp_ep_config_key_t *key1,
         (key1->cm_lane != key2->cm_lane) ||
         (key1->keepalive_lane != key2->keepalive_lane) ||
         (key1->rkey_ptr_lane != key2->rkey_ptr_lane) ||
-        (key1->err_mode != key2->err_mode)) {
+        (key1->err_mode != key2->err_mode) ||
+        (strcmp(key1->scope_name, key2->scope_name) != 0)) {
         return 0;
     }
 
@@ -2306,25 +2320,39 @@ static ucs_status_t ucp_ep_config_key_copy(ucp_ep_config_key_t *dst,
     int num_md_cmpts;
     ucp_rsc_index_t *md_cmpts;
 
+    *dst = *src;
+
     num_md_cmpts = ucs_popcount(src->reachable_md_map);
-    if (num_md_cmpts == 0) {
-        md_cmpts = NULL;
-        goto out;
+    if (num_md_cmpts != 0) {
+        md_cmpts = ucs_calloc(num_md_cmpts, sizeof(*dst->dst_md_cmpts),
+                              "ucp_dst_md_cmpts");
+        if (md_cmpts == NULL) {
+            ucs_error("failed to allocate ucp ep dest component list");
+            goto err;
+        }
+
+        memcpy(md_cmpts, src->dst_md_cmpts, num_md_cmpts * sizeof(*md_cmpts));
+        dst->dst_md_cmpts = md_cmpts;
+    } else {
+        dst->dst_md_cmpts = NULL;
     }
 
-    md_cmpts = ucs_calloc(num_md_cmpts, sizeof(*dst->dst_md_cmpts),
-                          "ucp_dst_md_cmpts");
-    if (md_cmpts == NULL) {
-        ucs_error("failed to allocate ucp ep dest component list");
-        return UCS_ERR_NO_MEMORY;
+    if (src->scope_name == ucp_ep_scope_default) {
+        dst->scope_name = ucp_ep_scope_default;
+    } else {
+        dst->scope_name = ucs_strdup(src->scope_name, "ucp_ep_scope");
+        if (dst->scope_name == NULL) {
+            ucs_error("failed to allocate ucp_ep kind");
+            goto err_free_dst_md_cmpts;
+        }
     }
 
-    memcpy(md_cmpts, src->dst_md_cmpts,
-           num_md_cmpts * sizeof(*dst->dst_md_cmpts));
-out:
-    *dst              = *src;
-    dst->dst_md_cmpts = md_cmpts;
     return UCS_OK;
+
+err_free_dst_md_cmpts:
+    ucs_free(dst->dst_md_cmpts);
+err:
+    return UCS_ERR_NO_MEMORY;
 }
 
 ucs_status_t ucp_ep_config_init(ucp_worker_h worker, ucp_ep_config_t *config,
@@ -2770,6 +2798,9 @@ void ucp_ep_config_cleanup(ucp_worker_h worker, ucp_ep_config_t *config)
 {
     ucp_proto_select_cleanup(&config->proto_select);
     ucs_free(config->key.dst_md_cmpts);
+    if (config->key.scope_name != ucp_ep_scope_default) {
+        ucs_free(config->key.scope_name);
+    }
 }
 
 static int ucp_ep_is_short_lower_thresh(ssize_t max_short,

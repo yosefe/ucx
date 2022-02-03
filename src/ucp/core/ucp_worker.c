@@ -1705,7 +1705,15 @@ static void ucp_worker_print_used_tls(const ucp_ep_config_key_t *key,
     int num_valid_lanes             = 0;
     ucp_lane_index_t lane;
 
-    ucs_string_buffer_appendf(&strb, "ep_cfg[%d]: ", config_idx);
+    if (!ucs_string_is_empty(context->name)) {
+    	ucs_string_buffer_appendf(&strb, "%s ", context->name);
+    }
+
+    if (ucs_string_is_empty(key->scope_name)) {
+    	ucs_string_buffer_appendf(&strb, "ep_cfg[%d]: ", config_idx);
+    } else {
+    	ucs_string_buffer_appendf(&strb, "%s: ", key->scope_name);
+    }
 
     for (lane = 0; lane < key->num_lanes; ++lane) {
         if (key->lanes[lane].rsc_index == UCP_NULL_RESOURCE) {
@@ -1916,7 +1924,8 @@ static void ucp_worker_destroy_mpools(ucp_worker_h worker)
 }
 
 static void
-ucp_worker_ep_config_short_init(ucp_worker_h worker, ucp_ep_config_t *ep_config,
+ucp_worker_ep_config_short_init(ucp_worker_h worker, unsigned ep_init_flags,
+                                ucp_ep_config_t *ep_config,
                                 ucp_worker_cfg_index_t ep_cfg_index,
                                 unsigned feature_flag, ucp_operation_id_t op_id,
                                 unsigned proto_flags, ucp_lane_index_t exp_lane,
@@ -1924,7 +1933,8 @@ ucp_worker_ep_config_short_init(ucp_worker_h worker, ucp_ep_config_t *ep_config,
 {
     ucp_proto_select_short_t proto_short;
 
-    if (worker->context->config.features & feature_flag) {
+    if ((worker->context->config.features & feature_flag) &&
+        !(ep_init_flags & UCP_EP_INIT_FLAG_INTERNAL)) {
         ucp_proto_select_short_init(worker, &ep_config->proto_select,
                                     ep_cfg_index, UCP_WORKER_CFG_INDEX_NULL,
                                     op_id, 0, proto_flags, &proto_short);
@@ -2006,13 +2016,14 @@ ucs_status_t ucp_worker_get_ep_config(ucp_worker_h worker,
             tag_exp_lane    = key->am_lane;
         }
 
-        ucp_worker_ep_config_short_init(worker, ep_config, ep_cfg_index,
-                                        UCP_FEATURE_TAG, UCP_OP_ID_TAG_SEND,
-                                        tag_proto_flags, tag_exp_lane,
-                                        tag_max_short);
+        ucp_worker_ep_config_short_init(worker, ep_init_flags, ep_config,
+                                        ep_cfg_index, UCP_FEATURE_TAG,
+                                        UCP_OP_ID_TAG_SEND, tag_proto_flags,
+                                        tag_exp_lane, tag_max_short);
 
-        ucp_worker_ep_config_short_init(worker, ep_config, ep_cfg_index,
-                                        UCP_FEATURE_AM, UCP_OP_ID_AM_SEND,
+        ucp_worker_ep_config_short_init(worker, ep_init_flags, ep_config,
+                                        ep_cfg_index, UCP_FEATURE_AM,
+                                        UCP_OP_ID_AM_SEND,
                                         UCP_PROTO_FLAG_AM_SHORT, key->am_lane,
                                         &ep_config->am_u.max_eager_short);
     } else {
@@ -3483,4 +3494,12 @@ static void ucp_am_mpool_obj_str(ucs_mpool_t *mp, void *obj,
 #if ENABLE_DEBUG_DATA
     ucs_string_buffer_appendf(strb, " name:%s", rdesc->name);
 #endif
+}
+
+const char *ucp_worker_ep_config_scope_name(ucp_worker_h worker,
+                                            ucp_worker_cfg_index_t cfg_index)
+{
+    return (cfg_index == UCP_WORKER_CFG_INDEX_NULL) ?
+                   ucp_ep_scope_default :
+                   worker->ep_config[cfg_index].key.scope_name;
 }

@@ -402,6 +402,9 @@ ucs_status_t ucp_worker_discard_uct_ep_pending_cb(uct_pending_req_t *self);
 
 unsigned ucp_worker_discard_uct_ep_progress(void *arg);
 
+const char *ucp_worker_ep_config_scope_name(ucp_worker_h worker,
+                                            ucp_worker_cfg_index_t cfg_index);
+
 static UCS_F_ALWAYS_INLINE void
 ucp_worker_flush_ops_count_inc(ucp_worker_h worker)
 {
