@@ -102,7 +102,7 @@ static ucs_status_t set_event_handler(void *dl, int events)
 static ucs_status_t init_ucm_config(void *dl_ucm, int enable_hooks,
                                     ucm_mmap_hook_mode_t mmap_mode)
 {
-    void (*library_init)(const ucm_global_config_t *ucm_opts);
+    void (*library_init)();
     ucm_global_config_t *ucm_opts;
 
     DL_FIND_FUNC(dl_ucm, "ucm_library_init", library_init,
@@ -118,7 +118,7 @@ static ucs_status_t init_ucm_config(void *dl_ucm, int enable_hooks,
         ucm_opts->mmap_hook_mode      = UCM_MMAP_HOOK_NONE;
     }
 
-    library_init(NULL);
+    library_init();
 
     return UCS_OK;
 }

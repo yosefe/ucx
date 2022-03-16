@@ -275,4 +275,3 @@ uct_component_t uct_rdmacm_component = {
     .flags              = 0
 #endif
 };
-UCT_COMPONENT_REGISTER(&uct_rdmacm_component)

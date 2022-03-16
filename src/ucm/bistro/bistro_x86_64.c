@@ -26,7 +26,7 @@
 #include <ucs/debug/assert.h>
 
 
-ucs_status_t ucm_bistro_patch(const char *symbol, void *hook,
+ucs_status_t ucm_bistro_patch(void *func_ptr, void *hook,
                               ucm_bistro_restore_point_t **rp)
 {
     ucm_bistro_jmp_r11_patch_t patch_jmp_r11   = {
@@ -36,14 +36,12 @@ ucs_status_t ucm_bistro_patch(const char *symbol, void *hook,
     ucm_bistro_jmp_near_patch_t patch_jmp_near = {
         .jmp_rel = 0xe9
     };
-    void *func, *patch, *jmp_base;
+    void *patch, *jmp_base;
     ucs_status_t status;
     ptrdiff_t jmp_disp;
     size_t patch_len;
 
-    UCM_LOOKUP_SYMBOL(func, symbol);
-
-    jmp_base = UCS_PTR_BYTE_OFFSET(func, sizeof(patch_jmp_near));
+    jmp_base = UCS_PTR_BYTE_OFFSET(func_ptr, sizeof(patch_jmp_near));
     jmp_disp = UCS_PTR_BYTE_DIFF(jmp_base, hook);
     if (labs(jmp_disp) < INT32_MAX) {
         /* if 32-bit near jump is possible, use it, since it's a short 5-byte
@@ -58,11 +56,11 @@ ucs_status_t ucm_bistro_patch(const char *symbol, void *hook,
         patch_len           = sizeof(patch_jmp_r11);
     }
 
-    status = ucm_bistro_create_restore_point(func, patch_len, rp);
+    status = ucm_bistro_create_restore_point(func_ptr, patch_len, rp);
     if (UCS_STATUS_IS_ERR(status)) {
         return status;
     }
 
-    return ucm_bistro_apply_patch(func, patch, patch_len);
+    return ucm_bistro_apply_patch(func_ptr, patch, patch_len);
 }
 #endif

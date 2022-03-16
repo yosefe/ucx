@@ -149,10 +149,10 @@ typedef struct uct_mm_component {
  * @param _md_ops       Mapper operations, of type uct_mm_mapper_ops_t.
  * @param _cfg_prefix   Prefix for configuration environment vars.
  */
-#define UCT_MM_COMPONENT_DEFINE(_var, _name, _md_ops, _rkey_unpack, \
-                                _rkey_release, _cfg_prefix) \
+#define UCT_MM_COMPONENT_DEFINE(_name, _md_ops, _rkey_unpack, _rkey_release, \
+                                _cfg_prefix) \
     \
-    static uct_mm_component_t _var = { \
+    static uct_mm_component_t UCT_COMPONENT_NAME(_name) = { \
         .super = { \
             .query_md_resources = uct_mm_query_md_resources, \
             .md_open            = uct_mm_md_open, \
@@ -169,12 +169,11 @@ typedef struct uct_mm_component {
             }, \
             .cm_config          = UCS_CONFIG_EMPTY_GLOBAL_LIST_ENTRY, \
             .tl_list            = UCT_COMPONENT_TL_LIST_INITIALIZER( \
-                                      &(_var).super), \
+                                      &UCT_COMPONENT_NAME(_name).super), \
             .flags              = 0, \
        }, \
        .md_ops                  = (_md_ops) \
-    }; \
-    UCT_COMPONENT_REGISTER(&(_var).super); \
+    };
 
 
 extern ucs_config_field_t uct_mm_md_config_table[];

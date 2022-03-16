@@ -59,7 +59,6 @@ static UCS_LIST_HEAD(ucm_reloc_patch_list);
 static ucm_reloc_dlopen_func_t ucm_reloc_orig_dlopen = NULL;
 static pthread_mutex_t ucm_reloc_patch_list_lock = PTHREAD_MUTEX_INITIALIZER;
 
-
 static uintptr_t
 ucm_reloc_get_entry(ElfW(Addr) base, const ElfW(Phdr) *dphdr, ElfW(Sxword) tag)
 {
@@ -515,4 +514,3 @@ out_unlock:
     pthread_mutex_unlock(&ucm_reloc_patch_list_lock);
     return status;
 }
-

@@ -190,4 +190,3 @@ uct_component_t uct_cma_component = {
     .tl_list            = UCT_COMPONENT_TL_LIST_INITIALIZER(&uct_cma_component),
     .flags              = 0
 };
-UCT_COMPONENT_REGISTER(&uct_cma_component);

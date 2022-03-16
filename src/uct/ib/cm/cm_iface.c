@@ -490,5 +490,8 @@ uct_cm_query_tl_devices(uct_md_h md, uct_tl_device_resource_t **tl_devices_p,
                                     tl_devices_p, num_tl_devices_p);
 }
 
-UCT_TL_DEFINE(&uct_ib_component, cm, uct_cm_query_tl_devices, uct_cm_iface_t,
-              "CM_", uct_cm_iface_config_table, uct_cm_iface_config_t);
+UCT_TL_DEFINE_ENTRY(&uct_ib_component, cm, uct_cm_query_tl_devices,
+                    uct_cm_iface_t, "CM_", uct_cm_iface_config_table,
+                    uct_cm_iface_config_t);
+
+UCT_SINGLE_TL_INIT(&uct_ib_component, cm,,,)

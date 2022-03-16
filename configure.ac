@@ -86,6 +86,12 @@ AC_PATH_TOOL([PKG_CONFIG], [pkg-config], [pkg-config])
 
 
 #
+# Define SHARED_LIB preprocessor macro when building a shared library
+#
+lt_prog_compiler_pic="$lt_prog_compiler_pic -DUCX_SHARED_LIB"
+
+
+#
 # Force link_all_deplibs=yes for libtool, otherwise it will not
 # link against dependency libs
 #
@@ -222,9 +228,11 @@ AS_IF([test "x$with_docs_only" = xyes],
      m4_include([config/m4/rocm.m4])
      m4_include([config/m4/gdrcopy.m4])
      m4_include([src/ucm/configure.m4])
+     m4_include([src/ucs/configure.m4])
      m4_include([src/uct/configure.m4])
      m4_include([src/tools/perf/configure.m4])
      m4_include([test/gtest/configure.m4])
+     m4_include([test/apps/uct_info/configure.m4])
 
 
      #
@@ -356,7 +364,6 @@ AC_CONFIG_FILES([
                  debian/rules
                  debian/control
                  debian/changelog
-                 src/ucs/Makefile
                  src/ucp/Makefile
                  src/ucp/api/ucp_version.h
                  src/ucp/core/ucp_version.c

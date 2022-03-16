@@ -134,20 +134,17 @@ static void *ucm_bistro_get_text_addr(void *addr)
 #endif
 }
 
-ucs_status_t ucm_bistro_patch_toc(const char *symbol, void *hook,
+ucs_status_t ucm_bistro_patch_toc(void *func_ptr, void *hook,
                                   ucm_bistro_restore_point_t **rp,
                                   uint64_t toc)
 {
     ucs_status_t status;
-    void *func;
     ucm_bistro_restore_point_t restore;
     ucm_bistro_patch_t patch;
 
-    UCM_LOOKUP_SYMBOL(func, symbol);
+    restore.entry = func_ptr;
 
-    restore.entry = func;
-
-    func = ucm_bistro_get_text_addr(func);
+    func_ptr = ucm_bistro_get_text_addr(func_ptr);
     hook = ucm_bistro_get_text_addr(hook);
 
     status = ucm_bistro_patch_hook(hook, &restore, toc);
@@ -156,16 +153,16 @@ ucs_status_t ucm_bistro_patch_toc(const char *symbol, void *hook,
     }
 
 #if defined(_CALL_ELF) && (_CALL_ELF == 2)
-    func += 8;
-    hook += 8;
+    func_ptr += 8;
+    hook     += 8;
 #endif
 
     ucm_bistro_fill_patch(&patch, R11, (uintptr_t)hook);
 
-    restore.func       = func;
-    restore.func_patch = *(ucm_bistro_patch_t*)func;
+    restore.func       = func_ptr;
+    restore.func_patch = *(ucm_bistro_patch_t*)func_ptr;
 
-    status = ucm_bistro_apply_patch(func, &patch, sizeof(patch));
+    status = ucm_bistro_apply_patch(func_ptr, &patch, sizeof(patch));
     if (UCS_STATUS_IS_ERR(status)) {
         return status;
     }

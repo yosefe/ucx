@@ -19,6 +19,7 @@
 #include <ucm/util/sys.h>
 #include <ucm/bistro/bistro.h>
 #include <ucs/arch/atomic.h>
+#include <ucs/sys/sys.h>
 #include <ucs/sys/math.h>
 #include <ucs/sys/checker.h>
 #include <ucs/sys/preprocessor.h>
@@ -44,7 +45,13 @@
         (_data)->out_events &= ~exp_events | (_data)->fired_events;           \
     } while(0)
 
-extern const char *ucm_mmap_hook_modes[];
+#define UCM_MMAP_RELOC_ENTRY(_name) \
+    { \
+        .symbol     = #_name, \
+        .value      = ucm_override_##_name, \
+        .prev_value = _name \
+    }
+
 
 typedef struct ucm_mmap_func {
     ucm_reloc_patch_t    patch;
@@ -58,17 +65,17 @@ typedef struct ucm_mmap_test_events_data {
 } ucm_mmap_test_events_data_t;
 
 static ucm_mmap_func_t ucm_mmap_funcs[] = {
-    { {"mmap",    ucm_override_mmap},    UCM_EVENT_MMAP,    UCM_EVENT_NONE},
-    { {"munmap",  ucm_override_munmap},  UCM_EVENT_MUNMAP,  UCM_EVENT_NONE},
+    { UCM_MMAP_RELOC_ENTRY(mmap),    UCM_EVENT_MMAP,    UCM_EVENT_NONE},
+    { UCM_MMAP_RELOC_ENTRY(munmap),  UCM_EVENT_MUNMAP,  UCM_EVENT_NONE},
 #if HAVE_MREMAP
-    { {"mremap",  ucm_override_mremap},  UCM_EVENT_MREMAP,  UCM_EVENT_NONE},
+    { UCM_MMAP_RELOC_ENTRY(mremap),  UCM_EVENT_MREMAP,  UCM_EVENT_NONE},
 #endif
-    { {"shmat",   ucm_override_shmat},   UCM_EVENT_SHMAT,   UCM_EVENT_NONE},
-    { {"shmdt",   ucm_override_shmdt},   UCM_EVENT_SHMDT,   UCM_EVENT_SHMAT},
-    { {"sbrk",    ucm_override_sbrk},    UCM_EVENT_SBRK,    UCM_EVENT_NONE},
-    { {"brk",     ucm_override_brk},     UCM_EVENT_BRK,     UCM_EVENT_NONE},
-    { {"madvise", ucm_override_madvise}, UCM_EVENT_MADVISE, UCM_EVENT_NONE},
-    { {NULL, NULL}, UCM_EVENT_NONE}
+    { UCM_MMAP_RELOC_ENTRY(shmat),   UCM_EVENT_SHMAT,   UCM_EVENT_NONE},
+    { UCM_MMAP_RELOC_ENTRY(shmdt),   UCM_EVENT_SHMDT,   UCM_EVENT_SHMAT},
+    { UCM_MMAP_RELOC_ENTRY(sbrk),    UCM_EVENT_SBRK,    UCM_EVENT_NONE},
+    { UCM_MMAP_RELOC_ENTRY(brk),     UCM_EVENT_BRK,     UCM_EVENT_NONE},
+    { UCM_MMAP_RELOC_ENTRY(madvise), UCM_EVENT_MADVISE, UCM_EVENT_NONE},
+    { {NULL, NULL, NULL}, UCM_EVENT_NONE}
 };
 
 static pthread_mutex_t ucm_mmap_install_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -242,6 +249,7 @@ static ucs_status_t ucs_mmap_install_reloc(int events)
     static int installed_events = 0;
     ucm_mmap_func_t *entry;
     ucs_status_t status;
+    void *func_ptr;
 
     if (ucm_mmap_hook_mode() == UCM_MMAP_HOOK_NONE) {
         ucm_debug("installing mmap hooks is disabled by configuration");
@@ -267,8 +275,20 @@ static ucs_status_t ucs_mmap_install_reloc(int events)
             status = ucm_reloc_modify(&entry->patch);
         } else {
             ucm_assert(ucm_mmap_hook_mode() == UCM_MMAP_HOOK_BISTRO);
-            status = ucm_bistro_patch(entry->patch.symbol, entry->patch.value,
-                                      NULL);
+            func_ptr = ucm_reloc_get_orig(entry->patch.symbol,
+                                          entry->patch.value);
+            if ((func_ptr == NULL) && !ucs_sys_is_dynamic_lib()) {
+                /* prev_value is used to store pointer to libc function,
+                 * used in library static build when other ways to
+                 * find symbol were not successful */
+                func_ptr = entry->patch.prev_value;
+            }
+
+            if (func_ptr == NULL) {
+                status = UCS_ERR_NO_ELEM;
+            } else {
+                status = ucm_bistro_patch(func_ptr, entry->patch.value, NULL);
+            }
         }
         if (status != UCS_OK) {
             ucm_warn("failed to install %s hook for '%s'", UCM_HOOK_STR,

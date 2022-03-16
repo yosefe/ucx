@@ -634,6 +634,8 @@ uct_rdmacm_query_tl_devices(uct_md_h md, uct_tl_device_resource_t **tl_devices_p
     return UCS_OK;
 }
 
-UCT_TL_DEFINE(&uct_rdmacm_component, rdmacm, uct_rdmacm_query_tl_devices,
-              uct_rdmacm_iface_t, "RDMACM_", uct_rdmacm_iface_config_table,
-              uct_rdmacm_iface_config_t);
+UCT_TL_DEFINE_ENTRY(&uct_rdmacm_component, rdmacm, uct_rdmacm_query_tl_devices,
+                    uct_rdmacm_iface_t, "RDMACM_",
+                    uct_rdmacm_iface_config_table, uct_rdmacm_iface_config_t);
+
+UCT_SINGLE_TL_INIT(&uct_rdmacm_component, rdmacm,,,)

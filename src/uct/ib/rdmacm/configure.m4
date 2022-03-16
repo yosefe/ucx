@@ -60,4 +60,5 @@ AS_IF([test "x$with_rdmacm" != xno],
 
 AM_CONDITIONAL([HAVE_RDMACM], [test "x$rdmacm_happy" != xno])
 AM_CONDITIONAL([HAVE_RDMACM_QP_LESS], [test "x$rdmacm_qp_less_happy" != xno])
-AC_CONFIG_FILES([src/uct/ib/rdmacm/Makefile])
+AC_CONFIG_FILES([src/uct/ib/rdmacm/Makefile
+                 src/uct/ib/rdmacm/ucx-rdmacm.pc])

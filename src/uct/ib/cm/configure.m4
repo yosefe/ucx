@@ -30,4 +30,5 @@ AS_IF([test "x$with_cm" != xno],
        LIBS="$save_LIBS"])
 
 AM_CONDITIONAL([HAVE_TL_CM], [test "x$cm_happy" != xno])
-AC_CONFIG_FILES([src/uct/ib/cm/Makefile])
+AC_CONFIG_FILES([src/uct/ib/cm/Makefile
+                 src/uct/ib/cm/ucx-cm.pc])

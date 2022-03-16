@@ -1246,3 +1246,12 @@ ucs_status_t ucs_sys_get_boot_id(uint64_t *high, uint64_t *low)
 
     return status;
 }
+
+int ucs_sys_is_dynamic_lib(void)
+{
+#ifdef UCX_SHARED_LIB
+    return 1;
+#else
+    return 0;
+#endif
+}

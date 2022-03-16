@@ -211,18 +211,12 @@ typedef struct uct_mm_iface {
  * @param _cfg_prefix   Prefix for configuration variables.
  */
 #define UCT_MM_TL_DEFINE(_name, _md_ops, _rkey_unpack, _rkey_release, \
-                         _cfg_prefix) \
-    \
-    UCT_MM_COMPONENT_DEFINE(uct_##_name##_component, _name, _md_ops, \
-                            _rkey_unpack, _rkey_release, _cfg_prefix) \
-    \
-    UCT_TL_DEFINE(&(uct_##_name##_component).super, \
-                  _name, \
-                  uct_sm_base_query_tl_devices, \
-                  uct_mm_iface_t, \
-                  "MM_", \
-                  uct_mm_iface_config_table, \
-                  uct_mm_iface_config_t);
+                         _cfg_prefix, _cfg_table) \
+    UCT_MM_COMPONENT_DEFINE(_name, _md_ops, _rkey_unpack, _rkey_release, \
+                            _cfg_prefix) \
+    UCT_TL_DEFINE_ENTRY(&UCT_COMPONENT_NAME(_name).super, _name, \
+                        uct_sm_base_query_tl_devices, uct_mm_iface_t, \
+                        _cfg_prefix, _cfg_table, uct_mm_iface_config_t)
 
 
 extern ucs_config_field_t uct_mm_iface_config_table[];

@@ -631,3 +631,15 @@ ucs_config_field_t uct_iface_config_table[] = {
 
   {NULL}
 };
+
+void uct_tl_register(uct_component_t *component, uct_tl_t *tl)
+{
+    ucs_list_add_tail(&ucs_config_global_list, &tl->config.list);
+    ucs_list_add_tail(&component->tl_list, &tl->list);
+}
+
+void uct_tl_unregister(uct_tl_t *tl)
+{
+    ucs_list_del(&tl->config.list);
+    /* TODO: add list_del from ucs_config_global_list */
+}

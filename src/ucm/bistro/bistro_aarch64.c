@@ -59,10 +59,9 @@
  */
 #define BR(_reg) ((0xd61f << 16) + ((_reg) << 5))
 
-ucs_status_t ucm_bistro_patch(const char *symbol, void *hook,
+ucs_status_t ucm_bistro_patch(void *func_ptr, void *hook,
                               ucm_bistro_restore_point_t **rp)
 {
-    void *func;
     ucs_status_t status;
 
     ucm_bistro_patch_t patch = {
@@ -73,14 +72,12 @@ ucs_status_t ucm_bistro_patch(const char *symbol, void *hook,
         .br   = BR(R15)
     };
 
-    UCM_LOOKUP_SYMBOL(func, symbol);
-
-    status = ucm_bistro_create_restore_point(func, sizeof(patch), rp);
+    status = ucm_bistro_create_restore_point(func_ptr, sizeof(patch), rp);
     if (UCS_STATUS_IS_ERR(status)) {
         return status;
     }
 
-    return ucm_bistro_apply_patch(func, &patch, sizeof(patch));
+    return ucm_bistro_apply_patch(func_ptr, &patch, sizeof(patch));
 }
 
 #endif

@@ -132,6 +132,8 @@ static UCS_CLASS_DEFINE_NEW_FUNC(uct_cma_iface_t, uct_iface_t, uct_md_h,
                                  const uct_iface_config_t *);
 static UCS_CLASS_DEFINE_DELETE_FUNC(uct_cma_iface_t, uct_iface_t);
 
-UCT_TL_DEFINE(&uct_cma_component, cma, uct_sm_base_query_tl_devices,
-              uct_cma_iface_t, "CMA_", uct_cma_iface_config_table,
-              uct_cma_iface_config_t);
+UCT_TL_DEFINE_ENTRY(&uct_cma_component, cma, uct_sm_base_query_tl_devices,
+                    uct_cma_iface_t, "CMA_", uct_cma_iface_config_table,
+                    uct_cma_iface_config_t);
+
+UCT_SINGLE_TL_INIT(&uct_cma_component, cma, ctor,,)

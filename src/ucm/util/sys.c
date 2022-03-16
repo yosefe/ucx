@@ -16,7 +16,9 @@
 
 #include <ucm/api/ucm.h>
 #include <ucm/util/log.h>
+#include <ucm/util/reloc.h>
 #include <ucm/mmap/mmap.h>
+#include <ucm/malloc/malloc_hook.h>
 #include <ucs/type/init_once.h>
 #include <ucs/sys/math.h>
 #include <linux/mman.h>
@@ -284,6 +286,7 @@ void ucm_strerror(int eno, char *buf, size_t max)
 
 void ucm_prevent_dl_unload()
 {
+#ifdef UCX_SHARED_LIB
     static ucs_init_once_t init_once = UCS_INIT_ONCE_INITIALIZER;
     Dl_info info;
     void *dl;
@@ -314,6 +317,7 @@ void ucm_prevent_dl_unload()
         /* coverity[overwrite_var] */
         dl = NULL;
     }
+#endif /* UCX_SHARED_LIB */
 }
 
 char *ucm_concat_path(char *buffer, size_t max, const char *dir, const char *file)
@@ -367,3 +371,10 @@ pid_t ucm_get_tid()
 {
     return syscall(SYS_gettid);
 }
+
+void UCS_F_CTOR ucm_init()
+{
+    ucm_init_log();
+    ucm_init_malloc_hook();
+}
+

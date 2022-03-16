@@ -425,6 +425,8 @@ uct_sockcm_query_tl_devices(uct_md_h md, uct_tl_device_resource_t **tl_devices_p
     return UCS_OK;
 }
 
-UCT_TL_DEFINE(&uct_sockcm_component, sockcm, uct_sockcm_query_tl_devices,
-              uct_sockcm_iface_t, "SOCKCM_", uct_sockcm_iface_config_table,
-              uct_sockcm_iface_config_t);
+UCT_TL_DEFINE_ENTRY(&uct_sockcm_component, sockcm, uct_sockcm_query_tl_devices,
+                    uct_sockcm_iface_t, "SOCKCM_", uct_sockcm_iface_config_table,
+                    uct_sockcm_iface_config_t);
+
+UCT_SINGLE_TL_INIT(&uct_sockcm_component, sockcm,,,)

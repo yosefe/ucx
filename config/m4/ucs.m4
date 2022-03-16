@@ -68,6 +68,7 @@ AS_IF([test "x$enable_backtrace_detail" = xyes],
 
 	if test "x$BT" = "x1"; then
 		AC_CHECK_FUNCS([cplus_demangle])
+		AC_SUBST([BFD_LDFLAGS], ["-lbfd -liberty -lz"])
 		AC_DEFINE([HAVE_DETAILED_BACKTRACE], 1, [Enable detailed backtrace])
         case ${host} in
             aarch64*) CFLAGS="$CFLAGS -funwind-tables" ;;

@@ -196,6 +196,7 @@ AS_IF([test "x$with_ib" = "xyes"],
                        AC_CHECK_HEADERS([infiniband/mlx5dv.h],
                                [with_mlx5_hw=yes
                                 with_mlx5_dv=yes
+                                AC_DEFINE([HAVE_MLX5_DV], 1, [MLX5 DV support])
                                 mlx5_include=mlx5dv.h], [], [ ])])
 
               AS_IF([test "x$with_mlx5_dv" = "xyes" -a "x$have_cq_io" = "xyes" ], [
@@ -448,4 +449,5 @@ uct_ib_modules=""
 m4_include([src/uct/ib/cm/configure.m4])
 m4_include([src/uct/ib/rdmacm/configure.m4])
 AC_DEFINE_UNQUOTED([uct_ib_MODULES], ["${uct_ib_modules}"], [IB loadable modules])
-AC_CONFIG_FILES([src/uct/ib/Makefile])
+AC_CONFIG_FILES([src/uct/ib/Makefile
+                 src/uct/ib/ucx-ib.pc])

@@ -38,6 +38,9 @@ libuct_rdmacm_la_SOURCES += \
 	rdmacm_cm_ep.c
 endif # HAVE_RDMACM_QP_LESS
 
+PKG_CONFIG_NAME=rdmacm
+
 include $(top_srcdir)/config/module.am
+include $(top_srcdir)/config/module-pkg-config.am
 
 endif # HAVE_RDMACM

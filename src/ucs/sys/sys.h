@@ -37,7 +37,6 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
-#include <signal.h>
 #include <unistd.h>
 #include <inttypes.h>
 #include <limits.h>
@@ -457,6 +456,14 @@ int ucs_sys_ns_is_default(ucs_sys_namespace_type_t name);
  * @return UCS_OK or error in case of failure.
  */
 ucs_status_t ucs_sys_get_boot_id(uint64_t *high, uint64_t *low);
+
+
+/*
+ * Check if library is built dynamically (.so module)
+ *
+ * @return 1 if built dynamically, 0 if statically.
+ */
+int ucs_sys_is_dynamic_lib(void);
 
 END_C_DECLS
 

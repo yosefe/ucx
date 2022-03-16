@@ -22,6 +22,7 @@ extern "C" {
 #include <ucs/time/time.h>
 #include <ucm/malloc/malloc_hook.h>
 #include <ucm/bistro/bistro.h>
+#include <ucm/util/reloc.h>
 #include <ucs/sys/sys.h>
 #include <malloc.h>
 }
@@ -188,8 +189,11 @@ protected:
         bistro_patch(const char* symbol, void *hook)
         {
             ucs_status_t status;
-
-            status = ucm_bistro_patch(symbol, hook, &m_rp);
+            void *func_ptr = ucm_reloc_get_orig(symbol, hook);
+            if (func_ptr == NULL) {
+                UCS_TEST_ABORT("could not find " << symbol);
+            }
+            status = ucm_bistro_patch(func_ptr, hook, &m_rp);
             ASSERT_UCS_OK(status);
             EXPECT_NE((intptr_t)m_rp, 0);
         }
@@ -998,6 +1002,7 @@ typedef int (munmap_f_t)(void *addr, size_t len);
 UCS_TEST_SKIP_COND_F(malloc_hook, bistro_patch, RUNNING_ON_VALGRIND) {
     const char *symbol = "munmap";
     ucm_bistro_restore_point_t *rp = NULL;
+    void *func_ptr = ucm_reloc_get_orig(symbol, (void*)bistro_hook<0>::munmap);
     ucs_status_t status;
     munmap_f_t *munmap_f;
     void *ptr;
@@ -1006,7 +1011,7 @@ UCS_TEST_SKIP_COND_F(malloc_hook, bistro_patch, RUNNING_ON_VALGRIND) {
     uint64_t UCS_V_UNUSED origin;
 
     /* set hook to mmap call */
-    status = ucm_bistro_patch(symbol, (void*)bistro_hook<0>::munmap, &rp);
+    status = ucm_bistro_patch(func_ptr, (void*)bistro_hook<0>::munmap, &rp);
     ASSERT_UCS_OK(status);
     EXPECT_NE((intptr_t)rp, 0);
 

@@ -89,4 +89,3 @@ uct_component_t uct_tcp_component = {
     .tl_list            = UCT_COMPONENT_TL_LIST_INITIALIZER(&uct_tcp_component),
     .flags              = UCT_COMPONENT_FLAG_CM
 };
-UCT_COMPONENT_REGISTER(&uct_tcp_component)

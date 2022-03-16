@@ -767,7 +767,7 @@ static uct_ib_md_ops_t uct_ib_mlx5_devx_md_ops = {
     .mem_prefetch        = uct_ib_mlx5_mem_prefetch,
 };
 
-UCT_IB_MD_OPS(uct_ib_mlx5_devx_md_ops, 2);
+UCT_IB_MD_DEFINE_ENTRY(devx, uct_ib_mlx5_devx_md_ops);
 
 #endif
 
@@ -974,5 +974,5 @@ static uct_ib_md_ops_t uct_ib_mlx5_md_ops = {
     .mem_prefetch        = uct_ib_mlx5_mem_prefetch,
 };
 
-UCT_IB_MD_OPS(uct_ib_mlx5_md_ops, 1);
+UCT_IB_MD_DEFINE_ENTRY(dv, uct_ib_mlx5_md_ops);
 

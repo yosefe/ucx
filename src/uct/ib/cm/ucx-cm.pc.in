@@ -1,0 +1,15 @@
+#
+# Copyright (c) 2022, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+#
+# See file LICENSE for terms.
+#
+
+prefix = @prefix@
+exec_prefix = @exec_prefix@
+libdir = @libdir@/ucx
+
+Name: @PACKAGE@-cm
+Description: Unified Communication X Library IB Connection Manager module
+Version: @VERSION@
+Libs:
+Libs.private: -L${libdir} -luct_cm -Wl,--undefined=uct_cm_init -libcm

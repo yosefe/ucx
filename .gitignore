@@ -52,6 +52,8 @@ test/apps/test_link_map
 test/apps/test_ucp_dlopen
 test/apps/test_ucs_dlopen
 test/apps/sockaddr/sa
+test/apps/test_init_mt
+test/apps/test_memtrack_limit
 test/examples/ucp_client_server
 test/examples/ucp_hello_world
 test/examples/uct_hello_world
@@ -63,7 +65,7 @@ debian/control
 debian/rules
 debian/ucx.postinst
 ucx.spec
-ucx.pc
+ucx*.pc
 doc/doxygen-doc
 doc/uml/uct.pdf
 doc/doxygen/header.tex

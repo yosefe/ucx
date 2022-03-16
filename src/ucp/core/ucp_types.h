@@ -58,7 +58,8 @@ typedef struct ucp_wireup_sockaddr_data ucp_wireup_sockaddr_data_t;
  * Active message codes
  */
 enum {
-    UCP_AM_ID_WIREUP            =  1, /* Connection establishment */
+    UCP_AM_ID_FIRST             =  1, /* First valid AM ID */
+    UCP_AM_ID_WIREUP            =  UCP_AM_ID_FIRST, /* Connection establishment */
 
     UCP_AM_ID_EAGER_ONLY        =  2, /* Single packet eager TAG */
     UCP_AM_ID_EAGER_FIRST       =  3, /* First eager fragment */

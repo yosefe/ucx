@@ -35,14 +35,14 @@ typedef struct ucm_bistro_jmp_near_patch {
  * Set library function call hook using Binary Instrumentation
  * method (BISTRO): replace function body by user defined call
  *
- * @param symbol function name to replace
- * @param hook   user-defined function-replacer
- * @param rp     restore point used to restore original function,
- *               optional, may be NULL
+ * @param func_ptr function pointer to replace
+ * @param hook     user-defined function-replacer
+ * @param rp       restore point used to restore original function,
+ *                 optional, may be NULL
  *
  * @return Error code as defined by @ref ucs_status_t
  */
-ucs_status_t ucm_bistro_patch(const char *symbol, void *hook,
+ucs_status_t ucm_bistro_patch(void *func_ptr, void *hook,
                               ucm_bistro_restore_point_t **rp);
 
 #endif

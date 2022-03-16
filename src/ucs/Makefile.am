@@ -5,6 +5,8 @@
 # See file LICENSE for terms.
 #
 
+SUBDIRS = . signal
+
 AUTOMAKE_OPTIONS    = nostdinc # avoid collision with built-in debug.h
 lib_LTLIBRARIES     = libucs.la
 bin_PROGRAMS        =
@@ -76,6 +78,7 @@ noinst_HEADERS = \
 	arch/atomic.h \
 	arch/bitops.h \
 	arch/cpu.h \
+	config/ucm_opts.h \
 	datastruct/arbiter.h \
 	datastruct/frag_list.h \
 	datastruct/mpmc.h \
@@ -181,6 +184,10 @@ all-local: $(objdir)/$(modulesubdir)
 
 $(objdir)/$(modulesubdir): $(lib_LTLIBRARIES)
 	$(AM_V_at)$(LN_RS) -fn $(localmoduledir) $(objdir)/$(modulesubdir)
+
+PKG_CONFIG_NAME=ucs
+
+include $(top_srcdir)/config/module-pkg-config.am
 
 #TODO	stats/stats_dump.c
 #TODO	stats/stats_reader.c
