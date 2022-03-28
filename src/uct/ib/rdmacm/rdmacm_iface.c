@@ -638,4 +638,4 @@ UCT_TL_DEFINE_ENTRY(&uct_rdmacm_component, rdmacm, uct_rdmacm_query_tl_devices,
                     uct_rdmacm_iface_t, "RDMACM_",
                     uct_rdmacm_iface_config_table, uct_rdmacm_iface_config_t);
 
-UCT_SINGLE_TL_INIT(&uct_rdmacm_component, rdmacm,,,)
+UCT_SINGLE_TL_INIT(&uct_rdmacm_component, rdmacm, ctor,,)
