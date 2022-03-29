@@ -171,6 +171,8 @@ jobs:
             # allow server to start
             sleep 3
             UCX_TLS=$tls ./ucp_hello_world_static ${server_port_arg} -n localhost
+            # allow server to complete
+            sleep 3
           done
 
           cd -
