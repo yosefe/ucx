@@ -1,7 +1,7 @@
 resources:
   containers:
     - container: centos7
-      image: rdmz-harbor.rdmz.labs.mlnx/ucx/centos7:3
+      image: rdmz-harbor.rdmz.labs.mlnx/ucx/centos7:5
       options: -v /hpc/local:/hpc/local -v /auto/sw_tools:/auto/sw_tools
 
 stages:
