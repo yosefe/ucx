@@ -160,7 +160,7 @@ jobs:
           set -eEx
           pwd
           cd $(workspace)/test/apps/uct_info
-          $(System.DefaultWorkingDirectory)/$(workspace)/buildlib/check_tls.sh dc_mlx5 rc_mlx5 ud_mlx5 rc_verbs ud_verbs cma
+          LD_LIBRARY_PATH=$(System.DefaultWorkingDirectory)/$(workspace)/install/lib:$LD_LIBRARY_PATH $(System.DefaultWorkingDirectory)/$(workspace)/buildlib/check_tls.sh dc_mlx5 rc_mlx5 ud_mlx5 rc_verbs ud_verbs cma
           # Set port number for hello_world applications
           server_port=$((10000 + (1000 * EXECUTOR_NUMBER)))
           server_port_arg="-p $server_port"
