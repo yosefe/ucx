@@ -59,6 +59,8 @@ jobs:
           make -j`nproc`
           make install
           # build static modules
+          source ./buildlib/az-helpers.sh
+          az_init_modules
           module load dev/libnl
           module load dev/numactl
           PKG_CONFIG_PATH=$(Build.Repository.LocalPath)/install/lib/pkgconfig:$PKG_CONFIG_PATH make -C test/apps/uct_info EXTRA_MODULES="ucx-ib ucx-cma ucx-rdmacm"
