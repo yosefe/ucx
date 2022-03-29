@@ -55,7 +55,7 @@ jobs:
       - bash: |
           set -eEx
           ./autogen.sh
-          ./contrib/configure-devel --prefix=$(Build.Repository.LocalPath)/install
+          ./contrib/configure-devel --prefix=$(Build.Repository.LocalPath)/install --without-java
           make -j`nproc`
           make install
           # build static modules
@@ -132,3 +132,43 @@ jobs:
           initial_delay: $(initial_delay)
           ${{ if eq(variables['Build.Reason'], 'PullRequest') }}:
             analyzer_allow_list_args: '--allow_list $(System.PullRequest.TargetBranch)'
+
+  - job: test_static
+    dependsOn: io_build
+    workspace:
+      clean: all
+
+    pool:
+      name: MLNX
+      demands: ${{ parameters.demands }}
+
+    variables:
+      EXECUTOR_NUMBER: $(AZP_AGENT_ID)
+
+    displayName: "Test static "
+    steps:
+      - checkout: none
+        clean: true
+      - task: DownloadBuildArtifacts@0
+        displayName: 'Download Build Artifacts'
+        inputs:
+          artifactName: drop_$(Build.BuildId)
+          downloadPath: $(System.DefaultWorkingDirectory)
+      - bash: chmod u+rwx $(workspace) -R
+      - bash: |
+          set -eEx
+          cd test/apps/uct_info
+          $(System.DefaultWorkingDirectory)/buildlib/check_tls.sh dc_mlx5 rc_mlx5 ud_mlx5 rc_verbs ud_verbs cma
+          # Set port number for hello_world applications
+          server_port=$((10000 + (1000 * EXECUTOR_NUMBER)))
+          server_port_arg="-p $server_port"
+
+          for tls in tcp ib rc rc_v rc_x dc dc_x ud ud_v ud_x shm sm; do
+            echo UCX_TLS=$tls
+            UCX_TLS=$tls ./ucp_hello_world_static ${server_port_arg} &
+            # allow server to start
+            sleep 3
+            UCX_TLS=$tls ./ucp_hello_world_static ${server_port_arg} -n localhost
+          done
+
+          cd -
