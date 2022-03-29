@@ -58,7 +58,11 @@ jobs:
           ./contrib/configure-devel --prefix=$(Build.Repository.LocalPath)/install
           make -j`nproc`
           make install
-          make -C test/apps/uct_info EXTRA_MODULES="ucx-ib ucx-cma ucx-rdmacm"
+          module load dev/libnl
+          module load dev/numactl
+          PKG_CONFIG_PATH=$(Build.Repository.LocalPath)/install/lib/pkgconfig:$PKG_CONFIG_PATH make -C test/apps/uct_info EXTRA_MODULES="ucx-ib ucx-cma ucx-rdmacm"
+          module unload dev/numactl
+          module unload dev/libnl
         displayName: Build
         name: build
       - task: CopyFiles@2
