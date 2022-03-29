@@ -143,6 +143,7 @@ jobs:
       demands: ${{ parameters.demands }}
 
     variables:
+      workspace: drop_$(Build.BuildId)
       EXECUTOR_NUMBER: $(AZP_AGENT_ID)
 
     displayName: "Test static "
