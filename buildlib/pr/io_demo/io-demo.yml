@@ -144,7 +144,7 @@ jobs:
 
     variables:
       workspace: drop_$(Build.BuildId)
-      EXECUTOR_NUMBER: $(AZP_AGENT_ID)
+      EXECUTOR_NUMBER: $(Build.BuildId)
 
     displayName: "Test static "
     steps:
