@@ -162,10 +162,10 @@ jobs:
           cd $(workspace)/test/apps/uct_info
           LD_LIBRARY_PATH=$(System.DefaultWorkingDirectory)/$(workspace)/install/lib:$LD_LIBRARY_PATH $(System.DefaultWorkingDirectory)/$(workspace)/buildlib/check_tls.sh dc_mlx5 rc_mlx5 ud_mlx5 rc_verbs ud_verbs cma
           # Set port number for hello_world applications
-          server_port=$((10000 + (1000 * EXECUTOR_NUMBER)))
+          server_port=$((10000 + (EXECUTOR_NUMBER % 1000)))
           server_port_arg="-p $server_port"
 
-          for tls in tcp ib rc rc_v rc_x dc dc_x ud ud_v ud_x shm sm; do
+          for tls in ib rc rc_v rc_x dc dc_x ud ud_v ud_x shm sm tcp; do
             echo UCX_TLS=$tls
             UCX_TLS=$tls ./ucp_hello_world_static ${server_port_arg} &
             # allow server to start
