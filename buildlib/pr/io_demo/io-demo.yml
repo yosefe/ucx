@@ -166,7 +166,7 @@ jobs:
           server_port=$((10000 + (EXECUTOR_NUMBER % 1000)))
           server_port_arg="-p $server_port"
 
-          for tls in ib rc rc_v rc_x dc dc_x ud ud_v ud_x shm sm tcp; do
+          for tls in ib rc rc_x; do
             echo UCX_TLS=$tls
             UCX_TLS=$tls ./ucp_hello_world_static ${server_port_arg} &
             # allow server to start
