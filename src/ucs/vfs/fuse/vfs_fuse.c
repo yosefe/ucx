@@ -401,7 +401,7 @@ again:
         goto out_close;
     }
 
-    ucs_debug("connecting vfs socket %d to daemon on '%s'", connfd,
+    ucs_trace("connecting vfs socket %d to daemon on '%s'", connfd,
               un_addr.sun_path);
     ret = connect(connfd, (const struct sockaddr*)&un_addr, sizeof(un_addr));
     if (ret < 0) {
@@ -409,7 +409,7 @@ again:
          * path, to retry when the daemon is started.
          */
         if ((errno == ECONNREFUSED) || (errno == ENOENT)) {
-            ucs_debug("failed to connect to vfs socket '%s': %m",
+            ucs_trace("failed to connect to vfs socket '%s': %m",
                       un_addr.sun_path);
             status = ucs_vfs_fuse_wait_for_path(un_addr.sun_path);
             if (status == UCS_OK) {
