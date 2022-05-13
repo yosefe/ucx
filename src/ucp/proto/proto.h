@@ -50,6 +50,10 @@ typedef unsigned ucp_proto_id_t;
 typedef uint64_t ucp_proto_id_mask_t;
 
 
+/* Performance calculation tree node */
+typedef struct ucp_proto_perf_node ucp_proto_perf_node_t;
+
+
 /* Protocol stage ID */
 enum {
     /* Initial stage. All protocols start from this stage. */
@@ -68,7 +72,9 @@ enum {
     UCP_PROTO_FLAG_PUT_SHORT = UCS_BIT(1), /* The protocol uses only uct_ep_put_short() */
     UCP_PROTO_FLAG_TAG_SHORT = UCS_BIT(2), /* The protocol uses only
                                               uct_ep_tag_eager_short() */
-    UCP_PROTO_FLAG_INVALID   = UCS_BIT(3)  /* The protocol is a placeholder */
+    UCP_PROTO_FLAG_RNDV_ATS  = UCS_BIT(3), /* The protocol is rendezvous and sends
+                                              Ack-to-sender message when completed */
+    UCP_PROTO_FLAG_INVALID   = UCS_BIT(4)  /* The protocol is a placeholder */
 };
 
 
