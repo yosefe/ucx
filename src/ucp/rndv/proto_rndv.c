@@ -10,8 +10,8 @@
 
 #include "proto_rndv.inl"
 
-#include <ucp/proto/proto_init.h>
 #include <ucp/proto/proto_debug.h>
+#include <ucp/proto/proto_init.h>
 #include <ucp/proto/proto_common.inl>
 
 
@@ -66,8 +66,8 @@ ucp_proto_rndv_ctrl_get_md_map(const ucp_proto_rndv_ctrl_init_params_t *params,
             continue;
         }
 
-        ucs_trace_req("lane[%d]: selected md %s\n", lane,
-                      worker->context->tl_mds[md_index].rsc.md_name);
+        ucs_trace("lane[%d]: selected md %s index %u\n", lane,
+                  worker->context->tl_mds[md_index].rsc.md_name, md_index);
         *md_map |= UCS_BIT(md_index);
 
         if (ep_sys_dev >= UCP_MAX_SYS_DEVICES) {
@@ -82,6 +82,29 @@ ucp_proto_rndv_ctrl_get_md_map(const ucp_proto_rndv_ctrl_init_params_t *params,
                            mem_sys_dev, ep_sys_dev);
         ++sys_distance;
     }
+}
+
+static ucp_md_map_t
+ucp_proto_rndv_md_map_to_remote(const ucp_proto_rndv_ctrl_init_params_t *params,
+                                ucp_md_map_t md_map)
+{
+    ucp_worker_h worker   = params->super.super.worker;
+    ucp_context_h context = worker->context;
+    const ucp_ep_config_key_lane_t *lane_cfg;
+    const ucp_ep_config_t *ep_config;
+    uint64_t remote_md_map;
+
+    ep_config     = &worker->ep_config[params->super.super.ep_cfg_index];
+    remote_md_map = 0;
+
+    ucs_carray_for_each(lane_cfg, ep_config->key.lanes,
+                        ep_config->key.num_lanes) {
+        if (md_map & UCS_BIT(context->tl_rscs[lane_cfg->rsc_index].md_index)) {
+            remote_md_map |= UCS_BIT(lane_cfg->dst_md_index);
+        }
+    }
+
+    return remote_md_map;
 }
 
 /*
@@ -109,7 +132,8 @@ static ucs_status_t ucp_proto_rndv_ctrl_select_remote_proto(
      * buffer properties (since remote side is expected to access the local
      * buffer)
      */
-    rkey_config_key.md_map       = rpriv->md_map;
+    rkey_config_key.md_map       = ucp_proto_rndv_md_map_to_remote(params,
+                                                                   rpriv->md_map);
     rkey_config_key.ep_cfg_index = ep_cfg_index;
     rkey_config_key.sys_dev      = params->mem_info.sys_dev;
     rkey_config_key.mem_type     = params->mem_info.type;
@@ -124,6 +148,9 @@ static ucs_status_t ucp_proto_rndv_ctrl_select_remote_proto(
     if (status != UCS_OK) {
         return status;
     }
+
+    ucs_trace("rndv select remote protocol rkey_config->md_map=0x%" PRIx64,
+              rkey_config_key.md_map);
 
     rkey_config = &worker->rkey_config[rkey_cfg_index];
     select_elem = ucp_proto_select_lookup_slow(worker,
@@ -142,69 +169,37 @@ static ucs_status_t ucp_proto_rndv_ctrl_select_remote_proto(
 }
 
 ucs_status_t
-ucp_proto_rndv_ctrl_perf(const ucp_proto_init_params_t *params,
-                         ucp_lane_index_t lane, double *send_time,
-                         double *receive_time)
-{
-    ucp_context_t *context    = params->worker->context;
-    ucp_rsc_index_t rsc_index = params->ep_config_key->lanes[lane].rsc_index;
-    ucp_proto_perf_node_t *perf_node;
-    uct_perf_attr_t perf_attr;
-    ucs_status_t status;
-
-    if (lane == UCP_NULL_LANE) {
-        *send_time = *receive_time = 0;
-        return UCS_OK;
-    }
-
-    status = ucp_proto_common_lane_perf_attr(
-            ucp_worker_iface(params->worker, rsc_index), UCT_EP_OP_AM_BCOPY,
-            UCT_PERF_ATTR_FIELD_SEND_PRE_OVERHEAD |
-            UCT_PERF_ATTR_FIELD_SEND_POST_OVERHEAD |
-            UCT_PERF_ATTR_FIELD_RECV_OVERHEAD |
-            UCT_PERF_ATTR_FIELD_LATENCY,
-            &perf_attr, &perf_node);
-    if (status != UCS_OK) {
-        return status;
-    }
-
-    *send_time    = perf_attr.send_pre_overhead + perf_attr.send_post_overhead;
-    *receive_time = perf_attr.recv_overhead +
-                    ucp_tl_iface_latency(context, &perf_attr.latency);
-    ucp_proto_perf_node_deref(&perf_node);
-
-    return UCS_OK;
-}
-
-ucs_status_t
 ucp_proto_rndv_ctrl_init(const ucp_proto_rndv_ctrl_init_params_t *params)
 {
     ucp_context_h context             = params->super.super.worker->context;
     ucp_proto_rndv_ctrl_priv_t *rpriv = params->super.super.priv;
-    const ucp_proto_perf_range_t *parallel_stages[2];
+    ucp_proto_perf_range_t send_perf, xfer_perf, remote_perf;
+    ucp_proto_perf_node_t *memreg_perf_node, *tl_perf_node;
+    const ucp_proto_perf_range_t *parallel_stages[3];
     size_t min_length, max_length, range_max_length;
-    ucp_proto_perf_range_t ctrl_perf, remote_perf;
     const ucp_proto_select_param_t *select_param;
     ucp_proto_select_param_t remote_select_param;
-    const ucp_proto_perf_range_t *remote_range;
-    ucp_proto_perf_node_t *memreg_perf_node;
-    double send_time, receive_time;
-    ucs_linear_func_t memreg_time;
+    ucp_proto_perf_range_t *remote_range;
+    ucp_proto_common_tl_perf_t tl_perf;
+    ucs_linear_func_t send_overhead;
     ucp_memory_info_t mem_info;
+    const char *rndv_op_name;
     ucs_status_t status;
-    double ctrl_latency;
     uint16_t op_flags;
 
     ucs_assert(params->super.flags & UCP_PROTO_COMMON_INIT_FLAG_RESPONSE);
     ucs_assert(!(params->super.flags & UCP_PROTO_COMMON_INIT_FLAG_SINGLE_FRAG));
+    ucs_assert(params->super.send_op == UCT_EP_OP_AM_BCOPY);
 
+    rndv_op_name                   = ucp_operation_names[params->remote_op_id];
     select_param                   = params->super.super.select_param;
     *params->super.super.priv_size = sizeof(ucp_proto_rndv_ctrl_priv_t);
 
     /* Find lane to send the initial message */
     rpriv->lane = ucp_proto_common_find_am_bcopy_hdr_lane(&params->super.super);
     if (rpriv->lane == UCP_NULL_LANE) {
-        return UCS_ERR_NO_ELEM;
+        status = UCS_ERR_NO_ELEM;
+        goto out;
     }
 
     op_flags = UCP_PROTO_SELECT_OP_FLAG_INTERNAL |
@@ -224,8 +219,8 @@ ucp_proto_rndv_ctrl_init(const ucp_proto_rndv_ctrl_init_params_t *params)
         mem_info.sys_dev = params->super.super.rkey_config_key->sys_dev;
         mem_info.type    = params->super.super.rkey_config_key->mem_type;
         ucp_proto_select_param_init(&remote_select_param, params->remote_op_id,
-                                    0, UCP_PROTO_SELECT_OP_FLAG_INTERNAL,
-                                    UCP_DATATYPE_CONTIG, &mem_info, 1);
+                                    0, op_flags, UCP_DATATYPE_CONTIG, &mem_info,
+                                    1);
     }
 
     /* Initialize estimated memory registration map */
@@ -240,41 +235,61 @@ ucp_proto_rndv_ctrl_init(const ucp_proto_rndv_ctrl_init_params_t *params)
                                                      &remote_select_param,
                                                      rpriv);
     if (status != UCS_OK) {
-        return status;
+        goto out;
     }
 
     if (!ucp_proto_select_get_valid_range(rpriv->remote_proto.thresholds,
                                           &min_length, &max_length)) {
-        return UCS_ERR_UNSUPPORTED;
+        status = UCS_ERR_UNSUPPORTED;
+        goto out;
     }
 
-    max_length = ucs_min(params->super.max_length, max_length);
+    send_perf.node = ucp_proto_perf_node_new_data("overhead", "");
+    xfer_perf.node = ucp_proto_perf_node_new_data(params->ctrl_msg_name, "");
 
-    ucs_assert(params->super.send_op == UCT_EP_OP_AM_BCOPY);
     /* Set send_overheads to the time to send and receive RTS message */
-    status = ucp_proto_rndv_ctrl_perf(&params->super.super, rpriv->lane,
-                                      &send_time, &receive_time);
+    status = ucp_proto_common_get_lane_perf(&params->super, rpriv->lane,
+                                            &tl_perf, &tl_perf_node);
     if (status != UCS_OK) {
-        return status;
+        goto out_deref_perf_nodes;
     }
 
-    ucp_proto_common_memreg_time(&params->super, rpriv->md_map, &memreg_time,
-                                 &memreg_perf_node);
-    ucp_proto_perf_node_deref(&memreg_perf_node);
+    if (params->super.flags & UCP_PROTO_COMMON_INIT_FLAG_SEND_ZCOPY) {
+        ucp_proto_common_memreg_time(&params->super, rpriv->md_map,
+                                     &send_overhead, &memreg_perf_node);
+        ucp_proto_perf_node_own_child(send_perf.node, &memreg_perf_node);
+    } else {
+        ucs_assertv(rpriv->md_map, "md_map=%" PRIx64, rpriv->md_map);
+        send_overhead = UCS_LINEAR_FUNC_ZERO;
+    }
 
-    ctrl_latency = send_time + receive_time + params->super.overhead * 2;
-    ucs_trace("rndv" UCP_PROTO_TIME_FMT(ctrl_latency),
-              UCP_PROTO_TIME_ARG(ctrl_latency));
-    ctrl_perf.perf[UCP_PROTO_PERF_TYPE_SINGLE] =
-    ctrl_perf.perf[UCP_PROTO_PERF_TYPE_MULTI]  = ucs_linear_func_add3(
-            memreg_time, ucs_linear_func_make(ctrl_latency, 0.0),
-            params->unpack_time);
-    ctrl_perf.node                             = NULL;
+    /* Add constant CPU overhead */
+    send_overhead.c                             += tl_perf.send_pre_overhead;
+    send_perf.perf[UCP_PROTO_PERF_TYPE_SINGLE]   = send_overhead;
+    send_perf.perf[UCP_PROTO_PERF_TYPE_MULTI]    = send_overhead;
+    send_perf.perf[UCP_PROTO_PERF_TYPE_MULTI].c += tl_perf.send_post_overhead;
+    ucp_proto_perf_add(send_perf.perf, params->unpack_time);
+    ucp_proto_perf_range_add_data(&send_perf);
+    ucp_proto_perf_node_add_child(send_perf.node, params->unpack_perf_node);
+    ucp_proto_perf_node_add_child(send_perf.node, tl_perf_node);
+
+    /* Calculate transport time */
+    xfer_perf.perf[UCP_PROTO_PERF_TYPE_SINGLE].m = 0;
+    xfer_perf.perf[UCP_PROTO_PERF_TYPE_SINGLE].c = tl_perf.latency +
+                                                   tl_perf.sys_latency;
+    xfer_perf.perf[UCP_PROTO_PERF_TYPE_MULTI]    = UCS_LINEAR_FUNC_ZERO;
+    xfer_perf.max_length                         = SIZE_MAX;
+    ucp_proto_perf_range_add_data(&xfer_perf);
+    ucp_proto_perf_node_add_child(xfer_perf.node, tl_perf_node);
+
+    /* Release dangling reference to tl_perf_node */
+    ucp_proto_perf_node_deref(&tl_perf_node);
 
     /* Set rendezvous protocol properties */
     ucp_proto_common_init_base_caps(&params->super, min_length);
 
     /* Copy performance ranges from the remote protocol, and add overheads */
+    max_length   = ucs_min(params->super.max_length, max_length);
     remote_range = rpriv->remote_proto.perf_ranges;
     do {
         range_max_length = ucs_min(remote_range->max_length, max_length);
@@ -287,23 +302,40 @@ ucp_proto_rndv_ctrl_init(const ucp_proto_rndv_ctrl_init_params_t *params)
                   ucp_operation_names[params->remote_op_id],
                   ucp_proto_perf_node_name(remote_range->node),
                   UCP_PROTO_PERF_FUNC_TYPES_ARG(remote_range->perf));
-        remote_perf      = *remote_range;
-        remote_perf.node = NULL;
 
-        parallel_stages[0] = &ctrl_perf;
-        parallel_stages[1] = &remote_perf;
+        /* remote_perf->node ---> remote_range->node */
+        remote_perf.node       = ucp_proto_perf_node_new_data(rndv_op_name, "");
+        remote_perf.max_length = remote_range->max_length;
+        ucp_proto_perf_copy(remote_perf.perf, remote_range->perf);
+        ucp_proto_perf_add(remote_perf.perf,
+                           ucs_linear_func_make(tl_perf.recv_overhead, 0.0));
+        ucp_proto_perf_range_add_data(&remote_perf);
+        ucp_proto_perf_node_add_child(remote_perf.node, remote_range->node);
+
+        parallel_stages[0] = &send_perf;
+        parallel_stages[1] = &xfer_perf;
+        parallel_stages[2] = &remote_perf;
+
         status = ucp_proto_init_parallel_stages(&params->super.super,
                                                 min_length, range_max_length,
                                                 SIZE_MAX, params->perf_bias,
-                                                parallel_stages, 2);
+                                                parallel_stages, 3);
         if (status != UCS_OK) {
-            return status;
+            goto out_deref_perf_nodes;
         }
+
+        ucp_proto_perf_node_deref(&remote_perf.node);
 
         min_length = range_max_length - 1;
     } while ((remote_range++)->max_length < max_length);
 
-    return UCS_OK;
+    status = UCS_OK;
+
+out_deref_perf_nodes:
+    ucp_proto_perf_node_deref(&send_perf.node);
+    ucp_proto_perf_node_deref(&xfer_perf.node);
+out:
+    return status;
 }
 
 ucs_status_t ucp_proto_rndv_rts_init(const ucp_proto_init_params_t *init_params)
@@ -324,12 +356,14 @@ ucs_status_t ucp_proto_rndv_rts_init(const ucp_proto_init_params_t *init_params)
         .super.hdr_size      = 0,
         .super.send_op       = UCT_EP_OP_AM_BCOPY,
         .super.memtype_op    = UCT_EP_OP_LAST,
-        .super.flags         = UCP_PROTO_COMMON_INIT_FLAG_RESPONSE,
+        .super.flags         = UCP_PROTO_COMMON_INIT_FLAG_RESPONSE |
+                               UCP_PROTO_COMMON_INIT_FLAG_SEND_ZCOPY,
         .remote_op_id        = UCP_OP_ID_RNDV_RECV,
         .unpack_time         = UCS_LINEAR_FUNC_ZERO,
         .perf_bias           = context->config.ext.rndv_perf_diff / 100.0,
         .mem_info.type       = init_params->select_param->mem_type,
-        .mem_info.sys_dev    = init_params->select_param->sys_dev
+        .mem_info.sys_dev    = init_params->select_param->sys_dev,
+        .ctrl_msg_name       = "RTS"
     };
 
     return ucp_proto_rndv_ctrl_init(&params);
@@ -363,86 +397,130 @@ void ucp_proto_rndv_rts_abort(ucp_request_t *req, ucs_status_t status)
     ucp_request_complete_send(req, status);
 }
 
-static ucs_status_t
-ucp_proto_rndv_ack_perf(const ucp_proto_init_params_t *init_params,
-                        ucp_lane_index_t lane, ucs_linear_func_t *ack_perf)
-{
-    double send_time, receive_time;
-    ucs_status_t status;
-
-    status = ucp_proto_rndv_ctrl_perf(init_params, lane, &send_time,
-                                      &receive_time);
-    if (status != UCS_OK) {
-        return status;
-    }
-
-    ack_perf[UCP_PROTO_PERF_TYPE_SINGLE] =
-            ucs_linear_func_make(send_time + receive_time, 0);
-    ack_perf[UCP_PROTO_PERF_TYPE_MULTI] = ucs_linear_func_make(send_time, 0);
-
-    return UCS_OK;
-}
-
 ucs_status_t ucp_proto_rndv_ack_init(const ucp_proto_init_params_t *init_params,
+                                     const char *name,
+                                     const ucp_proto_caps_t *bulk_caps,
+                                     ucs_linear_func_t overhead,
                                      ucp_proto_rndv_ack_priv_t *apriv)
 {
-    ucp_proto_caps_t *caps = init_params->caps;
-    ucs_linear_func_t ack_perf[UCP_PROTO_PERF_TYPE_LAST];
-    ucp_proto_perf_type_t perf_type;
+    ucp_proto_common_init_params_t ack_params = {
+        .super         = *init_params,
+        .latency       = 0,
+        .overhead      = 0,
+        .cfg_thresh    = UCS_MEMUNITS_AUTO,
+        .cfg_priority  = 0,
+        .min_length    = 0,
+        .max_length    = SIZE_MAX,
+        .min_frag_offs = UCP_PROTO_COMMON_OFFSET_INVALID,
+        .max_frag_offs = UCP_PROTO_COMMON_OFFSET_INVALID,
+        .max_iov_offs  = UCP_PROTO_COMMON_OFFSET_INVALID,
+        .hdr_size      = 0,
+        .send_op       = UCT_EP_OP_AM_BCOPY,
+        .memtype_op    = UCT_EP_OP_LAST,
+        .flags         = 0
+    };
+    ucp_proto_perf_node_t *tl_perf_node, *ack_perf_node;
+    ucs_linear_func_t ack_overhead, ack_latency;
+    const ucp_proto_perf_range_t *bulk_range;
+    ucp_proto_common_tl_perf_t tl_perf;
+    ucp_proto_perf_range_t *range;
     ucs_status_t status;
     unsigned i;
 
-    if (ucp_proto_rndv_init_params_is_ppln_frag(init_params)) {
-        /* Not sending ACK */
-        apriv->lane = UCP_NULL_LANE;
-    } else {
-        apriv->lane = ucp_proto_common_find_am_bcopy_hdr_lane(init_params);
-        if (apriv->lane == UCP_NULL_LANE) {
-            return UCS_ERR_NO_ELEM;
-        }
+    ucs_assert(!ucp_proto_rndv_init_params_is_ppln_frag(init_params));
+
+    /* Copy basic capabilities from bulk protocol */
+    init_params->caps->cfg_thresh   = bulk_caps->cfg_thresh;
+    init_params->caps->cfg_priority = bulk_caps->cfg_priority;
+    init_params->caps->min_length   = bulk_caps->min_length;
+    init_params->caps->num_ranges   = bulk_caps->num_ranges;
+
+    apriv->lane = ucp_proto_common_find_am_bcopy_hdr_lane(init_params);
+    if (apriv->lane == UCP_NULL_LANE) {
+        return UCS_ERR_NO_ELEM;
     }
 
-    status = ucp_proto_rndv_ack_perf(init_params, apriv->lane, ack_perf);
+    status = ucp_proto_common_get_lane_perf(&ack_params, apriv->lane, &tl_perf,
+                                            &tl_perf_node);
     if (status != UCS_OK) {
         return status;
     }
 
-    for (i = 0; i < caps->num_ranges; ++i) {
-        for (perf_type = 0; perf_type < UCP_PROTO_PERF_TYPE_LAST; ++perf_type) {
-            ucs_linear_func_add_inplace(&caps->ranges[i].perf[perf_type],
-                                        ack_perf[perf_type]);
-            ucs_trace("range[%d] %s" UCP_PROTO_PERF_FUNC_FMT(ack)
-                      UCP_PROTO_PERF_FUNC_FMT(total),
-                      i, ucp_proto_perf_type_names[perf_type],
-                      UCP_PROTO_PERF_FUNC_ARG(&ack_perf[perf_type]),
-                      UCP_PROTO_PERF_FUNC_ARG(&caps->ranges[i].perf[perf_type]));
-        }
+    ack_overhead.c = overhead.c + tl_perf.send_pre_overhead +
+                     tl_perf.send_post_overhead + tl_perf.recv_overhead;
+    ack_overhead.m = overhead.m;
+    ack_latency.c  = tl_perf.latency + tl_perf.sys_latency;
+    ack_latency.m  = 0;
+
+    ack_perf_node = ucp_proto_perf_node_new_data(name, "");
+    ucp_proto_perf_node_add_data(ack_perf_node, "ovrh", &ack_overhead);
+    ucp_proto_perf_node_add_data(ack_perf_node, "lat", &ack_latency);
+    ucp_proto_perf_node_own_child(ack_perf_node, &tl_perf_node);
+
+    /* Create ranges by adding latency and overhead to bulk protocol ranges */
+    for (i = 0; i < bulk_caps->num_ranges; ++i) {
+        bulk_range = &bulk_caps->ranges[i];
+        range      = &init_params->caps->ranges[i];
+
+        range->max_length = bulk_range->max_length;
+
+        range->perf[UCP_PROTO_PERF_TYPE_SINGLE] = ucs_linear_func_add3(
+                ack_overhead, ack_latency,
+                bulk_range->perf[UCP_PROTO_PERF_TYPE_SINGLE]);
+        range->perf[UCP_PROTO_PERF_TYPE_MULTI]  = ucs_linear_func_add(
+                ack_overhead, bulk_range->perf[UCP_PROTO_PERF_TYPE_MULTI]);
+
+        range->node = ucp_proto_perf_node_new_data(init_params->proto_name, "");
+        ucp_proto_perf_range_add_data(range);
+        ucp_proto_perf_node_add_child(range->node, ack_perf_node);
+        ucp_proto_perf_node_add_child(range->node, bulk_range->node);
+
+        ucs_trace("range[%u] ack" UCP_PROTO_PERF_FUNC_TYPES_FMT, i,
+                  UCP_PROTO_PERF_FUNC_TYPES_ARG(range->perf));
     }
+
+    ucp_proto_perf_node_deref(&ack_perf_node);
 
     return UCS_OK;
 }
 
 ucs_status_t
 ucp_proto_rndv_bulk_init(const ucp_proto_multi_init_params_t *init_params,
-                         ucp_proto_rndv_bulk_priv_t *rpriv, size_t *priv_size_p)
+                         ucp_proto_rndv_bulk_priv_t *rpriv, const char *name,
+                         const char *ack_name, size_t *priv_size_p)
 {
+    ucp_proto_multi_init_params_t bulk_params;
+    ucp_proto_caps_t multi_caps;
     ucs_status_t status;
     size_t mpriv_size;
 
-    status = ucp_proto_multi_init(init_params, &rpriv->mpriv, &mpriv_size);
-    if (status != UCS_OK) {
-        return status;
-    }
+    bulk_params                        = *init_params;
+    bulk_params.super.super.proto_name = name;
+    bulk_params.super.super.caps       = &multi_caps;
 
-    /* Add ack latency */
-    status = ucp_proto_rndv_ack_init(&init_params->super.super, &rpriv->super);
+    status = ucp_proto_multi_init(&bulk_params, &rpriv->mpriv, &mpriv_size);
     if (status != UCS_OK) {
         return status;
     }
 
     /* Update private data size based of ucp_proto_multi_priv_t variable size */
     *priv_size_p = ucs_offsetof(ucp_proto_rndv_bulk_priv_t, mpriv) + mpriv_size;
-    return UCS_OK;
+
+    if (ucp_proto_rndv_init_params_is_ppln_frag(&init_params->super.super)) {
+        /* Not sending ACK - copy ranges as-is */
+        rpriv->super.lane = UCP_NULL_LANE;
+        ucp_proto_select_caps_copy(init_params->super.super.caps, &multi_caps);
+        status = UCS_OK;
+    } else {
+        /* Add ack latency */
+        status = ucp_proto_rndv_ack_init(&init_params->super.super, ack_name,
+                                         &multi_caps, UCS_LINEAR_FUNC_ZERO,
+                                         &rpriv->super);
+    }
+
+    ucp_proto_select_caps_cleanup(&multi_caps);
+
+    return status;
 }
 
 static size_t ucp_proto_rndv_ats_pack_ack(void *dest, void *arg)
