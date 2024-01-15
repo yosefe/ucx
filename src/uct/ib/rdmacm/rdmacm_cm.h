@@ -13,19 +13,20 @@
 #include <ucs/datastruct/khash.h>
 
 
-KHASH_MAP_INIT_INT64(uct_rdmacm_cm_cqs, struct ibv_cq*);
+KHASH_MAP_INIT_INT64(uct_rdmacm_cm_device_contexts,
+                     struct uct_rdmacm_cm_device_context*);
 
 
 /**
  * An rdmacm connection manager
  */
 typedef struct uct_rdmacm_cm {
-    uct_cm_t                   super;
-    struct rdma_event_channel  *ev_ch;
-    khash_t(uct_rdmacm_cm_cqs) cqs;
+    uct_cm_t                               super;
+    struct rdma_event_channel              *ev_ch;
+    khash_t(uct_rdmacm_cm_device_contexts) ctxs;
 
     struct {
-        struct sockaddr        *src_addr;
+        struct sockaddr                    *src_addr;
     } config;
 } uct_rdmacm_cm_t;
 
@@ -34,6 +35,12 @@ typedef struct uct_rdmacm_cm_config {
     uct_cm_config_t            super;
     char                       *src_addr;
 } uct_rdmacm_cm_config_t;
+
+
+typedef struct uct_rdmacm_cm_device_context {
+    struct ibv_cq *cq;
+    uint8_t       eth_ports;
+} uct_rdmacm_cm_device_context_t;
 
 
 UCS_CLASS_DECLARE_NEW_FUNC(uct_rdmacm_cm_t, uct_cm_t, uct_component_h,
@@ -55,8 +62,10 @@ ucs_status_t uct_rdmacm_cm_ack_event(struct rdma_cm_event *event);
 
 ucs_status_t uct_rdmacm_cm_reject(struct rdma_cm_id *id);
 
-ucs_status_t uct_rdmacm_cm_get_cq(uct_rdmacm_cm_t *cm, struct ibv_context *verbs,
-                                  struct ibv_cq **cq);
+ucs_status_t
+uct_rdmacm_cm_get_device_context(uct_rdmacm_cm_t *cm,
+                                 struct ibv_context *verbs,
+                                 uct_rdmacm_cm_device_context_t **ctx_p);
 
 void uct_rdmacm_cm_cqs_cleanup(uct_rdmacm_cm_t *cm);
 

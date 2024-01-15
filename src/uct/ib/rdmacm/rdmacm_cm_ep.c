@@ -195,17 +195,17 @@ ucs_status_t
 uct_rdamcm_cm_ep_set_qp_num(struct rdma_conn_param *conn_param,
                             uct_rdmacm_cm_ep_t *cep)
 {
-    struct ibv_cq *cq;
+    uct_rdmacm_cm_device_context_t *ctx;
     ucs_status_t status;
 
-    status = uct_rdmacm_cm_get_cq(uct_rdmacm_cm_ep_get_cm(cep), cep->id->verbs,
-                                  &cq);
+    status = uct_rdmacm_cm_get_device_context(uct_rdmacm_cm_ep_get_cm(cep),
+                                              cep->id->verbs, &ctx);
     if (status != UCS_OK) {
         return status;
     }
 
     /* create a dummy qp in order to get a unique qp_num to provide to librdmacm */
-    status = uct_rdmacm_cm_create_dummy_qp(cep->id, cq, &cep->qp);
+    status = uct_rdmacm_cm_create_dummy_qp(cep->id, ctx->cq, &cep->qp);
     if (status != UCS_OK) {
         return status;
     }

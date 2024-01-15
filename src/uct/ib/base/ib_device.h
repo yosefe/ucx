@@ -38,6 +38,7 @@
 #define UCT_IB_MAX_MESSAGE_SIZE           (2UL << 30) /* Maximal IB message size */
 #define UCT_IB_PKEY_PARTITION_MASK        0x7fff /* IB partition number mask */
 #define UCT_IB_PKEY_MEMBERSHIP_MASK       0x8000 /* Full/send-only member */
+#define UCT_IB_FIRST_PORT                 1
 #define UCT_IB_DEV_MAX_PORTS              2
 #define UCT_IB_FABRIC_TIME_MAX            32
 #define UCT_IB_INVALID_RKEY               0xffffffffu

@@ -61,52 +61,114 @@ ucs_status_t uct_rdmacm_cm_reject(struct rdma_cm_id *id)
     return UCS_OK;
 }
 
-ucs_status_t uct_rdmacm_cm_get_cq(uct_rdmacm_cm_t *cm, struct ibv_context *verbs,
-                                  struct ibv_cq **cq_p)
+static ucs_status_t
+uct_rdmacm_cm_device_context_init(uct_rdmacm_cm_device_context_t *ctx,
+                                  uct_rdmacm_cm_t *cm,
+                                  struct ibv_context *verbs)
 {
-    struct ibv_cq *cq;
+    const char *dev_name = ibv_get_device_name(verbs->device);
+    struct ibv_port_attr port_attr;
+    struct ibv_device_attr dev_attr;
+    int ret;
+    int i;
+
+    ret = ibv_query_device(verbs, &dev_attr);
+    if (ret != 0) {
+        ucs_error("ibv_query_device(%s) failed: %m", dev_name);
+        return UCS_ERR_IO_ERROR;
+    }
+
+    ctx->eth_ports = 0;
+    for (i = 0; i < dev_attr.phys_port_cnt; ++i) {
+        ret = ibv_query_port(verbs, i + UCT_IB_FIRST_PORT, &port_attr);
+        if (ret != 0) {
+            ucs_error("ibv_query_port (%s) failed: %m", dev_name);
+            return UCS_ERR_IO_ERROR;
+        }
+
+        if (IBV_PORT_IS_LINK_LAYER_ETHERNET(&port_attr)) {
+            ctx->eth_ports |= UCS_BIT(i);
+        }
+    }
+
+    /* Create a dummy completion queue */
+    ctx->cq = ibv_create_cq(verbs, 1, NULL, NULL, 0);
+    if (ctx->cq == NULL) {
+        ucs_error("ibv_create_cq(%s) failed: %m", dev_name);
+        return UCS_ERR_IO_ERROR;
+    }
+
+    return UCS_OK;
+}
+
+ucs_status_t
+uct_rdmacm_cm_get_device_context(uct_rdmacm_cm_t *cm, struct ibv_context *verbs,
+                                 uct_rdmacm_cm_device_context_t **ctx_p)
+{
+    uct_rdmacm_cm_device_context_t *ctx;
+    ucs_status_t status;
     khiter_t iter;
     int ret;
 
-    iter = kh_put(uct_rdmacm_cm_cqs, &cm->cqs,
+    iter = kh_put(uct_rdmacm_cm_device_contexts, &cm->ctxs,
                   ibv_get_device_guid(verbs->device), &ret);
     if (ret == -1) {
-        ucs_error("cm %p: cannot allocate hash entry for CQ", cm);
-        return UCS_ERR_NO_MEMORY;
+        ucs_error("cm %p: cannot allocate hash entry for device context", cm);
+        status = UCS_ERR_NO_MEMORY;
+        goto out;
     }
 
     if (ret == 0) {
         /* already exists so use it */
-        cq = kh_value(&cm->cqs, iter);
+        ctx = kh_value(&cm->ctxs, iter);
     } else {
-        /* Create a dummy completion queue */
-        cq = ibv_create_cq(verbs, 1, NULL, NULL, 0);
-        if (cq == NULL) {
-            kh_del(uct_rdmacm_cm_cqs, &cm->cqs, iter);
-            ucs_error("ibv_create_cq() failed: %m");
-            return UCS_ERR_IO_ERROR;
+        /* Create a qp context */
+        ctx = ucs_malloc(sizeof(*ctx), "rdmacm_device_context");
+        if (ctx == NULL) {
+            ucs_error("cm %p: failed to allocate device context", cm);
+            status = UCS_ERR_NO_MEMORY;
+            goto err_kh_del;
         }
 
-        kh_value(&cm->cqs, iter) = cq;
+        status = uct_rdmacm_cm_device_context_init(ctx, cm, verbs);
+        if (status != UCS_OK) {
+            goto err_free_ctx;
+        }
+
+        kh_value(&cm->ctxs, iter) = ctx;
     }
 
-    *cq_p = cq;
+    *ctx_p = ctx;
     return UCS_OK;
+err_free_ctx:
+    ucs_free(ctx);
+err_kh_del:
+    kh_del(uct_rdmacm_cm_device_contexts, &cm->ctxs, iter);
+out:
+    return status;
 }
 
-void uct_rdmacm_cm_cqs_cleanup(uct_rdmacm_cm_t *cm)
+static void
+uct_rdmacm_cm_device_context_cleanup(uct_rdmacm_cm_device_context_t *ctx)
 {
-    struct ibv_cq *cq;
     int ret;
 
-    kh_foreach_value(&cm->cqs, cq, {
-        ret = ibv_destroy_cq(cq);
-        if (ret != 0) {
-            ucs_warn("ibv_destroy_cq() returned %d: %m", ret);
-        }
+    ret = ibv_destroy_cq(ctx->cq);
+    if (ret != 0) {
+        ucs_warn("ibv_destroy_cq() returned %d: %m", ret);
+    }
+}
+
+static void uct_rdmacm_cm_cleanup_devices(uct_rdmacm_cm_t *cm)
+{
+    uct_rdmacm_cm_device_context_t *ctx;
+
+    kh_foreach_value(&cm->ctxs, ctx, {
+        uct_rdmacm_cm_device_context_cleanup(ctx);
+        ucs_free(ctx);
     });
 
-    kh_destroy_inplace(uct_rdmacm_cm_cqs, &cm->cqs);
+    kh_destroy_inplace(uct_rdmacm_cm_device_contexts, &cm->ctxs);
 }
 
 size_t uct_rdmacm_cm_get_max_conn_priv()
@@ -186,20 +248,21 @@ static void uct_rdmacm_cm_handle_event_route_resolved(struct rdma_cm_event *even
     }
 }
 
-static ucs_status_t uct_rdmacm_cm_id_to_dev_addr(struct rdma_cm_id *cm_id,
+static ucs_status_t uct_rdmacm_cm_id_to_dev_addr(uct_rdmacm_cm_t *cm,
+                                                 struct rdma_cm_id *cm_id,
                                                  uct_device_addr_t **dev_addr_p,
                                                  size_t *dev_addr_len_p)
 {
+    uct_rdmacm_cm_device_context_t *ctx;
     char rdmacm_gid_str[64], qp_attr_gid_str[64];
-    struct ibv_port_attr port_attr;
     uct_ib_address_t *dev_addr;
     struct ibv_qp_attr qp_attr;
     size_t addr_length;
     int qp_attr_mask;
-    char dev_name[UCT_DEVICE_NAME_MAX];
     uct_ib_roce_version_info_t roce_info;
     unsigned address_pack_flags;
     union ibv_gid gid;
+    ucs_status_t status;
     int ret;
 
     /* get the qp attributes in order to modify the qp state.
@@ -214,10 +277,9 @@ static ucs_status_t uct_rdmacm_cm_id_to_dev_addr(struct rdma_cm_id *cm_id,
         return UCS_ERR_IO_ERROR;
     }
 
-    if (ibv_query_port(cm_id->verbs, cm_id->port_num, &port_attr)) {
-        uct_rdmacm_cm_id_to_dev_name(cm_id, dev_name);
-        ucs_error("ibv_query_port (%s) failed: %m", dev_name);
-        return UCS_ERR_IO_ERROR;
+    status = uct_rdmacm_cm_get_device_context(cm, cm_id->pd->context, &ctx);
+    if (status != UCS_OK) {
+        return status;
     }
 
     /* Print diagnostic if gid does not match */
@@ -231,7 +293,7 @@ static ucs_status_t uct_rdmacm_cm_id_to_dev_addr(struct rdma_cm_id *cm_id,
                                qp_attr_gid_str, sizeof(qp_attr_gid_str)));
     }
 
-    if (IBV_PORT_IS_LINK_LAYER_ETHERNET(&port_attr)) {
+    if (ctx->eth_ports & UCS_BIT(cm_id->port_num - UCT_IB_FIRST_PORT)) {
         /* Ethernet address */
         ucs_assert(qp_attr.ah_attr.is_global);
         gid                = qp_attr.ah_attr.grh.dgid;
@@ -275,7 +337,9 @@ static ucs_status_t uct_rdmacm_cm_id_to_dev_addr(struct rdma_cm_id *cm_id,
     return UCS_OK;
 }
 
-static void uct_rdmacm_cm_handle_event_connect_request(struct rdma_cm_event *event)
+static void
+uct_rdmacm_cm_handle_event_connect_request(uct_rdmacm_cm_t *cm,
+                                           struct rdma_cm_event *event)
 {
     uct_rdmacm_priv_data_hdr_t          *hdr      = (uct_rdmacm_priv_data_hdr_t *)
                                                     event->param.conn.private_data;
@@ -293,7 +357,8 @@ static void uct_rdmacm_cm_handle_event_connect_request(struct rdma_cm_event *eve
 
     uct_rdmacm_cm_id_to_dev_name(event->id, dev_name);
 
-    status = uct_rdmacm_cm_id_to_dev_addr(event->id, &dev_addr, &addr_length);
+    status = uct_rdmacm_cm_id_to_dev_addr(cm, event->id, &dev_addr,
+                                          &addr_length);
     if (status != UCS_OK) {
         goto err;
     }
@@ -364,7 +429,8 @@ static void uct_rdmacm_cm_handle_event_connect_response(struct rdma_cm_event *ev
     remote_data.conn_priv_data        = hdr + 1;
     remote_data.conn_priv_data_length = hdr->length;
 
-    status = uct_rdmacm_cm_id_to_dev_addr(event->id, &dev_addr, &addr_length);
+    status = uct_rdmacm_cm_id_to_dev_addr(uct_rdmacm_cm_ep_get_cm(cep),
+                                          event->id, &dev_addr, &addr_length);
     if (status != UCS_OK) {
         ucs_error("%s: client (ep=%p id=%p) failed to process a connect response",
                   uct_rdmacm_cm_ep_str(cep, ep_str, UCT_RDMACM_EP_STRING_LEN),
@@ -487,7 +553,7 @@ uct_rdmacm_cm_process_event(uct_rdmacm_cm_t *cm, struct rdma_cm_event *event)
         break;
     case RDMA_CM_EVENT_CONNECT_REQUEST:
         /* Server side event */
-        uct_rdmacm_cm_handle_event_connect_request(event);
+        uct_rdmacm_cm_handle_event_connect_request(cm, event);
         /* The server will ack the event after accepting/rejecting the request
          * (in ep_create). */
         ack_event = 0;
@@ -651,9 +717,9 @@ UCS_CLASS_INIT_FUNC(uct_rdmacm_cm_t, uct_component_h component,
                               &uct_rdmacm_cm_iface_ops, worker, component,
                               config);
 
-    kh_init_inplace(uct_rdmacm_cm_cqs, &self->cqs);
+    kh_init_inplace(uct_rdmacm_cm_device_contexts, &self->ctxs);
 
-    self->ev_ch  = rdma_create_event_channel();
+    self->ev_ch = rdma_create_event_channel();
     if (self->ev_ch == NULL) {
         ucs_error("rdma_create_event_channel failed: %m");
         status = UCS_ERR_IO_ERROR;
@@ -711,7 +777,7 @@ UCS_CLASS_CLEANUP_FUNC(uct_rdmacm_cm_t)
 
     ucs_trace("destroying event_channel %p on cm %p", self->ev_ch, self);
     rdma_destroy_event_channel(self->ev_ch);
-    uct_rdmacm_cm_cqs_cleanup(self);
+    uct_rdmacm_cm_cleanup_devices(self);
 }
 
 UCS_CLASS_DEFINE(uct_rdmacm_cm_t, uct_cm_t);
