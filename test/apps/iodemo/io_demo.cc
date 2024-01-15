@@ -8,13 +8,17 @@
 
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <ifaddrs.h>
 #include <sys/time.h>
-#include <iostream>
 #include <string.h>
 #include <getopt.h>
 #include <assert.h>
 #include <unistd.h>
 #include <cstdlib>
+#include <dlfcn.h>
+#include <pthread.h>
+
+#include <iostream>
 #include <ctime>
 #include <csignal>
 #include <cerrno>
@@ -23,8 +27,6 @@
 #include <queue>
 #include <algorithm>
 #include <limits>
-#include <malloc.h>
-#include <dlfcn.h>
 #include <set>
 
 #define ALIGNMENT           4096
@@ -83,6 +85,7 @@ typedef struct {
     std::vector<const char*> src_addrs;
     bool                     prereg;
     bool                     per_conn_info;
+    bool                     warmup;
 } options_t;
 
 #define LOG_PREFIX  "[DEMO]"
@@ -668,7 +671,7 @@ protected:
         snprintf(msg, sizeof(msg), "Run-time signal handling: %d\n", signo);
         ret = write(STDOUT_FILENO, msg, strlen(msg) + 1);
 
-        _status = TERMINATE_SIGNALED;
+        _sig_status.set(TERMINATE_SIGNALED);
     }
 
     P2pDemoCommon(const options_t &test_opts, uint32_t iov_buf_filler) :
@@ -682,9 +685,10 @@ protected:
                            "data iovs"),
         _data_chunks_pool(test_opts.chunk_size, test_opts.num_offcache_buffers,
                           "data chunks", test_opts.prereg ? this : NULL),
+        _status(OK),
         _iov_buf_filler(iov_buf_filler)
     {
-        _status                  = OK;
+        _sig_status.add(this, &_status);
 
         struct sigaction new_sigaction;
         new_sigaction.sa_handler = signal_terminate_handler;
@@ -696,6 +700,10 @@ protected:
                 << strerror(errno);
             abort();
         }
+    }
+
+    ~P2pDemoCommon() {
+        _sig_status.erase(this);
     }
 
     const options_t& opts() const {
@@ -832,341 +840,82 @@ private:
     }
 
 protected:
+    class SigStatusSet {
+    public:
+        SigStatusSet() {
+            // reserve memory to avoid realloc on push_back()
+            _set.reserve(_max_size);
+            pthread_mutex_init(&_lock, NULL);
+        }
+
+        ~SigStatusSet() {
+            for (_i = 0; _i < _set.size(); ++_i) {
+                assert(_set[_i].first == NULL);
+            }
+
+            pthread_mutex_destroy(&_lock);
+        }
+
+        void add(P2pDemoCommon *key, status_t *val) {
+            lock();
+            assert(_set.size() < _max_size);
+            _set.push_back(std::make_pair(key, val));
+            unlock();
+        }
+
+        void erase(P2pDemoCommon *key) {
+            lock();
+            for (_i = 0; _i < _set.size(); ++_i) {
+                if (_set[_i].first == key) {
+                    _set[_i].first = NULL;
+                    break;
+                }
+            }
+            unlock();
+        }
+
+        void set(status_t status) {
+            lock();
+            for (_i = 0; _i < _set.size(); ++_i) {
+                if (_set[_i].first != NULL) {
+                    *_set[_i].second = status;
+                }
+            }
+            unlock();
+        }
+    private:
+        typedef std::vector<std::pair<P2pDemoCommon*, status_t*> > Set;
+
+        void lock() {
+            pthread_mutex_lock(&_lock);
+        }
+
+        void unlock() {
+            pthread_mutex_unlock(&_lock);
+        }
+
+        pthread_mutex_t     _lock;
+        Set                 _set;
+        size_t              _i; // to avoid ANY allocation from signal handler
+
+        // max value can be reached on server side in case of warmup (-W):
+        // - server itself
+        // - warmup client connected to the server
+        static const size_t _max_size = 2;
+    };
+
     const options_t                  _test_opts;
     MemoryPool<IoMessage>            _io_msg_pool;
     MemoryPool<SendCompleteCallback> _send_callback_pool;
     MemoryPool<BufferIov>            _data_buffers_pool;
     BufferMemoryPool<Buffer>         _data_chunks_pool;
-    static status_t                  _status;
+    status_t                         _status;
+    static SigStatusSet              _sig_status;
     const uint32_t                   _iov_buf_filler;
 };
 
 
-P2pDemoCommon::status_t P2pDemoCommon::_status = OK;
-
-
-class DemoServer : public P2pDemoCommon {
-public:
-    // sends an IO response when done
-    class IoWriteResponseCallback : public UcxCallback {
-    public:
-        IoWriteResponseCallback(size_t buffer_size,
-            MemoryPool<IoWriteResponseCallback>& pool) :
-            _status(UCS_OK), _server(NULL), _conn(NULL), _op_cnt(NULL),
-            _chunk_cnt(0), _sn(0), _conn_id(0), _iov(NULL), _pool(pool) {
-        }
-
-        void init(DemoServer *server, UcxConnection* conn, uint32_t sn,
-                  uint64_t conn_id, BufferIov *iov, long* op_cnt) {
-            _server    = server;
-            _conn      = conn;
-            _op_cnt    = op_cnt;
-            _sn        = sn;
-            _conn_id   = conn_id;
-            _iov       = iov;
-            _chunk_cnt = iov->size();
-            _status    = UCS_OK;
-        }
-
-        virtual void operator()(ucs_status_t status) {
-            if (_status == UCS_OK) {
-                _status = status;
-            }
-            if (--_chunk_cnt > 0) {
-                return;
-            }
-
-            if (_status == UCS_OK) {
-                if (_server->opts().validate) {
-                    validate(_conn, *_iov, _sn, _conn_id, IO_WRITE);
-                }
-
-                if (_conn->ucx_status() == UCS_OK) {
-                    _server->send_io_write_response(_conn, *_iov, _sn);
-                }
-            }
-
-            assert(_op_cnt != NULL);
-            ++(*_op_cnt);
-
-            _iov->release();
-            _pool.put(this);
-        }
-
-    private:
-        ucs_status_t                         _status;
-        DemoServer*                          _server;
-        UcxConnection*                       _conn;
-        long*                                _op_cnt;
-        uint32_t                             _chunk_cnt;
-        uint32_t                             _sn;
-        uint64_t                             _conn_id;
-        BufferIov*                           _iov;
-        MemoryPool<IoWriteResponseCallback>& _pool;
-    };
-
-    class ConnectionStat {
-    public:
-        ConnectionStat() {
-            reset();
-        }
-
-        void reset() {
-            for (int i = 0; i < IO_OP_MAX; ++i) {
-                _bytes_counters[i] = 0;
-                _op_counters[i]    = 0;
-            }
-        }
-
-        void operator+=(const ConnectionStat &other) {
-            for (int i = 0; i < IO_OP_MAX; ++i) {
-                _bytes_counters[i] += other._bytes_counters[i];
-                _op_counters[i]    += other._op_counters[i];
-            }
-        }
-
-        template<io_op_t op_type> long&
-        completions() {
-            UCS_STATIC_ASSERT(op_type < IO_OP_MAX);
-            return _op_counters[op_type];
-        }
-
-        template<io_op_t op_type> long&
-        bytes() {
-            UCS_STATIC_ASSERT(op_type < IO_OP_MAX);
-            return _bytes_counters[op_type];
-        }
-
-    private:
-        long _bytes_counters[IO_OP_MAX];
-        long _op_counters[IO_OP_MAX];
-    };
-
-    typedef std::map<UcxConnection*, ConnectionStat> conn_stat_map_t;
-
-    class DisconnectCallback : public UcxDisconnectCallback {
-    public:
-        DisconnectCallback(conn_stat_map_t &stat_map,
-                           conn_stat_map_t::key_type map_key) :
-            _stat_map(stat_map), _map_key(map_key) {
-        }
-
-        virtual void operator()(ucs_status_t status) {
-            conn_stat_map_t::iterator it = _stat_map.find(_map_key);
-            assert(it != _stat_map.end());
-            _stat_map.erase(it);
-            delete this;
-        }
-
-    private:
-        conn_stat_map_t           &_stat_map;
-        conn_stat_map_t::key_type _map_key;
-    };
-
-    DemoServer(const options_t& test_opts) :
-        P2pDemoCommon(test_opts, 0xeeeeeeeeu), _callback_pool(0, "callbacks") {
-    }
-
-    ~DemoServer()
-    {
-        destroy_connections();
-    }
-
-    void run() {
-        struct sockaddr_in listen_addr;
-        memset(&listen_addr, 0, sizeof(listen_addr));
-        listen_addr.sin_family      = AF_INET;
-        listen_addr.sin_addr.s_addr = INADDR_ANY;
-        listen_addr.sin_port        = htons(opts().port_num);
-
-        for (long retry = 1; _status == OK; ++retry) {
-            if (listen((const struct sockaddr*)&listen_addr,
-                       sizeof(listen_addr))) {
-                break;
-            }
-
-            if (retry > opts().retries) {
-                return;
-            }
-
-            {
-                UcxLog log(LOG_PREFIX);
-                log << "restarting listener on "
-                    << UcxContext::sockaddr_str((struct sockaddr*)&listen_addr,
-                                                sizeof(listen_addr))
-                    << " in " << opts().retry_interval << " seconds (retry "
-                    << retry;
-
-                if (opts().retries < std::numeric_limits<long>::max()) {
-                    log << "/" << opts().retries;
-                }
-
-                log << ")";
-            }
-
-            sleep(opts().retry_interval);
-        }
-
-        double prev_time = get_time();
-        while (_status == OK) {
-            try {
-                for (size_t i = 0; i < BUSY_PROGRESS_COUNT; ++i) {
-                    progress(_test_opts.progress_count);
-                }
-
-                double curr_time = get_time();
-                if (curr_time >= (prev_time + opts().print_interval)) {
-                    report_state(curr_time - prev_time);
-                    prev_time = curr_time;
-                }
-            } catch (const std::exception &e) {
-                std::cerr << e.what();
-            }
-        }
-
-        destroy_listener();
-    }
-
-    void handle_io_read_request(UcxConnection* conn, const iomsg_t *msg) {
-        // send data
-        VERBOSE_LOG << "sending IO read data";
-        assert(opts().max_data_size >= msg->data_size);
-
-        BufferIov *iov            = _data_buffers_pool.get();
-        SendCompleteCallback *cb  = _send_callback_pool.get();
-        ConnectionStat &conn_stat = _conn_stat_map.find(conn)->second;
-
-        // Send read response data with client's connection id
-        iov->init(msg->data_size, _data_chunks_pool, msg->sn, msg->conn_id,
-                  opts().validate);
-        cb->init(iov, &conn_stat.completions<IO_READ>());
-
-        conn_stat.bytes<IO_READ>() += msg->data_size;
-        send_data(conn, *iov, msg->sn, cb);
-
-        // send response as data
-        VERBOSE_LOG << "sending IO read response";
-        send_io_message(conn, IO_READ_COMP, msg->sn, 0, opts().validate);
-    }
-
-    void handle_io_write_request(UcxConnection* conn, const iomsg_t *msg) {
-        VERBOSE_LOG << "receiving IO write data";
-        assert(msg->data_size != 0);
-
-        BufferIov *iov             = prepare_recv_data_iov(msg->data_size);
-        IoWriteResponseCallback *w = _callback_pool.get();
-        ConnectionStat &conn_stat  = _conn_stat_map.find(conn)->second;
-
-        // Expect the write data to have sender's connection id
-        w->init(this, conn, msg->sn, msg->conn_id, iov,
-                &conn_stat.completions<IO_WRITE>());
-        conn_stat.bytes<IO_WRITE>() += msg->data_size;
-        recv_data(conn, *iov, msg->sn, w);
-    }
-
-    virtual void dispatch_connection_accepted(UcxConnection* conn) {
-        if (!_conn_stat_map.insert(std::make_pair(conn,
-                                                  ConnectionStat())).second) {
-            LOG << "connection duplicate in statistics map";
-            abort();
-        }
-    }
-
-    virtual void dispatch_connection_error(UcxConnection *conn) {
-        LOG << "disconnecting connection " << conn->get_log_prefix()
-            << " with status " << ucs_status_string(conn->ucx_status());
-        conn->disconnect(new DisconnectCallback(_conn_stat_map, conn));
-    }
-
-    virtual void dispatch_io_message(UcxConnection* conn, const void *buffer,
-                                     size_t length) {
-        iomsg_t const *msg = reinterpret_cast<const iomsg_t*>(buffer);
-
-        VERBOSE_LOG << "got io message " << io_op_names[msg->op] << " sn "
-                    << msg->sn << " data size " << msg->data_size
-                    << " conn " << conn;
-
-        assert(conn->ucx_status() == UCS_OK);
-
-        if (opts().validate) {
-            assert(length == opts().iomsg_size);
-            validate(conn, msg, length);
-        }
-
-        if (msg->op == IO_READ) {
-            handle_io_read_request(conn, msg);
-        } else if (msg->op == IO_WRITE) {
-            handle_io_write_request(conn, msg);
-        } else {
-            LOG << "Invalid opcode: " << msg->op;
-        }
-    }
-
-private:
-    template<io_op_t op_type> static void
-    update_min_max(const conn_stat_map_t::iterator& i,
-                   conn_stat_map_t::iterator& min,
-                   conn_stat_map_t::iterator& max)
-    {
-        long i_completions = i->second.completions<op_type>();
-
-        if (i_completions <= min->second.completions<op_type>()) {
-            min = i;
-        }
-
-        if (i_completions >= max->second.completions<op_type>()) {
-            max = i;
-        }
-    }
-
-    void report_state(double time_interval) {
-        ConnectionStat total_stat;
-        conn_stat_map_t::iterator it_read_min  = _conn_stat_map.begin(),
-                                  it_read_max  = _conn_stat_map.begin(),
-                                  it_write_min = _conn_stat_map.begin(),
-                                  it_write_max = _conn_stat_map.begin();
-        conn_stat_map_t::iterator it;
-        for (it = _conn_stat_map.begin(); it != _conn_stat_map.end(); ++it) {
-            total_stat += it->second;
-            update_min_max<IO_READ>(it, it_read_min, it_read_max);
-            update_min_max<IO_WRITE>(it, it_write_min, it_write_max);
-        }
-
-        UcxLog log(LOG_PREFIX);
-        if (!_conn_stat_map.empty()) {
-            log << "read " << total_stat.bytes<IO_READ>() /
-                              (time_interval * UCS_MBYTE) << " MBs "
-                << "min:" << it_read_min->second.completions<IO_READ>()
-                << "(" << it_read_min->first->get_peer_name() << ") "
-                << "max:" << it_read_max->second.completions<IO_READ>()
-                << " total:" << total_stat.completions<IO_READ>() << " | "
-                << "write " << total_stat.bytes<IO_WRITE>() /
-                               (time_interval * UCS_MBYTE) << " MBs "
-                << "min:" << it_write_min->second.completions<IO_WRITE>()
-                << "(" << it_write_min->first->get_peer_name() << ") "
-                << "max:" << it_write_max->second.completions<IO_WRITE>()
-                << " total:" << total_stat.completions<IO_WRITE>() << " | ";
-        }
-
-        log << "active: " << _conn_stat_map.size() << "/"
-            << UcxConnection::get_num_instances()
-            << " buffers:" << _data_buffers_pool.allocated() << " | ";
-
-        memory_pin_stats_t pin_stats;
-        memory_pin_stats(&pin_stats);
-        log << "pin bytes:" << pin_stats.bytes
-            << " regions:" << pin_stats.regions
-            << " evict:" << pin_stats.evictions;
-
-        for (it = _conn_stat_map.begin(); it != _conn_stat_map.end(); ++it) {
-            it->second.reset();
-        }
-    }
-
-private:
-    MemoryPool<IoWriteResponseCallback> _callback_pool;
-    conn_stat_map_t                     _conn_stat_map;
-};
+P2pDemoCommon::SigStatusSet P2pDemoCommon::_sig_status;
 
 
 class DemoClient : public P2pDemoCommon {
@@ -1317,6 +1066,9 @@ public:
         _num_sent(0), _num_completed(0),
         _start_time(get_time()),
         _read_callback_pool(opts().iomsg_size, "read callbacks") {
+        _server_info.resize(opts().servers.size());
+        std::for_each(_server_info.begin(), _server_info.end(),
+                      reset_server_info);
     }
 
     size_t get_active_server_index(const UcxConnection *conn) {
@@ -1725,8 +1477,9 @@ public:
         server_info.prev_connect_time          = 0.;
         _server_index_lookup[server_info.conn] = server_index;
         active_servers_add(server_index);
-        LOG << "Connected to " << server_name(server_index) << " after "
-            << attempts << " attempts";
+        LOG << "Connected to " << server_name(server_index) << " for "
+            << server_info.conn->lifetime_str() << "after " << attempts
+            << " attempts";
     }
 
     void connect_failed(size_t server_index, ucs_status_t status) {
@@ -1831,13 +1584,26 @@ public:
         wait_disconnected_connections();
     }
 
+    void warmup() {
+        LOG << "Warmup start";
+        connect_all(true);
+
+        while ((_status == OK) &&
+               (_active_servers.size() != opts().servers.size())) {
+            progress();
+        }
+
+        if (_status == OK) {
+            assert(_active_servers.size() == opts().servers.size());
+        } else {
+            assert(_active_servers.size() <= opts().servers.size());
+        }
+
+        destroy_servers();
+        LOG << "Warmup end";
+    }
+
     status_t run() {
-        _server_info.resize(opts().servers.size());
-        std::for_each(_server_info.begin(), _server_info.end(),
-                      reset_server_info);
-
-        _status = OK;
-
         // TODO reset these values by canceling requests
         _num_sent      = 0;
         _num_completed = 0;
@@ -2148,6 +1914,383 @@ private:
     MemoryPool<IoReadResponseCallback>      _read_callback_pool;
 };
 
+
+class DemoServer : public P2pDemoCommon {
+public:
+    // sends an IO response when done
+    class IoWriteResponseCallback : public UcxCallback {
+    public:
+        IoWriteResponseCallback(size_t buffer_size,
+            MemoryPool<IoWriteResponseCallback>& pool) :
+            _status(UCS_OK), _server(NULL), _conn(NULL), _op_cnt(NULL),
+            _chunk_cnt(0), _sn(0), _conn_id(0), _iov(NULL), _pool(pool) {
+        }
+
+        void init(DemoServer *server, UcxConnection* conn, uint32_t sn,
+                  uint64_t conn_id, BufferIov *iov, long* op_cnt) {
+            _server    = server;
+            _conn      = conn;
+            _op_cnt    = op_cnt;
+            _sn        = sn;
+            _conn_id   = conn_id;
+            _iov       = iov;
+            _chunk_cnt = iov->size();
+            _status    = UCS_OK;
+        }
+
+        virtual void operator()(ucs_status_t status) {
+            if (_status == UCS_OK) {
+                _status = status;
+            }
+            if (--_chunk_cnt > 0) {
+                return;
+            }
+
+            if (_status == UCS_OK) {
+                if (_server->opts().validate) {
+                    validate(_conn, *_iov, _sn, _conn_id, IO_WRITE);
+                }
+
+                if (_conn->ucx_status() == UCS_OK) {
+                    _server->send_io_write_response(_conn, *_iov, _sn);
+                }
+            }
+
+            assert(_op_cnt != NULL);
+            ++(*_op_cnt);
+
+            _iov->release();
+            _pool.put(this);
+        }
+
+    private:
+        ucs_status_t                         _status;
+        DemoServer*                          _server;
+        UcxConnection*                       _conn;
+        long*                                _op_cnt;
+        uint32_t                             _chunk_cnt;
+        uint32_t                             _sn;
+        uint64_t                             _conn_id;
+        BufferIov*                           _iov;
+        MemoryPool<IoWriteResponseCallback>& _pool;
+    };
+
+    class ConnectionStat {
+    public:
+        ConnectionStat() {
+            reset();
+        }
+
+        void reset() {
+            for (int i = 0; i < IO_OP_MAX; ++i) {
+                _bytes_counters[i] = 0;
+                _op_counters[i]    = 0;
+            }
+        }
+
+        void operator+=(const ConnectionStat &other) {
+            for (int i = 0; i < IO_OP_MAX; ++i) {
+                _bytes_counters[i] += other._bytes_counters[i];
+                _op_counters[i]    += other._op_counters[i];
+            }
+        }
+
+        template<io_op_t op_type> long&
+        completions() {
+            UCS_STATIC_ASSERT(op_type < IO_OP_MAX);
+            return _op_counters[op_type];
+        }
+
+        template<io_op_t op_type> long&
+        bytes() {
+            UCS_STATIC_ASSERT(op_type < IO_OP_MAX);
+            return _bytes_counters[op_type];
+        }
+
+    private:
+        long _bytes_counters[IO_OP_MAX];
+        long _op_counters[IO_OP_MAX];
+    };
+
+    typedef std::map<UcxConnection*, ConnectionStat> conn_stat_map_t;
+
+    class DisconnectCallback : public UcxDisconnectCallback {
+    public:
+        DisconnectCallback(conn_stat_map_t &stat_map,
+                           conn_stat_map_t::key_type map_key) :
+            _stat_map(stat_map), _map_key(map_key) {
+        }
+
+        virtual void operator()(ucs_status_t status) {
+            conn_stat_map_t::iterator it = _stat_map.find(_map_key);
+            assert(it != _stat_map.end());
+            _stat_map.erase(it);
+            delete this;
+        }
+
+    private:
+        conn_stat_map_t           &_stat_map;
+        conn_stat_map_t::key_type _map_key;
+    };
+
+    DemoServer(const options_t& test_opts) :
+        P2pDemoCommon(test_opts, 0xeeeeeeeeu), _callback_pool(0, "callbacks") {
+    }
+
+    ~DemoServer()
+    {
+        destroy_connections();
+    }
+
+    void run() {
+        struct sockaddr_in listen_addr;
+        memset(&listen_addr, 0, sizeof(listen_addr));
+        listen_addr.sin_family      = AF_INET;
+        listen_addr.sin_addr.s_addr = INADDR_ANY;
+        listen_addr.sin_port        = htons(opts().port_num);
+
+        for (long retry = 1; _status == OK; ++retry) {
+            if (listen((const struct sockaddr*)&listen_addr,
+                       sizeof(listen_addr))) {
+                break;
+            }
+
+            if (retry > opts().retries) {
+                return;
+            }
+
+            {
+                UcxLog log(LOG_PREFIX);
+                log << "restarting listener on "
+                    << UcxContext::sockaddr_str((struct sockaddr*)&listen_addr,
+                                                sizeof(listen_addr))
+                    << " in " << opts().retry_interval << " seconds (retry "
+                    << retry;
+
+                if (opts().retries < std::numeric_limits<long>::max()) {
+                    log << "/" << opts().retries;
+                }
+
+                log << ")";
+            }
+
+            sleep(opts().retry_interval);
+        }
+
+        pthread_t warmup_thread;
+        if (opts().warmup) {
+            options_t* test_opts = new options_t;
+            *test_opts = opts();
+            test_opts->port_num = ntohs(listen_addr.sin_port);
+            test_opts->retries = 1;
+            pthread_create(&warmup_thread, NULL, client_warmup, test_opts);
+        }
+
+        double prev_time = get_time();
+        while (_status == OK) {
+            try {
+                for (size_t i = 0; i < BUSY_PROGRESS_COUNT; ++i) {
+                    progress(_test_opts.progress_count);
+                }
+
+                double curr_time = get_time();
+                if (curr_time >= (prev_time + opts().print_interval)) {
+                    report_state(curr_time - prev_time);
+                    prev_time = curr_time;
+                }
+            } catch (const std::exception &e) {
+                std::cerr << e.what();
+            }
+        }
+
+        if (opts().warmup) {
+            pthread_join(warmup_thread, NULL);
+        }
+
+        destroy_listener();
+    }
+
+    void handle_io_read_request(UcxConnection* conn, const iomsg_t *msg) {
+        // send data
+        VERBOSE_LOG << "sending IO read data";
+        assert(opts().max_data_size >= msg->data_size);
+
+        BufferIov *iov            = _data_buffers_pool.get();
+        SendCompleteCallback *cb  = _send_callback_pool.get();
+        ConnectionStat &conn_stat = _conn_stat_map.find(conn)->second;
+
+        // Send read response data with client's connection id
+        iov->init(msg->data_size, _data_chunks_pool, msg->sn, msg->conn_id,
+                  opts().validate);
+        cb->init(iov, &conn_stat.completions<IO_READ>());
+
+        conn_stat.bytes<IO_READ>() += msg->data_size;
+        send_data(conn, *iov, msg->sn, cb);
+
+        // send response as data
+        VERBOSE_LOG << "sending IO read response";
+        send_io_message(conn, IO_READ_COMP, msg->sn, 0, opts().validate);
+    }
+
+    void handle_io_write_request(UcxConnection* conn, const iomsg_t *msg) {
+        VERBOSE_LOG << "receiving IO write data";
+        assert(msg->data_size != 0);
+
+        BufferIov *iov             = prepare_recv_data_iov(msg->data_size);
+        IoWriteResponseCallback *w = _callback_pool.get();
+        ConnectionStat &conn_stat  = _conn_stat_map.find(conn)->second;
+
+        // Expect the write data to have sender's connection id
+        w->init(this, conn, msg->sn, msg->conn_id, iov,
+                &conn_stat.completions<IO_WRITE>());
+        conn_stat.bytes<IO_WRITE>() += msg->data_size;
+        recv_data(conn, *iov, msg->sn, w);
+    }
+
+    virtual void dispatch_connection_accepted(UcxConnection* conn) {
+        if (!_conn_stat_map.insert(std::make_pair(conn,
+                                                  ConnectionStat())).second) {
+            LOG << "connection duplicate in statistics map";
+            abort();
+        }
+    }
+
+    virtual void dispatch_connection_error(UcxConnection *conn) {
+        LOG << "disconnecting connection " << conn->get_log_prefix()
+            << " with status " << ucs_status_string(conn->ucx_status());
+        conn->disconnect(new DisconnectCallback(_conn_stat_map, conn));
+    }
+
+    virtual void dispatch_io_message(UcxConnection* conn, const void *buffer,
+                                     size_t length) {
+        iomsg_t const *msg = reinterpret_cast<const iomsg_t*>(buffer);
+
+        VERBOSE_LOG << "got io message " << io_op_names[msg->op] << " sn "
+                    << msg->sn << " data size " << msg->data_size
+                    << " conn " << conn;
+
+        assert(conn->ucx_status() == UCS_OK);
+
+        if (opts().validate) {
+            assert(length == opts().iomsg_size);
+            validate(conn, msg, length);
+        }
+
+        if (msg->op == IO_READ) {
+            handle_io_read_request(conn, msg);
+        } else if (msg->op == IO_WRITE) {
+            handle_io_write_request(conn, msg);
+        } else {
+            LOG << "Invalid opcode: " << msg->op;
+        }
+    }
+
+private:
+    static void* client_warmup(void *test_opts_arg) {
+        options_t *test_opts = reinterpret_cast<options_t*>(test_opts_arg);
+        std::vector<std::string> ifaddrs_str;
+        struct ifaddrs* ifaddrs;
+
+        int ret = getifaddrs(&ifaddrs);
+        assert(ret == 0);
+        for (struct ifaddrs *ifa = ifaddrs; ifa != NULL; ifa = ifa->ifa_next) {
+            unsigned flags  = ifa->ifa_flags;
+
+            if ((flags & IFF_UP) &&
+                (flags & IFF_RUNNING) &&
+                !(flags & IFF_LOOPBACK) &&
+                (ifa->ifa_addr->sa_family == AF_INET))
+            {
+                union {
+                    struct sockaddr_in sock_in;
+                    struct sockaddr    sock;
+                } addr;
+                memcpy(&addr.sock_in, ifa->ifa_addr,
+                       sizeof(addr.sock_in));
+                addr.sock_in.sin_port = htons(test_opts->port_num);
+                ifaddrs_str.push_back(
+                        sockaddr_str(&addr.sock,
+                                     sizeof(addr.sock_in)));
+                test_opts->servers.push_back(ifaddrs_str.back().c_str());
+            }
+        }
+        freeifaddrs(ifaddrs);
+
+        DemoClient client(*test_opts);
+        if (!client.init()) {
+            LOG << "Warmup Client failed";
+        }
+
+        client.warmup();
+        delete test_opts;
+        return NULL;
+    }
+
+    template<io_op_t op_type> static void
+    update_min_max(const conn_stat_map_t::iterator& i,
+                   conn_stat_map_t::iterator& min,
+                   conn_stat_map_t::iterator& max)
+    {
+        long i_completions = i->second.completions<op_type>();
+
+        if (i_completions <= min->second.completions<op_type>()) {
+            min = i;
+        }
+
+        if (i_completions >= max->second.completions<op_type>()) {
+            max = i;
+        }
+    }
+
+    void report_state(double time_interval) {
+        ConnectionStat total_stat;
+        conn_stat_map_t::iterator it_read_min  = _conn_stat_map.begin(),
+                                  it_read_max  = _conn_stat_map.begin(),
+                                  it_write_min = _conn_stat_map.begin(),
+                                  it_write_max = _conn_stat_map.begin();
+        conn_stat_map_t::iterator it;
+        for (it = _conn_stat_map.begin(); it != _conn_stat_map.end(); ++it) {
+            total_stat += it->second;
+            update_min_max<IO_READ>(it, it_read_min, it_read_max);
+            update_min_max<IO_WRITE>(it, it_write_min, it_write_max);
+        }
+
+        UcxLog log(LOG_PREFIX);
+        if (!_conn_stat_map.empty()) {
+            log << "read " << total_stat.bytes<IO_READ>() /
+                              (time_interval * UCS_MBYTE) << " MBs "
+                << "min:" << it_read_min->second.completions<IO_READ>()
+                << "(" << it_read_min->first->get_peer_name() << ") "
+                << "max:" << it_read_max->second.completions<IO_READ>()
+                << " total:" << total_stat.completions<IO_READ>() << " | "
+                << "write " << total_stat.bytes<IO_WRITE>() /
+                               (time_interval * UCS_MBYTE) << " MBs "
+                << "min:" << it_write_min->second.completions<IO_WRITE>()
+                << "(" << it_write_min->first->get_peer_name() << ") "
+                << "max:" << it_write_max->second.completions<IO_WRITE>()
+                << " total:" << total_stat.completions<IO_WRITE>() << " | ";
+        }
+
+        log << "active: " << _conn_stat_map.size() << "/"
+            << UcxConnection::get_num_instances()
+            << " buffers:" << _data_buffers_pool.allocated() << " | ";
+
+        memory_pin_stats_t pin_stats;
+        memory_pin_stats(&pin_stats);
+        log << "pin bytes:" << pin_stats.bytes
+            << " regions:" << pin_stats.regions
+            << " evict:" << pin_stats.evictions;
+
+        for (it = _conn_stat_map.begin(); it != _conn_stat_map.end(); ++it) {
+            it->second.reset();
+        }
+    }
+
+private:
+    MemoryPool<IoWriteResponseCallback> _callback_pool;
+    conn_stat_map_t                     _conn_stat_map;
+};
+
 static int set_data_size(char *str, options_t *test_opts)
 {
     const static char token = ':';
@@ -2271,9 +2414,10 @@ static int parse_args(int argc, char **argv, options_t *test_opts)
     test_opts->progress_count        = 1;
     test_opts->prereg                = false;
     test_opts->per_conn_info         = false;
+    test_opts->warmup                = false;
 
     while ((c = getopt(argc, argv,
-                       "p:c:r:d:b:i:w:a:k:o:t:n:l:s:y:vqDHP:L:R:C:I:zV")) != -1) {
+                       "p:c:r:d:b:i:w:a:k:o:t:n:l:s:y:vqDHP:L:R:C:I:zVW")) != -1) {
         switch (c) {
         case 'p':
             test_opts->port_num = atoi(optarg);
@@ -2412,6 +2556,9 @@ static int parse_args(int argc, char **argv, options_t *test_opts)
         case 'V':
             test_opts->per_conn_info = true;
             break;
+        case 'W':
+            test_opts->warmup = true;
+            break;
         case 'h':
         default:
             std::cout << "Usage: io_demo [options] [server_address]" << std::endl;
@@ -2451,6 +2598,7 @@ static int parse_args(int argc, char **argv, options_t *test_opts)
             std::cout << "  -I <src_addr>              Set source IP address to select network interface on client side" << std::endl;
             std::cout << "  -z                         Enable pre-register buffers for zero-copy" << std::endl;
             std::cout << "  -V                         Print per-connection info" << std::endl;
+            std::cout << "  -W                         Warmup connection establishment" << std::endl;
             return -1;
         }
     }
@@ -2493,6 +2641,10 @@ static int do_client(options_t& test_opts)
     DemoClient client(test_opts);
     if (!client.init()) {
         return -1;
+    }
+
+    if (test_opts.warmup) {
+        client.warmup();
     }
 
     DemoClient::status_t status = client.run();

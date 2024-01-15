@@ -55,6 +55,7 @@ public:
  * Logger which can be enabled/disabled
  */
 class UcxLog {
+    static const size_t timestamp_str_length = 32;
 public:
     static bool         use_human_time;
     static double       timeout_sec;
@@ -72,7 +73,35 @@ public:
         return *this;
     }
 
+    inline const struct timeval& timestamp() const {
+        return _tv;
+    }
+
+    inline std::string timediff_str(const struct timeval tv) const {
+        struct timeval diff = {
+            .tv_sec         = labs(tv.tv_sec - _tv.tv_sec),
+            .tv_usec        = labs(tv.tv_usec - _tv.tv_usec)
+        };
+
+        char c_str[timestamp_str_length];
+
+        timestamp_c_str(diff, c_str);
+        return c_str;
+    }
+
 private:
+    static inline void
+    timestamp_c_str(const struct timeval& tv, char str[timestamp_str_length]) {
+        if (use_human_time) {
+            struct tm tm;
+            strftime(str, timestamp_str_length, "[%a %b %d %T] ",
+                     localtime_r(&tv.tv_sec, &tm));
+        } else {
+            snprintf(str, timestamp_str_length, "[%lu.%06lu] ", tv.tv_sec,
+                     tv.tv_usec);
+        }
+    }
+
     void check_timeout() const;
 
 private:
@@ -321,6 +350,10 @@ public:
         return _num_instances;
     }
 
+    std::string lifetime_str() const {
+        return UcxLog(NULL, true, NULL, false).timediff_str(_tv);
+    }
+
 private:
     static ucp_tag_t make_data_tag(uint32_t conn_id, uint32_t sn);
 
@@ -376,6 +409,7 @@ private:
     ucs_list_link_t                        _all_requests;
     ucs_status_t                           _ucx_status;
     std::queue<UcxContext::iomsg_buffer_t> _iomsg_recv_backlog;
+    struct timeval                         _tv;
 };
 
 #endif

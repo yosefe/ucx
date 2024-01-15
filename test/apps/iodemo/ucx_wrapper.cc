@@ -58,16 +58,15 @@ UcxLog::UcxLog(const char* prefix, bool enable, std::ostream *os, bool abort) :
 
     gettimeofday(&_tv, NULL);
 
-    struct tm tm;
-    char str[32];
-    if (use_human_time) {
-        strftime(str, sizeof(str), "[%a %b %d %T] ", localtime_r(&_tv.tv_sec, &tm));
-    } else {
-        snprintf(str, sizeof(str), "[%lu.%06lu] ", _tv.tv_sec, _tv.tv_usec);
-    }
+    if (os) {
+        char str[timestamp_str_length];
+        timestamp_c_str(_tv, str);
 
-    _ss = new std::stringstream();
-    (*_ss) << str << prefix << " ";
+        _ss = new std::stringstream();
+        (*_ss) << str << prefix << " ";
+    } else {
+        _ss = NULL;
+    }
 }
 
 UcxLog::~UcxLog()
@@ -693,6 +692,7 @@ UcxConnection::UcxConnection(UcxContext &context) :
     set_log_prefix((const struct sockaddr*)&in_addr, sizeof(in_addr));
     ucs_list_head_init(&_all_requests);
     UCX_CONN_LOG << "created new connection " << this << " total: " << _num_instances;
+    _tv = UcxLog(NULL, true, NULL, false).timestamp();
 }
 
 UcxConnection::~UcxConnection()
