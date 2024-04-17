@@ -701,6 +701,7 @@ ucs_status_t uct_rc_mlx5_ep_connect_to_ep(uct_ep_h tl_ep,
     }
 
     ep->atomic_mr_offset = uct_ib_md_atomic_offset(rc_addr->atomic_mr_id);
+    ep->super.remove_qpn = qp_num;
 
     return UCS_OK;
 }
@@ -891,7 +892,7 @@ UCS_CLASS_INIT_FUNC(uct_rc_mlx5_ep_t, const uct_ep_params_t *params)
     uct_ib_qp_attr_t attr = {};
     ucs_status_t status;
 
-    uct_rc_mlx5_iface_print(iface, "ep_create");
+    uct_rc_mlx5_iface_print(iface, 0, "ep_create");
 
     self->connected = 0;
 

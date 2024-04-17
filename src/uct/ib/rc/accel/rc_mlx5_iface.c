@@ -120,7 +120,7 @@ uct_rc_mlx5_iface_poll_tx(uct_rc_mlx5_iface_common_t *iface)
                             uct_rc_mlx5_ep_t);
     if (ucs_unlikely(ep == NULL)) {
         /* TODO replace the warning with assertion for optimization */
-        ucs_warn("completion ignored on QP 0x%x index %d",
+        ucs_warn("tx completion ignored on QP 0x%x index %d",
                  qp_num, htons(cqe->wqe_counter));
         return 1;
     }
@@ -185,7 +185,7 @@ uct_rc_mlx5_common_ka_progress(uct_rc_mlx5_iface_common_t *iface)
     }
     ucs_spin_unlock(&iface->super.ep_list_lock);
 
-    uct_rc_mlx5_iface_print(iface, "keepalive");
+    uct_rc_mlx5_iface_print(iface, 1, "keepalive");
 
     iface->keepalive.time = ucs_get_time() + iface->config.ka_interval;
 

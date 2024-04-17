@@ -97,8 +97,8 @@ unsigned ucs_netif_bond_ad_num_ports(const char *bond_name)
                                   UCS_NETIF_BOND_AD_NUM_PORTS_FMT, bond_name);
     if ((status != UCS_OK) || (ad_num_ports <= 0) ||
         (ad_num_ports > UINT_MAX)) {
-        ucs_diag("failed to read from " UCS_NETIF_BOND_AD_NUM_PORTS_FMT ": %m, "
-                 "assuming 802.3ad bonding is disabled", bond_name);
+        ucs_debug("failed to read from " UCS_NETIF_BOND_AD_NUM_PORTS_FMT ": %m, "
+                  "assuming 802.3ad bonding is disabled", bond_name);
         return 1;
     }
 
@@ -793,7 +793,7 @@ ucs_status_t ucs_sockaddr_get_ifname(int fd, char *ifname_str, size_t max_strlen
         return UCS_ERR_INVALID_PARAM;
     }
 
-    ucs_debug("check ifname for socket on %s", 
+    ucs_debug("check ifname for socket on %s",
               ucs_sockaddr_str(my_addr, str_local_addr, UCS_SOCKADDR_STRING_LEN));
 
     if (getifaddrs(&ifaddrs)) {
@@ -809,7 +809,7 @@ ucs_status_t ucs_sockaddr_get_ifname(int fd, char *ifname_str, size_t max_strlen
             continue;
         }
 
-        if (((sa->sa_family == AF_INET) ||(sa->sa_family == AF_INET6)) && 
+        if (((sa->sa_family == AF_INET) ||(sa->sa_family == AF_INET6)) &&
             (!ucs_sockaddr_cmp(sa, my_addr, NULL))) {
             ucs_debug("matching ip found iface on %s", ifa->ifa_name);
             ucs_strncpy_safe(ifname_str, ifa->ifa_name, max_strlen);

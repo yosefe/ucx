@@ -221,6 +221,7 @@ typedef struct uct_base_iface {
         unsigned            num_alloc_methods;
         uct_alloc_method_t  alloc_methods[UCT_ALLOC_METHOD_LAST];
         ucs_log_level_t     failure_level;
+        ucs_log_level_t     trace_level;
         size_t              max_num_eps;
     } config;
 
@@ -402,7 +403,8 @@ struct uct_iface_config {
         unsigned            count;
     } alloc_methods;
 
-    int               failure;   /* Level of failure reports */
+    int               failure_log_level; /* Level of failure reports */
+    int               trace_log_level;   /* Level of periodic trace */
     size_t            max_num_eps;
 };
 
