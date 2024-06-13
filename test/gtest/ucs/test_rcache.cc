@@ -32,7 +32,8 @@ UCS_TEST_F(test_rcache_basic, create_fail) {
         &ops,
         NULL,
         ULONG_MAX,
-        SIZE_MAX
+        SIZE_MAX,
+        0
     };
 
     ucs_rcache_t *rcache;
@@ -46,6 +47,7 @@ UCS_TEST_F(test_rcache_basic, create_fail) {
 
 
 class test_rcache : public ucs::test {
+    friend class test_rcache_merge_adjacent;
 protected:
 
     struct region {
@@ -86,7 +88,8 @@ protected:
            &ops,
            reinterpret_cast<void*>(this),
            ULONG_MAX,
-           SIZE_MAX
+           SIZE_MAX,
+           0
        };
        return params;
    }
@@ -198,6 +201,30 @@ private:
 
 volatile uint32_t test_rcache::next_id = 1;
 
+class test_rcache_merge_adjacent : public test_rcache {
+protected:
+
+    virtual ucs_rcache_params_t rcache_params() {
+        static const ucs_rcache_ops_t ops = {
+                mem_reg_cb,
+                mem_dereg_cb,
+                dump_region_cb
+        };
+        ucs_rcache_params_t params = {
+                sizeof(region),
+                UCS_PGT_ADDR_ALIGN,
+                ucs_get_page_size(),
+                UCM_EVENT_VM_UNMAPPED,
+                1000,
+                &ops,
+                reinterpret_cast<void*>(this),
+                ULONG_MAX,
+                SIZE_MAX,
+                1
+        };
+        return params;
+    }
+};
 
 static uintptr_t virt_to_phys(uintptr_t address)
 {
@@ -336,6 +363,65 @@ UCS_MT_TEST_F(test_rcache, merge, 6) {
     put(region3);
 
     munmap(mem, size1 + pad + size2);
+}
+
+UCS_MT_TEST_F(test_rcache_merge_adjacent, merge_adjacent, 6) {
+    /*
+     * -----+---------+-----+---------+-----+----------+----
+     *  pad | region1 | pad | region2 | pad |  region3 | pad
+     * -----+---------+---------------+-----+----------+----
+     *                |     region4         |
+     *                +---------------------+
+     * begin and end pad for avoiding multithread test memory boundary adjacent
+     */
+    static const size_t size1 = 32 * ucs_get_page_size();
+    static const size_t size2 = 32 * ucs_get_page_size();
+    static const size_t size3 = 32 * ucs_get_page_size();
+    static const size_t pad   = 16 * ucs_get_page_size();
+    static const size_t size4 = 64 * ucs_get_page_size();
+    region *region1, *region2, *region3, *region4, *region1_2, *region2_2, *region3_2;
+    void *ptr1, *ptr2, *ptr3, *ptr4, *mem;
+
+    mem = alloc_pages(pad + size1 + size4 + size3 + pad, PROT_READ|PROT_WRITE);
+    mem = (char*)mem + pad;
+
+    /* Create region1 */
+    ptr1 = (char*)mem;
+    region1 = get(ptr1, size1);
+
+    /* Create region2 */
+    ptr2 = (char*)mem + size1 + pad;
+    region2 = get(ptr2, size2);
+
+    /* Create region3 */
+    ptr3 = (char*)mem + size1 + size4;
+    region3 = get(ptr3, size3);
+
+    /* Create region4 which should merge region1, region2 and region3 */
+    ptr4 = (char*)mem + size1;
+    region4 = get(ptr4, size4);
+
+    /* Get the same area as region1 - should be a different region now */
+    region1_2 = get(ptr1, size1);
+    region2_2 = get(ptr2, size2);
+    region3_2 = get(ptr3, size3);
+    EXPECT_NE(region1, region1_2); /* should be different region because was merged */
+    EXPECT_NE(region2, region2_2); /* should be different region because was merged */
+    EXPECT_NE(region3, region3_2); /* should be different region because was merged */
+    EXPECT_EQ(region4, region1_2); /* it should be the merged region */
+    EXPECT_EQ(region4, region2_2); /* it should be the merged region */
+    EXPECT_EQ(region4, region3_2); /* it should be the merged region */
+    put(region1_2);
+    put(region2_2);
+    put(region3_2);
+
+    put(region1);
+    put(region2);
+    put(region3);
+    put(region4);
+
+    mem = (char*)mem - pad;
+    munmap(mem, pad + size1 + size4 + size3 + pad);
 }
 
 UCS_MT_TEST_F(test_rcache, merge_inv, 6) {
