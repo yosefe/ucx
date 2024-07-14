@@ -35,6 +35,7 @@ nobase_dist_libucs_la_HEADERS = \
 	datastruct/string_set.h \
 	debug/log_def.h \
 	debug/memtrack.h \
+	debug/debug.h \
 	memory/rcache.h \
 	memory/memory_type.h \
 	memory/memtype_cache.h \
@@ -52,6 +53,7 @@ nobase_dist_libucs_la_HEADERS = \
 	sys/topo.h \
 	sys/stubs.h \
 	time/time_def.h \
+	time/time.h \
 	type/class.h \
 	type/init_once.h \
 	type/spinlock.h \
