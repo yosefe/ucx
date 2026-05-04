@@ -25,9 +25,14 @@ pr:
     - REVIEW.md
     - NEWS
     - AUTHORS
+    - bindings/AGENTS.md
     - buildlib/azure-pipelines-perf.yml
     - buildlib/tools/perf_results.py
     - buildlib/tools/perf-common.yml
+    - docs/AGENTS.md
+    - examples/AGENTS.md
+    - src/AGENTS.md
+    - test/AGENTS.md
 
 extends:
   template: pr/main.yml
